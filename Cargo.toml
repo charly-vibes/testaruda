@@ -1,0 +1,52 @@
+[package]
+name = "testaruda"
+version = "0.1.0"
+edition = "2021"
+description = "Language-agnostic test selection engine — compute the affected test set from a code change via provenance-semiring dependency analysis"
+license = "Apache-2.0"
+repository = "https://github.com/charly-vibes/testaruda"
+
+[[bin]]
+name = "testaruda"
+path = "src/main.rs"
+
+[dependencies]
+# Core engine
+ascent = "0.8"
+ascent-byods-rels = "0.8"
+rayon = "1"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+toml = "0.8"
+
+# Storage
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Error handling
+miette = { version = "7", features = ["fancy"] }
+thiserror = "2"
+anyhow = "1"
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Content hashing
+blake3 = "1"
+
+# Diff computation
+similar = "2"
+
+# UUIDs for node IDs
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"
+assert_cmd = "2"
+predicates = "3"

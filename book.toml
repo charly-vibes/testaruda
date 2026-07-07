@@ -1,0 +1,10 @@
+[book]
+title = "testaruda"
+authors = ["charly-vibes"]
+language = "en"
+description = "Language-agnostic test selection engine"
+
+[output.html]
+smart-punctuation = true
+git-repository-url = "https://github.com/charly-vibes/testaruda"
+edit-url-template = "https://github.com/charly-vibes/testaruda/edit/main/{path}"
