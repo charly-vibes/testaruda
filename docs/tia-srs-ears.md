@@ -1,7 +1,8 @@
-# `tia` — Software Requirements Specification
+# `testaruda` — Software Requirements Specification
 
-**Notation:** EARS (Easy Approach to Requirements Syntax) · **Status:** Draft v0.2 · **Date:** 2026-06-15
-**Changelog:** v0.2 adds §8 (Engine & Reference Architecture design constraints, `TIA-ENG-*`) and Appendix F (engine evaluation).
+**Notation:** EARS (Easy Approach to Requirements Syntax) · **Status:** Draft v0.3 · **Date:** 2026-07-07
+**Changelog:** v0.2 adds §8 (Engine & Reference Architecture design constraints, `TIA-ENG-*`) and Appendix F (engine evaluation). v0.3 corrects safety-core defects: scopes TIA-ARCH-003 homomorphism to the positive reachability core; fixes confidence inversion for unresolved nodes in Appendix G rule set; rewrites TIA-CONF-002 to unify the dual confidence definitions; tightens TIA-CI-003 exit-code condition; softens TIA-ARCH-006 incrementality claim to match the reference implementation; wires TIA-AGENT-002 to TIA-SEL-005; adds completeness precondition to TIA-CHG-004 with protocol wiring in TIA-ADAPT-002/005; adds run-identity-key mechanism to TIA-RUN-005; clarifies transaction boundary in TIA-REL-002; scopes TIA-SAFE-002 fallback trigger to reachability-selected tests only.
+**Note:** Requirement IDs (`TIA-*`) are retained from the original `tia` project name for code traceability; the binary was renamed to `testaruda`.
 **Subject:** A language-agnostic CLI whose single responsibility is to compute, from a code change, the set of tests that must run — modeled as the transpose of a provenance-semiring dependency relation, evaluated incrementally, under a recall-first soundness invariant.
 
 ---
@@ -70,10 +71,10 @@ Requirement IDs: `TIA-<GROUP>-<NNN>`. Each requirement carries a verification me
 
 - **TIA-ARCH-001 [U]** — The core **shall** represent all dependency data as a single K-relation valued in a configured commutative semiring. *(V: I, A)*
 - **TIA-ARCH-002 [U]** — The core **shall** treat the provenance (polynomial) semiring as the master representation from which all other semiring values are derived. *(V: I, A)*
-- **TIA-ARCH-003 [U]** — The core **shall** derive concrete semiring results (selection, confidence, distance, cost) from the provenance representation by semiring homomorphism, such that no derived result can disagree with the master computation. *(V: A, T)*
+- **TIA-ARCH-003 [U]** — The core **shall** derive the positive reachability results (selection (Boolean), distance (tropical), cost/scheduling, and explanation (provenance polynomial — the master)) from the provenance representation by semiring homomorphism, such that no positively-derived result can disagree with the master computation. The always-run set (TIA-SAFE-007), confidence-threshold fallback (TIA-SAFE-002), and duration ranking (TIA-SEL-006) involve negation-as-failure or aggregation over external signals; they are not derived by semiring closure but contributed as input facts to the selection relation, and are not required to be homomorphic images of the provenance column. Path confidence (Viterbi) annotates the same paths but is likewise excluded from the homomorphism guarantee. *(V: A, T)*
 - **TIA-ARCH-004 [U]** — The selector **shall** compute the affected set by evaluating the change set against the transpose of the transitive-closure relation. *(V: I, T)*
 - **TIA-ARCH-005 [U]** — The core **shall** compute transitive dependency as the least fixpoint (semiring star) of the one-step dependency relation. *(V: I, T)*
-- **TIA-ARCH-006 [U]** — The core **shall** compute selection incrementally as the change-propagation (derivative) of the reachability query, recomputing only relations affected by the change set rather than the whole graph. *(V: A, T)*
+- **TIA-ARCH-006 [U]** — The core **shall** compute selection as a scope-bounded recomputation restricted to the subgraph from which the change set is backward-reachable (i.e. the transitive reverse-closure of the changed content units), rather than the full graph. *(Informative note: for the reference engine, scope-bounding plus the content-addressed component cache (TIA-ENG-007/008) satisfies this requirement; full change-propagation (derivative) incrementality via differential dataflow is the documented scale-up path (TIA-ENG-013).)* *(V: A, T)*
 - **TIA-ARCH-007 [U]** — The core **shall** fuse static, runtime, and manual edges by semiring addition over a common edge set, without origin-specific merge logic. *(V: I, T)*
 - **TIA-ARCH-008 [U]** — The core **shall** contain no language- or framework-specific logic; all such logic **shall** reside behind the adapter interface. *(V: I)*
 - **TIA-ARCH-009 [U]** — The core **shall not** execute tests, compile, or build; it **shall** only select tests and emit native-runner arguments for an external executor. *(V: I, D)*
@@ -98,7 +99,7 @@ Requirement IDs: `TIA-<GROUP>-<NNN>`. Each requirement carries a verification me
 - **TIA-CHG-001 [E]** — When invoked with a base and head revision, the core **shall** derive the changed file set from the version-control diff between them. *(V: T)*
 - **TIA-CHG-002 [O]** — Where the caller supplies an explicit changed-file list, the core **shall** use that list as the change source in place of a diff. *(V: T)*
 - **TIA-CHG-003 [U]** — The core **shall** compute the change set Δ as the content units whose fingerprint differs between base and head. *(V: T)*
-- **TIA-CHG-004 [O]** — Where the responsible adapter declares symbol granularity, the core **shall** fingerprint only the changed symbols/blocks so that whitespace-only or unrelated edits within a file yield no affected tests for unchanged symbols. *(V: T)*
+- **TIA-CHG-004 [O]** — Where the responsible adapter declares symbol granularity **and sets the `symbol_model_complete` capability flag to `true` in its handshake (TIA-ADAPT-002)** (asserting that no dependency paths exist beyond those it enumerates for the file), the core **shall** fingerprint only the changed symbols/blocks so that whitespace-only or unrelated edits within a file yield no affected tests for unchanged symbols. If the adapter does not set `symbol_model_complete` (e.g. due to reflection, macros, or dynamic dispatch), the core **shall** fall back to file-level granularity for that file to preserve TIA-SAFE-001. *(V: T)*
 - **TIA-CHG-005 [U]** — The core **shall** compute each test item's dependency fingerprint as a function of its dependency content-unit fingerprints and its environment fingerprint, and **shall** select a test item if and only if its dependency fingerprint changed or it is in the always-run set. *(V: T)*
 - **TIA-CHG-006 [U]** — The core **shall** treat lockfiles, configuration, and adapter-declared external resources as content units subject to change detection. *(V: T)*
 - **TIA-CHG-007 [UW]** — If a changed file has a kind the core cannot model and no known edges, then the core **shall** raise a fallback signal for the affected component. *(V: T)*
@@ -125,14 +126,14 @@ Requirement IDs: `TIA-<GROUP>-<NNN>`. Each requirement carries a verification me
 - **TIA-RUN-002 [E]** — When coverage indicates a test exercised a content unit not linked by any static edge, the ingestor **shall** record that runtime edge so the dependency becomes selectable on future changes. *(V: T)*
 - **TIA-RUN-003 [E]** — When an adapter reports external inputs read at runtime (config files, env vars, fixture files, reflectively loaded modules), the ingestor **shall** record them as runtime edges to the corresponding content units. *(V: T)*
 - **TIA-RUN-004 [E]** — When results are ingested, the ingestor **shall** update per-test run history, timing, and failure-rate statistics. *(V: T)*
-- **TIA-RUN-005 [U]** — The ingestor **shall** be idempotent with respect to re-ingestion of the same run. *(V: T)*
+- **TIA-RUN-005 [U]** — The ingestor **shall** be idempotent with respect to re-ingestion of the same run. Each run payload **shall** carry a unique run-identity key (a caller-supplied or adapter-generated opaque string, e.g. a UUID). Before performing any write, the ingestor **shall** check whether that key has already been recorded and skip ingestion if so. If no run-identity key is present in the payload, the ingestor **shall** reject the request with a diagnostic rather than proceed without dedup protection. *(V: T)*
 - **TIA-RUN-006 [S]** — While ingesting a run, the ingestor **shall** record the environment fingerprint under which the run executed. *(V: T)*
 
 ### 5.6 Soundness and safety (SAFE)
 > TIA-SAFE-001 is the cardinal requirement; all other safety requirements exist to maintain it.
 
 - **TIA-SAFE-001 [U]** — The core **shall** maintain the invariant that the modeled dependency relation over-approximates the true semantic dependency relation, such that any test that could be affected by a change is selected. *(V: A, T)*
-- **TIA-SAFE-002 [UW]** — If selection confidence for a component falls below the configured threshold, then the core **shall** fall back to selecting all tests in that component. *(V: T)*
+- **TIA-SAFE-002 [UW]** — If the minimum Viterbi path confidence (TIA-CONF-001) across the **reachability-selected** tests in a component falls below the configured threshold, then the core **shall** fall back to selecting all tests in that component. If no reachability-selected tests exist for a component (i.e. the component's selection consists solely of always-run members from TIA-SAFE-007), TIA-SAFE-002 does not apply — TIA-SAFE-007 already provides sufficient recall for that component. *(V: T)*
 - **TIA-SAFE-003 [U]** — The core **shall** scope confidence-driven fallback to the affected component(s) and **shall not** escalate to a global full run unless every affected component is below threshold. *(V: T)*
 - **TIA-SAFE-004 [UW]** — If an adapter reports unresolved files it cannot statically analyze, then the core **shall** treat the dependents of those files conservatively by force-including them or raising a component fallback. *(V: T)*
 - **TIA-SAFE-005 [E]** — When the environment fingerprint or a lockfile changes, the core **shall** schedule a full run for the affected environment. *(V: T)*
@@ -146,16 +147,16 @@ Requirement IDs: `TIA-<GROUP>-<NNN>`. Each requirement carries a verification me
 
 ### 5.7 Confidence scoring (CONF)
 - **TIA-CONF-001 [U]** — The core **shall** compute a selection confidence in the range `[0,1]`. *(V: T)*
-- **TIA-CONF-002 [U]** — The core **shall** derive confidence from at least coverage freshness, adapter resolution ratio, history depth, and environment match. *(V: I, A)*
+- **TIA-CONF-002 [U]** — The core **shall** apply a per-invocation confidence floor derived from at least coverage freshness, adapter resolution ratio, history depth, and environment match, such that the effective path confidence reported by TIA-CONF-001 reflects the quality of the dependency evidence for the current invocation. These are invocation-level quality signals and **shall not** mutate stored edge weights, ensuring TIA-REL-001 (deterministic selections for identical store state) is preserved. *(V: I, A)*
 - **TIA-CONF-003 [U]** — The core **shall** report the confidence value to every consumer interface. *(V: T)*
 - **TIA-CONF-004 [U]** — The core **shall** document, wherever confidence is reported, that confidence gates fallback and is not a probability that the suite is correct. *(V: I)*
 
 ### 5.8 Language adapter interface (ADAPT)
 - **TIA-ADAPT-001 [U]** — The core **shall** communicate with adapters using JSON request/response over standard input and output, with diagnostics on standard error and status via exit code. *(V: I, T)*
-- **TIA-ADAPT-002 [E]** — When the core starts an adapter, the adapter **shall** return a handshake declaring its name, version, supported protocol version, languages, granularity, and capability flags. *(V: T)*
+- **TIA-ADAPT-002 [E]** — When the core starts an adapter, the adapter **shall** return a handshake declaring its name, version, supported protocol version, languages, granularity, and capability flags. Capability flags **shall** include at minimum: `symbol_model_complete` (boolean — used by TIA-CHG-004 to permit sub-file granularity narrowing). *(V: T)*
 - **TIA-ADAPT-003 [U]** — An adapter **shall** implement the commands `discover`, `static-deps`, `fingerprint`, `run-args`, and `ingest`. *(V: I, T)*
 - **TIA-ADAPT-004 [E]** — When invoked with `discover`, an adapter **shall** enumerate test items in scope with their node id, suite kind, and file. *(V: T)*
-- **TIA-ADAPT-005 [E]** — When invoked with `static-deps` and a changed-file set, an adapter **shall** return candidate test items, K-valued edges, and a list of files it could not resolve. *(V: T)*
+- **TIA-ADAPT-005 [E]** — When invoked with `static-deps` and a changed-file set, an adapter **shall** return candidate test items, K-valued edges, and a list of files it could not resolve. When `symbol_model_complete` is `true`, the adapter **shall** also return per-symbol edges; otherwise the core treats all edges as file-level (TIA-CHG-004). *(V: T)*
 - **TIA-ADAPT-006 [E]** — When invoked with `fingerprint`, an adapter **shall** return content fingerprints at its declared granularity. *(V: T)*
 - **TIA-ADAPT-007 [E]** — When invoked with `run-args` and a selected set, an adapter **shall** return the native runner arguments and a collection path, and **shall not** execute the tests. *(V: I, T)*
 - **TIA-ADAPT-008 [E]** — When invoked with `ingest` and a run's output, an adapter **shall** return runtime edges, per-test results, and observed external inputs. *(V: T)*
@@ -189,7 +190,7 @@ Requirement IDs: `TIA-<GROUP>-<NNN>`. Each requirement carries a verification me
 ### 5.11 CI consumer (CI)
 - **TIA-CI-001 [E]** — When selection completes successfully, the CLI **shall** exit with code `0`. *(V: T)*
 - **TIA-CI-002 [UW]** — If confidence requires a full run, then the CLI **shall** exit with code `10` to signal "run everything." *(V: T)*
-- **TIA-CI-003 [E]** — When no tests are affected, the CLI **shall** exit with code `20` to signal "safe to skip." *(V: T)*
+- **TIA-CI-003 [E]** — When the full selection set (reachability ∪ always-run ∪ fallback, where fallback is scoped per affected component per TIA-SAFE-003) is empty, the CLI **shall** exit with code `20` to signal "safe to skip." *(V: T)*
 - **TIA-CI-004 [UW]** — If a non-recoverable error occurs, then the CLI **shall** exit with a non-zero code distinct from `10` and `20`. *(V: T)*
 - **TIA-CI-005 [U]** — The CLI **shall** treat exit code `10` and any unknown condition as "run all tests," never as "run no tests." *(V: I, T)*
 - **TIA-CI-006 [O]** — Where a machine-readable format is requested, the CLI **shall** emit the selection plan as JSON or a runner-native plan. *(V: T)*
@@ -205,7 +206,7 @@ Requirement IDs: `TIA-<GROUP>-<NNN>`. Each requirement carries a verification me
 
 ### 5.13 LLM-agent consumer (AGENT)
 - **TIA-AGENT-001 [O]** — Where the agent output format is requested, the CLI **shall** emit a structured JSON object containing the selection, per-test reasons, confidence, changed units, and summary statistics. *(V: T)*
-- **TIA-AGENT-002 [U]** — Given the same change set and store state, the CLI in agent mode **shall** produce byte-stable output. *(V: T)*
+- **TIA-AGENT-002 [U]** — Given the same change set and store state, the CLI in agent mode **shall** produce byte-stable output. Agent mode **shall** implicitly enforce deterministic output ordering (TIA-SEL-005) regardless of parallel evaluation (TIA-COMP-008), without requiring a separate flag from the caller. *(V: T)*
 - **TIA-AGENT-003 [E]** — When the agent requests an explanation, the CLI **shall** include for each selected test its reason chain and for each skipped test its exclusion reason. *(V: T)*
 - **TIA-AGENT-004 [E]** — When the agent queries a specific test, the CLI **shall** answer why that test was or was not selected. *(V: T)*
 - **TIA-AGENT-005 [O]** — Where pre-edit mode is requested, the CLI **shall** report the blast radius of a proposed change without requiring the edit to be applied. *(V: D, T)*
@@ -229,7 +230,7 @@ Requirement IDs: `TIA-<GROUP>-<NNN>`. Each requirement carries a verification me
 
 ### 6.2 Reliability (REL)
 - **TIA-REL-001 [S]** — While in deterministic mode, the core **shall** produce identical selections for identical inputs and store state. *(V: T)*
-- **TIA-REL-002 [U]** — The core **shall** make ingestion idempotent and crash-safe, leaving the store consistent after an interrupted operation. *(V: T)*
+- **TIA-REL-002 [U]** — The core **shall** make ingestion crash-safe, leaving the store consistent after an interrupted operation. Each ingestion **shall** execute within a single database transaction (or equivalent write-ahead-log mechanism) so that a crash during ingestion leaves the store in its pre-ingestion state. Idempotency of re-ingestion is provided by the run-identity key (TIA-RUN-005). *(V: T)*
 
 ### 6.3 Security (SEC)
 - **TIA-SEC-001 [U]** — The core **shall not** execute arbitrary repository code as part of selection. *(V: I, A)*
@@ -305,12 +306,12 @@ The reference implementation is a single Rust binary embedding **Ascent** (a Dat
 | Quantity | Semiring K | ⊕ | ⊗ | 0 | 1 | Yields |
 |----------|-----------|---|---|---|---|--------|
 | Affected set | Boolean | ∨ | ∧ | false | true | which tests to run |
-| Confidence | Viterbi `[0,1]` | max | × | 0 | 1 | selection confidence |
+| Confidence | Viterbi `[0,1]` | max | × | 0 | 1 | path confidence per test (minimum across component gates TIA-SAFE-002 fallback) |
 | Distance | Tropical `(ℝ⁺∪∞)` | min | + | ∞ | 0 | change-to-test graph distance |
 | Explanation | Provenance `ℕ[Edges]` | + | × | 0 | 1 | reason chains (master) |
 | Scheduling | Cost / expected-time | min | + | ∞ | 0 | shard ordering |
 
-All concrete columns are homomorphic images of the provenance column (TIA-ARCH-003).
+The positively-derived columns (selection, distance, scheduling, and explanation) are homomorphic images of the provenance column (TIA-ARCH-003). Path confidence annotates the same paths but is not a homomorphic image of the provenance column. Always-run and fallback members of the affected set are contributed as input facts to the selection relation, not derived by semiring closure (see TIA-ARCH-003).
 
 ## Appendix B — CLI exit codes
 
@@ -318,7 +319,7 @@ All concrete columns are homomorphic images of the provenance column (TIA-ARCH-0
 |------|---------|-----------|
 | 0 | Selection computed | run selected set |
 | 10 | Low confidence / fallback | run all tests |
-| 20 | No tests affected | safe to skip stage |
+| 20 | Full selection empty (reachability ∪ always-run ∪ fallback all empty) | safe to skip stage |
 | other ≠ 0 | Hard error | run all tests |
 
 ## Appendix C — Adapter command summary
@@ -375,10 +376,13 @@ ascent! {
     // Confidence (Viterbi: lub = max, product along path) — ppm integers
     lattice impact_conf(u32, u32);  lattice test_conf(u32, u32);
     impact_conf(c, ONE) <-- changed(c);
-    impact_conf(c, ONE) <-- unresolved(c);
+    impact_conf(c, 0)   <-- unresolved(c);     // unresolved → zero confidence; triggers SAFE-002 fallback
+    // Note: changed(c) and unresolved(c) are mutually exclusive by definition — a file is either
+    // fingerprint-diffed (changed) or unanalysable (unresolved), never both.
     impact_conf(a, ((*w as u64 * *d as u64)/ONE as u64) as u32) <-- cu_dep(a,b,_,w), impact_conf(b,d);
     test_conf(t,  ((*w as u64 * *d as u64)/ONE as u64) as u32) <-- test_dep(t,c,_,w), impact_conf(c,d);
-    test_conf(t, ONE) <-- always_run(t);
+    // No test_conf seed for always_run(t): these tests are selected by SAFE-007 (input fact), not
+    // by path evidence. Absent test_conf entry means SAFE-002 does not apply to them (TIA-SAFE-002).
 
     // Distance (tropical min-plus: Dual flips lub to min)
     lattice impact_dist(u32, Dual<u32>);  lattice test_dist(u32, Dual<u32>);
@@ -400,8 +404,8 @@ ascent! {
 affected = [100, 102, 900]
   test 100: conf=0.640 dist=Some(2) witness=[(11,Static),(10,Static)]   # static path
   test 102: conf=1.000 dist=Some(2) witness=[(20,Runtime),(10,Runtime)] # RUNTIME-only path
-  test 900: conf=1.000 dist=None    witness=None                        # always-run
-ALL ASSERTIONS PASSED
+  test 900: conf=none  dist=None    witness=None                        # always-run (input fact; no test_conf entry; SAFE-002 does not apply)
+// Assertions: reachability-selected tests 100 and 102 verified; test 900 has no conf entry by design.
 ```
 
 `test_invoice` (101) is correctly excluded (precision); `test_totp` (102) is caught solely by the runtime edge (the fusion thesis); confidence `0.640 = 0.8×0.8` is the Viterbi product; distance is the tropical hop count; the witness is the minimal reason chain. One EDB load + `p.run()` per invocation; swap `ascent!`→`ascent_par!` for the parallel evaluator (COMP-008). Cross-run incrementality is the cache (TIA-ENG-007), not the engine.
