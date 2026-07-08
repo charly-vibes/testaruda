@@ -47,6 +47,29 @@ Language/framework adapters communicate via JSON over stdin/stdout (TIA-ADAPT-00
 - Cross-invocation incrementality: change scoping + content-addressed component cache
 - Scale-up path: re-target to DBSP/Feldera for true IVM
 
+## Specifications (OpenSpec)
+
+| Capability | Spec | Requirements |
+|---|---|---|
+| Architectural constraints | `architectural-constraints/spec.md` | ARCH-001–010 |
+| Core data model | `core-data-model/spec.md` | CORE-001–009 |
+| Change detection | `change-detection/spec.md` | CHG-001–008 |
+| Selection engine | `selection-engine/spec.md` | SEL-001–007 |
+| Provenance | `provenance/spec.md` | PROV-001–005 |
+| Runtime feedback | `runtime-feedback/spec.md` | RUN-001–006 |
+| Safety | `safety/spec.md` | SAFE-001–012 |
+| Confidence scoring | `confidence-scoring/spec.md` | CONF-001–004 |
+| Adapter protocol | `adapter-protocol/spec.md` | ADAPT-001–013 |
+| Composability | `composability/spec.md` | COMP-001–012 |
+| Persistence | `persistence/spec.md` | STORE-001–005 |
+| CI integration | `ci-integration/spec.md` | CI-001–008 |
+| Local mode | `local-mode/spec.md` | LOCAL-001–005 |
+| Agent mode | `agent-mode/spec.md` | AGENT-001–007 |
+| Observability | `observability/spec.md` | OBS-001–004 |
+| Non-functional | `non-functional/spec.md` | PERF, REL, SEC, PORT, SCALE |
+| Verification | `verification/spec.md` | VER-001–005 |
+| Engine | `engine/spec.md` | ENG-001–016 |
+
 ## Important Constraints
 - The core must contain no language- or framework-specific logic (TIA-ARCH-008)
 - The core must not execute tests (TIA-ARCH-009)
@@ -56,4 +79,4 @@ Language/framework adapters communicate via JSON over stdin/stdout (TIA-ADAPT-00
 ## References
 - [GKT07] Green, Karvounarakis, Tannen. *Provenance Semirings*, PODS 2007
 - [BSalC] Mokhov, Mitchell, Peyton Jones. *Build Systems à la Carte*, ICFP 2018
-- Spec: `docs/tia-srs-ears.md` (EARS notation, status: draft v0.2)
+- Spec: `docs/tia-srs-ears.md` (EARS notation, status: draft v0.3)
