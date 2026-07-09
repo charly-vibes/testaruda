@@ -1,0 +1,10 @@
+id = "environment-scoped-queries"
+description = "Contract for: Environment-scoped queries"
+archetype = "PF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+[[tests.shell]]
+command = "cargo test"
+timeout_seconds = 60

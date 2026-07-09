@@ -1,0 +1,10 @@
+id = "scoped-traversal"
+description = "Contract for: Scoped traversal"
+archetype = "PF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+[[tests.shell]]
+command = "cargo test"
+timeout_seconds = 60

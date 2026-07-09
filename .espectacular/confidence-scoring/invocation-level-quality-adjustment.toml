@@ -1,0 +1,10 @@
+id = "invocation-level-quality-adjustment"
+description = "Contract for: Invocation-level quality adjustment"
+archetype = "PF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+[[tests.shell]]
+command = "cargo test"
+timeout_seconds = 60

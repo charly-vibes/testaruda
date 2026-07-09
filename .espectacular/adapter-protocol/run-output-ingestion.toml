@@ -1,0 +1,10 @@
+id = "run-output-ingestion"
+description = "Contract for: Run output ingestion"
+archetype = "PF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+[[tests.shell]]
+command = "cargo test"
+timeout_seconds = 60

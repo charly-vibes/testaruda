@@ -58,7 +58,7 @@ The reference implementation SHALL compute transitive dependency closure using a
 
 The reference implementation SHALL evaluate per-component selection using the engine's data-parallel mode.
 
-#### Scenario: Parallel evaluation
+#### Scenario: Data-parallel engine evaluation
 - **GIVEN** multiple components to evaluate
 - **WHEN** selection is computed
 - **THEN** the implementation SHALL use the engine's data-parallel mode (e.g. `ascent_par!`)

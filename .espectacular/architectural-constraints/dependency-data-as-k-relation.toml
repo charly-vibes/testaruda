@@ -1,0 +1,10 @@
+id = "dependency-data-as-k-relation"
+description = "Contract for: Dependency data as K-relation"
+archetype = "PF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+[[tests.shell]]
+command = "cargo test"
+timeout_seconds = 60

@@ -1,0 +1,10 @@
+id = "adapter-in-any-language"
+description = "Contract for: Adapter in any language"
+archetype = "PF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+[[tests.shell]]
+command = "cargo test"
+timeout_seconds = 60
