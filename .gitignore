@@ -33,3 +33,8 @@ __pycache__/
 *.db
 .beads-credential-key
 .dont/
+
+# Beads internal state (track only issues.jsonl for backup)
+.beads/*
+!.beads/issues.jsonl
+!.beads/config.yaml
