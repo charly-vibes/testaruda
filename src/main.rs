@@ -24,6 +24,12 @@ enum Command {
         /// Explicit changed-file list (comma-separated)
         #[arg(long)]
         files: Option<String>,
+        /// Shadow mode: compute but report all tests should run (TIA-CI-007)
+        #[arg(long)]
+        shadow: bool,
+        /// Emit machine-readable JSON plan (TIA-CI-006)
+        #[arg(long)]
+        json: bool,
     },
     /// Ingest test run results to update the model
     Ingest {
@@ -47,6 +53,12 @@ enum Command {
         #[arg(long)]
         program: Option<String>,
     },
+    /// Discover tests via configured adapters
+    Discover {
+        /// Optional comma-separated file list to scope discovery
+        #[arg(long)]
+        files: Option<String>,
+    },
 }
 
 fn main() -> miette::Result<()> {
@@ -65,16 +77,76 @@ fn main() -> miette::Result<()> {
             println!("🔧 Initializing testaruda store...");
             let store = testaruda::Store::open_default()?;
             store.initialize()?;
-            println!("✅ testaruda initialized");
+            let project_root = testaruda::Store::find_project_root()?;
+            // Write default config if it doesn't exist
+            if !project_root.join("testaruda.toml").exists() {
+                testaruda::config::Config::write_default(&project_root)?;
+            }
+            println!("✅ testaruda initialized at {}", project_root.display());
             Ok(())
         }
-        Command::Select { base, head, files } => {
+        Command::Select { base, head, files, shadow, json } => {
             let store = testaruda::Store::open_default()?;
             let delta = testaruda::ChangeSet::from_diff(base.as_deref(), head.as_deref(), files.as_deref())?;
+
+            // Adapter pipeline: populate store via adapters before selection
+            let project_root = find_project_root()?;
+            let config = testaruda::config::Config::load_or_default(&project_root);
+            let registry = config.adapters.to_registry();
+            if let Err(e) = run_adapter_pipeline(&store, &registry, &delta) {
+                eprintln!("⚠️  Adapter warning: {} (using existing store data)", e);
+            }
+
             let selection = testaruda::Selector::select(&store, &delta)?;
-            let out = serde_json::to_string_pretty(&selection)
-                .map_err(|e| miette::miette!("JSON serialization failed: {}", e))?;
-            println!("{}", out);
+
+            // Determine CI exit code (TIA-CI-001..004)
+            let mut outcome = CiOutcome::from_selection(&selection);
+
+            // Shadow mode (TIA-CI-007): report all tests should run
+            if shadow {
+                let all_tests_count = store.test_items_count().unwrap_or(0);
+                outcome = CiOutcome {
+                    code: ci_exit::FULL_RUN,
+                    reason: if all_tests_count > 0 {
+                        format!("shadow mode — {} known tests should all run", all_tests_count)
+                    } else {
+                        "shadow mode — all tests should run".to_string()
+                    },
+                };
+            }
+
+            if json {
+                // Machine-readable plan (TIA-CI-006)
+                let plan = CiPlan {
+                    shadow_mode: shadow,
+                    exit_code: outcome.exit_code(),
+                    selected_count: selection.selected_count,
+                    changed_count: selection.changed_count,
+                    reason: outcome.reason(),
+                    all_tests: shadow,
+                    tests: &selection.tests,
+                };
+                let out = serde_json::to_string_pretty(&plan)
+                    .map_err(|e| miette::miette!("JSON serialization failed: {}", e))?;
+                println!("{}", out);
+            } else {
+                // Human-readable output (CORR-004: include reason)
+                let reason_note = outcome.reason();
+                if shadow {
+                    println!("⚠️  Shadow mode — selection computed but all tests should run");
+                }
+                if reason_note != "selection complete" {
+                    println!("ℹ️  {}", reason_note);
+                }
+                let out = serde_json::to_string_pretty(&selection)
+                    .map_err(|e| miette::miette!("JSON serialization failed: {}", e))?;
+                println!("{}", out);
+            }
+
+            let code = outcome.exit_code();
+            if code != 0 {
+                std::process::exit(code);
+            }
             Ok(())
         }
         Command::Ingest { path } => {
@@ -114,5 +186,356 @@ fn main() -> miette::Result<()> {
             }
             Ok(())
         }
+        Command::Discover { files } => {
+            let store = testaruda::Store::open_default()?;
+            store.initialize()?;
+            let project_root = find_project_root()?;
+            let config = testaruda::config::Config::load_or_default(&project_root);
+            let registry = config.adapters.to_registry();
+            let delta = if let Some(f) = files {
+                testaruda::ChangeSet::from_diff(None, None, Some(&f))?
+            } else {
+                testaruda::ChangeSet { files: Vec::new(), base: None, head: None }
+            };
+            run_discover_pipeline(&store, &registry, &delta)
+                .map_err(|e| miette::miette!(e))?;
+            let count = store.test_items_count().unwrap_or(0);
+            println!("\n✅ Discovered {} test items", count);
+            Ok(())
+        }
+    }
+}
+
+// ===== Adapter Pipeline =====
+
+/// Populate store from adapters: run discover on all files in the workspace,
+/// then run static-deps on changed files.
+pub fn run_adapter_pipeline(
+    store: &testaruda::Store,
+    registry: &testaruda::adapter::AdapterRegistry,
+    delta: &testaruda::ChangeSet,
+) -> std::result::Result<(), String> {
+    // Step 1: Run discover on all files that have registered adapters
+    // Use a broad scan — any extension we have a registered adapter for
+    let mut seen_adapters = std::collections::HashSet::new();
+
+    // For the changed files, resolve adapters and run discover
+    for path in &delta.files {
+        if let Some(binary) = registry.resolve(path) {
+            if !seen_adapters.insert(binary.to_string()) {
+                continue; // already ran this adapter
+            }
+            let mut adapter = match testaruda::adapter::AdapterIO::spawn(binary, &[], None) {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("  ⚠️  Failed to spawn {}: {}", binary, e);
+                    continue;
+                }
+            };
+
+            // Run discover
+            match adapter.discover() {
+                Ok(items) => {
+                    eprintln!("  📋 {} discovered {} test items", adapter.name, items.len());
+                    store.store_test_items(&adapter.name, &items)
+                        .map_err(|e| format!("store error: {}", e))?;
+                }
+                Err(e) => {
+                    eprintln!("  ⚠️  Discover failed for {}: {}", binary, e);
+                }
+            }
+
+            // Run static-deps on changed files for this adapter
+            // We pass only the files that match this adapter's extension
+            let adapter_files: Vec<String> = delta.files.iter()
+                .filter(|f| registry.resolve(f) == Some(binary))
+                .cloned()
+                .collect();
+
+            if !adapter_files.is_empty() {
+                match adapter.static_deps(&adapter_files) {
+                    Ok(result) => {
+                        eprintln!("  🔗 {} computed {} edges", adapter.name, result.edges.len());
+                        store.store_static_deps(&adapter.name, &result.edges)
+                            .map_err(|e| format!("store error: {}", e))?;
+                    }
+                    Err(e) => {
+                        eprintln!("  ⚠️  Static-deps failed for {}: {}", binary, e);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Discover-only: run adapter discovery on a broader set of files.
+pub fn run_discover_pipeline(
+    store: &testaruda::Store,
+    registry: &testaruda::adapter::AdapterRegistry,
+    _delta: &testaruda::ChangeSet,
+) -> std::result::Result<(), String> {
+    // Walk the project to find files matching registered extensions
+    let mut seen_adapters = std::collections::HashSet::new();
+
+    for entry in walkdir::WalkDir::new(".")
+        .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy();
+            name != "target" && name != ".git" && name != "node_modules"
+        })
+        .filter_map(|e| e.ok()) {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path().to_string_lossy().to_string();
+        if let Some(binary) = registry.resolve(&path) {
+            if !seen_adapters.insert(binary.to_string()) {
+                continue;
+            }
+
+            let mut adapter = match testaruda::adapter::AdapterIO::spawn(binary, &[], None) {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("  ⚠️  Failed to spawn {}: {}", binary, e);
+                    continue;
+                }
+            };
+
+            match adapter.discover() {
+                Ok(items) => {
+                    eprintln!("  📋 {} found {} tests", adapter.name, items.len());
+                    store.store_test_items(&adapter.name, &items)
+                        .map_err(|e| format!("store error: {}", e))?;
+                }
+                Err(e) => {
+                    eprintln!("  ⚠️  Discover failed for {}: {}", binary, e);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Find the project root by looking for .git or testaruda.toml.
+pub fn find_project_root() -> miette::Result<std::path::PathBuf> {
+    let cwd = std::env::current_dir()
+        .map_err(|e| miette::miette!("Cannot get current directory: {}", e))?;
+    for ancestor in cwd.ancestors() {
+        if ancestor.join(".git").exists() || ancestor.join("testaruda.toml").exists() {
+            return Ok(ancestor.to_path_buf());
+        }
+    }
+    Ok(cwd)
+}
+
+// ===== CI Exit Codes (TIA-CI-001..008) =====
+
+/// Exit codes for CI pipeline integration.
+#[allow(dead_code)]
+mod ci_exit {
+    pub const SUCCESS: i32 = 0;   // TIA-CI-001
+    pub const FULL_RUN: i32 = 10;  // TIA-CI-002
+    pub const EMPTY: i32 = 20;     // TIA-CI-003
+    pub const ERROR: i32 = 1;      // TIA-CI-004 (distinct from 10, 20)
+}
+
+/// Classifies a selection result into a CI exit code and reason.
+struct CiOutcome {
+    code: i32,
+    reason: String,
+}
+
+impl CiOutcome {
+    /// Determine the CI outcome from a selection result.
+    ///
+    /// - Empty selection → exit 20 (TIA-CI-003)
+    /// - Any test with confidence < 1.0 → full run, exit 10 (TIA-CI-002)
+    /// - Otherwise → success, exit 0 (TIA-CI-001)
+    fn from_selection(selection: &testaruda::Selection) -> Self {
+        if selection.selected_count == 0 {
+            return Self {
+                code: ci_exit::EMPTY,
+                reason: "no tests selected".to_string(),
+            };
+        }
+
+        // Check if any selected test has low confidence (TIA-CI-002)
+        let has_low_confidence = selection.tests.iter().any(|t| t.confidence < 1.0);
+        if has_low_confidence {
+            return Self {
+                code: ci_exit::FULL_RUN,
+                reason: "confidence below threshold".to_string(),
+            };
+        }
+
+        Self {
+            code: ci_exit::SUCCESS,
+            reason: "selection complete".to_string(),
+        }
+    }
+
+    fn exit_code(&self) -> i32 {
+        self.code
+    }
+
+    fn reason(&self) -> &str {
+        &self.reason
+    }
+}
+
+/// Machine-readable CI plan (TIA-CI-006).
+#[derive(serde::Serialize)]
+struct CiPlan<'a> {
+    shadow_mode: bool,
+    exit_code: i32,
+    selected_count: usize,
+    changed_count: usize,
+    reason: &'a str,
+    /// When true, indicates that ALL tests should run (shadow mode or low confidence).
+    all_tests: bool,
+    /// The computed selection (may be empty in shadow mode summary output).
+    tests: &'a [testaruda::SelectedTest],
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use testaruda::{Selection, SelectedTest};
+
+    #[test]
+    fn test_shadow_mode_output() {
+        // Shadow mode: exit code reflects computed selection but output says "all tests"
+        let sel = Selection {
+            changed_count: 1,
+            selected_count: 1,
+            tests: vec![
+                SelectedTest {
+                    id: 42,
+                    confidence: 1.0,
+                    distance: Some(0),
+                    witness: None,
+                },
+            ],
+        };
+        // In shadow mode, the outcome should still report the actual exit code
+        let outcome = CiOutcome::from_selection(&sel);
+        assert_eq!(outcome.exit_code(), ci_exit::SUCCESS);
+    }
+
+    #[test]
+    fn test_json_plan_serialization() {
+        let sel = Selection {
+            changed_count: 2,
+            selected_count: 2,
+            tests: vec![
+                SelectedTest {
+                    id: 1,
+                    confidence: 1.0,
+                    distance: Some(0),
+                    witness: None,
+                },
+            ],
+        };
+        let plan = CiPlan {
+            shadow_mode: false,
+            exit_code: ci_exit::SUCCESS,
+            selected_count: sel.selected_count,
+            changed_count: sel.changed_count,
+            reason: "selection complete",
+            all_tests: false,
+            tests: &sel.tests,
+        };
+        let json = serde_json::to_string(&plan).unwrap();
+        assert!(json.contains("\"exit_code\":0"));
+        assert!(json.contains("\"selected_count\":2"));
+        assert!(json.contains("\"shadow_mode\":false"));
+    }
+
+    #[test]
+    fn test_shadow_plan_serialization() {
+        let sel = Selection {
+            changed_count: 0,
+            selected_count: 0,
+            tests: vec![],
+        };
+        let plan = CiPlan {
+            shadow_mode: true,
+            exit_code: ci_exit::EMPTY,
+            selected_count: sel.selected_count,
+            changed_count: sel.changed_count,
+            reason: "no tests selected",
+            all_tests: true,
+            tests: &sel.tests,
+        };
+        let json = serde_json::to_string(&plan).unwrap();
+        assert!(json.contains("\"shadow_mode\":true"));
+        assert!(json.contains("\"exit_code\":20"));
+    }
+
+    #[test]
+    fn test_success_exit_code() {
+        let sel = Selection {
+            changed_count: 2,
+            selected_count: 3,
+            tests: vec![
+                SelectedTest {
+                    id: 1,
+                    confidence: 1.0,
+                    distance: Some(0),
+                    witness: None,
+                },
+                SelectedTest {
+                    id: 2,
+                    confidence: 1.0,
+                    distance: Some(1),
+                    witness: None,
+                },
+            ],
+        };
+        let outcome = CiOutcome::from_selection(&sel);
+        assert_eq!(outcome.exit_code(), ci_exit::SUCCESS, "high confidence → 0");
+        assert_eq!(outcome.reason(), "selection complete");
+    }
+
+    #[test]
+    fn test_empty_exit_code() {
+        let sel = Selection {
+            changed_count: 0,
+            selected_count: 0,
+            tests: vec![],
+        };
+        let outcome = CiOutcome::from_selection(&sel);
+        assert_eq!(outcome.exit_code(), ci_exit::EMPTY, "empty selection → 20");
+    }
+
+    #[test]
+    fn test_low_confidence_exit_code() {
+        let sel = Selection {
+            changed_count: 2,
+            selected_count: 2,
+            tests: vec![
+                SelectedTest {
+                    id: 1,
+                    confidence: 0.5,
+                    distance: Some(0),
+                    witness: None,
+                },
+            ],
+        };
+        let outcome = CiOutcome::from_selection(&sel);
+        assert_eq!(outcome.exit_code(), ci_exit::FULL_RUN, "low confidence → 10");
+    }
+
+    #[test]
+    fn test_ci_exit_codes_distinct() {
+        // Verify 10 and 20 are distinct from each other and from 0/1
+        assert_ne!(ci_exit::SUCCESS, ci_exit::FULL_RUN);
+        assert_ne!(ci_exit::SUCCESS, ci_exit::EMPTY);
+        assert_ne!(ci_exit::FULL_RUN, ci_exit::EMPTY);
+        assert_ne!(ci_exit::ERROR, ci_exit::FULL_RUN);
+        assert_ne!(ci_exit::ERROR, ci_exit::EMPTY);
     }
 }

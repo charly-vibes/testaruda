@@ -1,44 +1,18 @@
-# Test selection provenance diagrams
 # Testaruda CLI — language-agnostic test selection engine
 
-```bash
-# Build
-cargo build
-cargo build --release
-
-# Test
-cargo test
-cargo test -- --nocapture
-
-# Lint
-cargo clippy --all-targets -- -D warnings
-cargo fmt --check
-
-# Format
-cargo fmt
-
-# Run
-cargo run -- init
-cargo run -- select --base main --head HEAD
-cargo run -- ingest results.json
-cargo run -- explain <test-id>
-
-# Clean
-cargo clean
-
-# Documentation
-cargo doc --no-deps --open
-
-# Soufflé oracle validation (requires souffle)
-testaruda oracle --program oracle.dl
-```
-
-<!-- Below: minimal justfile for note-taking compliance -->
-
+# Default: list all recipes
 default:
     @just --global-justfile --list
 
-# Run tests (all)
+# Build (debug)
+build:
+    cargo build
+
+# Build (release)
+release:
+    cargo build --release
+
+# Run all tests
 test:
     cargo test
 
@@ -46,17 +20,25 @@ test:
 test-v:
     cargo test -- --nocapture
 
-# Build release binary
-build:
-    cargo build --release
-
-# Lint
-lint:
+# Lint (clippy with warnings denied)
+clippy:
     cargo clippy --all-targets -- -D warnings
+
+# Check formatting
+fmt-check:
+    cargo fmt --check
+
+# Format code
+fmt:
+    cargo fmt
 
 # Run pretender code quality checks
 check:
     pretender check src/
+
+# Validate specs against tests with espectacular
+ah:
+    ah check
 
 # Initialize testaruda store
 init:
@@ -70,6 +52,14 @@ select base='main' head='HEAD':
 ingest path:
     cargo run -- ingest {{path}}
 
-# Validate with espectacular
-ah:
-    ah check
+# Explain a test selection
+explain test-id:
+    cargo run -- explain {{test-id}}
+
+# Clean build artifacts
+clean:
+    cargo clean
+
+# Build documentation
+doc:
+    cargo doc --no-deps --open

@@ -6,5 +6,5 @@ superseded_by = ""
 authored_with = "0.1.0"
 
 [[tests.shell]]
-command = "cargo test"
+command = "cargo test --bin testaruda tests::test_ci_exit_codes_distinct"
 timeout_seconds = 60

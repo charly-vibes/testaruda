@@ -10,6 +10,14 @@ repository = "https://github.com/charly-vibes/testaruda"
 name = "testaruda"
 path = "src/main.rs"
 
+[[bin]]
+name = "testaruda-adapter-rust"
+path = "src/bin/adapter-rust.rs"
+
+[[bin]]
+name = "testaruda-adapter-python"
+path = "src/bin/adapter-python.rs"
+
 [dependencies]
 # Core engine
 ascent = "0.8"
@@ -45,6 +53,9 @@ similar = "2"
 
 # UUIDs for node IDs
 uuid = { version = "1", features = ["v4"] }
+
+# File scanning for adapters
+walkdir = "2"
 
 [dev-dependencies]
 tempfile = "3"

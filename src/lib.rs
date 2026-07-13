@@ -30,6 +30,8 @@ pub mod selector;
 mod change;
 pub mod provenance;
 mod cli;
+pub mod adapter;
+pub mod config;
 
 pub use engine::{Engine, Origin, Selection, SelectedTest, WitnessEdge};
 pub use store::Store;
