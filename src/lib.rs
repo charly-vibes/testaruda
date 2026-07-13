@@ -24,17 +24,19 @@
 //! testaruda ingest        # Ingest run results to update the model
 //! ```
 
-mod engine;
-mod store;
-pub mod selector;
-mod change;
-pub mod provenance;
-mod cli;
 pub mod adapter;
+mod change;
+mod cli;
 pub mod config;
+mod engine;
+pub mod provenance;
+pub mod selector;
+mod store;
 
-pub use engine::{Engine, Origin, Selection, SelectedTest, WitnessEdge};
-pub use store::Store;
-pub use selector::Selector;
 pub use change::ChangeSet;
-pub use provenance::{ProvenanceSemiring, SemiringValue, BooleanSemiring, ViterbiSemiring, TropicalSemiring};
+pub use engine::{Engine, Origin, SelectedTest, Selection, WitnessEdge};
+pub use provenance::{
+    BooleanSemiring, ProvenanceSemiring, SemiringValue, TropicalSemiring, ViterbiSemiring,
+};
+pub use selector::Selector;
+pub use store::Store;

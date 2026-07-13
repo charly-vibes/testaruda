@@ -5,7 +5,7 @@ use std::path::Path;
 use serde::Deserialize;
 
 /// Top-level project configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub adapters: AdapterConfig,
@@ -44,14 +44,6 @@ default = "testaruda-adapter-rust"
             .map_err(|e| miette::miette!("Failed to write {}: {}", path.display(), e))?;
         println!("✅ Created testaruda.toml");
         Ok(())
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            adapters: AdapterConfig::default(),
-        }
     }
 }
 

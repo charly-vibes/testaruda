@@ -2,9 +2,9 @@
 //!
 //! See TIA-SEL-001 through TIA-SEL-007.
 
+use crate::change::ChangeSet;
 use crate::engine::{Engine, Selection};
 use crate::store::Store;
-use crate::change::ChangeSet;
 
 /// A thin wrapper around the engine that provides a simplified API.
 pub struct Selector;

@@ -3,6 +3,7 @@ title = "testaruda"
 authors = ["charly-vibes"]
 language = "en"
 description = "Language-agnostic test selection engine"
+src = "docs"
 
 [output.html]
 smart-punctuation = true

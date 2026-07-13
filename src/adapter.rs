@@ -55,7 +55,9 @@ impl Default for AdapterCapabilities {
     }
 }
 
-fn return_true() -> bool { true }
+fn return_true() -> bool {
+    true
+}
 
 // ===== Handshake =====
 
@@ -73,7 +75,9 @@ pub struct Handshake {
     pub capabilities: AdapterCapabilities,
 }
 
-fn default_granularity() -> String { "file".to_string() }
+fn default_granularity() -> String {
+    "file".to_string()
+}
 
 // ===== Discover =====
 
@@ -127,19 +131,20 @@ impl AdapterIO {
                 }
             })?;
 
-        let stdin: Box<dyn Write + Send> = Box::new(
-            child.stdin.take()
-                .ok_or_else(|| AdapterError::Io(std::io::Error::new(
-                    std::io::ErrorKind::BrokenPipe, "stdin not available",
-                )))?
-        );
+        let stdin: Box<dyn Write + Send> = Box::new(child.stdin.take().ok_or_else(|| {
+            AdapterError::Io(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "stdin not available",
+            ))
+        })?);
 
-        let stdout: Box<dyn std::io::Read + Send> = Box::new(
-            child.stdout.take()
-                .ok_or_else(|| AdapterError::Io(std::io::Error::new(
-                    std::io::ErrorKind::BrokenPipe, "stdout not available",
-                )))?
-        );
+        let stdout: Box<dyn std::io::Read + Send> =
+            Box::new(child.stdout.take().ok_or_else(|| {
+                AdapterError::Io(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "stdout not available",
+                ))
+            })?);
 
         let mut io = Self {
             child,
@@ -168,7 +173,10 @@ impl AdapterIO {
     }
 
     /// Send a command and read a single JSON line response.
-    pub fn send<T: serde::de::DeserializeOwned>(&mut self, cmd: &AdapterCommand) -> Result<T, AdapterError> {
+    pub fn send<T: serde::de::DeserializeOwned>(
+        &mut self,
+        cmd: &AdapterCommand,
+    ) -> Result<T, AdapterError> {
         let req = serde_json::to_string(cmd)?;
         writeln!(self.stdin, "{}", req)?;
         self.stdin.flush()?;
@@ -176,7 +184,10 @@ impl AdapterIO {
     }
 
     /// Send a command with params and read a single JSON line response.
-    pub fn send_with_params<T: serde::de::DeserializeOwned>(&mut self, cmd: &CommandWithParams) -> Result<T, AdapterError> {
+    pub fn send_with_params<T: serde::de::DeserializeOwned>(
+        &mut self,
+        cmd: &CommandWithParams,
+    ) -> Result<T, AdapterError> {
         let req = serde_json::to_string(cmd)?;
         writeln!(self.stdin, "{}", req)?;
         self.stdin.flush()?;
@@ -193,7 +204,10 @@ impl AdapterIO {
     ///
     /// Returns candidate tests, K-valued edges, and unresolved files.
     /// When `symbol_model_complete` is true, includes per-symbol edges.
-    pub fn static_deps(&mut self, changed_files: &[String]) -> Result<StaticDepsResult, AdapterError> {
+    pub fn static_deps(
+        &mut self,
+        changed_files: &[String],
+    ) -> Result<StaticDepsResult, AdapterError> {
         let cmd = CommandWithParams::new(
             AdapterCommand::STATIC_DEPS,
             serde_json::json!({"changed_files": changed_files}),
@@ -208,7 +222,10 @@ impl AdapterIO {
     }
 
     /// Send the fingerprint command (TIA-ADAPT-006).
-    pub fn fingerprint(&mut self, files: &[String]) -> Result<Vec<ContentFingerprint>, AdapterError> {
+    pub fn fingerprint(
+        &mut self,
+        files: &[String],
+    ) -> Result<Vec<ContentFingerprint>, AdapterError> {
         let cmd = CommandWithParams::new(
             AdapterCommand::FINGERPRINT,
             serde_json::json!({"files": files}),
@@ -238,7 +255,8 @@ impl AdapterIO {
                         None => String::new(),
                     };
                     return Err(AdapterError::ProcessExit(
-                        status.code().unwrap_or(-1), stderr,
+                        status.code().unwrap_or(-1),
+                        stderr,
                     ));
                 }
                 Ok(None) => {}
@@ -267,7 +285,8 @@ impl AdapterIO {
                         // Parse response envelope to check ok/error
                         let value: serde_json::Value = serde_json::from_str(trimmed)?;
                         if let Some(false) = value.get("ok").and_then(|v| v.as_bool()) {
-                            let err = value.get("error")
+                            let err = value
+                                .get("error")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("adapter error");
                             return Err(AdapterError::MalformedResponse(err.to_string()));
@@ -325,12 +344,36 @@ impl AdapterCommand {
     pub const RUN_ARGS: &'static str = "run-args";
     pub const INGEST: &'static str = "ingest";
 
-    pub fn handshake() -> Self { Self { command: Self::HANDSHAKE.to_string() } }
-    pub fn discover() -> Self { Self { command: Self::DISCOVER.to_string() } }
-    pub fn static_deps() -> Self { Self { command: Self::STATIC_DEPS.to_string() } }
-    pub fn fingerprint() -> Self { Self { command: Self::FINGERPRINT.to_string() } }
-    pub fn run_args() -> Self { Self { command: Self::RUN_ARGS.to_string() } }
-    pub fn ingest() -> Self { Self { command: Self::INGEST.to_string() } }
+    pub fn handshake() -> Self {
+        Self {
+            command: Self::HANDSHAKE.to_string(),
+        }
+    }
+    pub fn discover() -> Self {
+        Self {
+            command: Self::DISCOVER.to_string(),
+        }
+    }
+    pub fn static_deps() -> Self {
+        Self {
+            command: Self::STATIC_DEPS.to_string(),
+        }
+    }
+    pub fn fingerprint() -> Self {
+        Self {
+            command: Self::FINGERPRINT.to_string(),
+        }
+    }
+    pub fn run_args() -> Self {
+        Self {
+            command: Self::RUN_ARGS.to_string(),
+        }
+    }
+    pub fn ingest() -> Self {
+        Self {
+            command: Self::INGEST.to_string(),
+        }
+    }
 }
 
 /// Command with params sent to the adapter.
@@ -371,8 +414,12 @@ pub struct DepEdge {
     pub origin: String,
 }
 
-fn default_weight() -> u32 { crate::engine::ONE }
-fn default_origin() -> String { "static".to_string() }
+fn default_weight() -> u32 {
+    crate::engine::ONE
+}
+fn default_origin() -> String {
+    "static".to_string()
+}
 
 /// Result of a static-deps command (TIA-ADAPT-005).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -421,16 +468,22 @@ pub struct AdapterRegistry {
 }
 
 impl Default for AdapterRegistry {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AdapterRegistry {
     pub fn new() -> Self {
-        Self { extensions: Vec::new(), default: None }
+        Self {
+            extensions: Vec::new(),
+            default: None,
+        }
     }
 
     pub fn register(&mut self, extension: &str, binary: &str) {
-        self.extensions.push((extension.to_string(), binary.to_string()));
+        self.extensions
+            .push((extension.to_string(), binary.to_string()));
     }
 
     pub fn set_default(&mut self, binary: &str) {
@@ -439,7 +492,8 @@ impl AdapterRegistry {
 
     /// Find the adapter binary for a file path by extension.
     pub fn resolve(&self, path: &str) -> Option<&str> {
-        let ext = std::path::Path::new(path).extension()
+        let ext = std::path::Path::new(path)
+            .extension()
             .and_then(|e| e.to_str())
             .map(|e| format!(".{}", e));
         if let Some(ref ext_str) = ext {

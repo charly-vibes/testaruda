@@ -20,9 +20,8 @@ fn main() {
         }
 
         let response = handle_command(&trimmed);
-        let out = serde_json::to_string(&response).unwrap_or_else(|_| {
-            r#"{"ok":false,"error":"serialization failed"}"#.to_string()
-        });
+        let out = serde_json::to_string(&response)
+            .unwrap_or_else(|_| r#"{"ok":false,"error":"serialization failed"}"#.to_string());
         println!("{}", out);
         std::io::stdout().flush().ok();
     }
@@ -72,15 +71,16 @@ fn cmd_handshake() -> serde_json::Value {
 fn cmd_discover() -> serde_json::Value {
     let mut tests = Vec::new();
 
-    for entry in walkdir::WalkDir::new(".").into_iter().filter_map(|e| e.ok()) {
+    for entry in walkdir::WalkDir::new(".")
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         if !entry.file_type().is_file() {
             continue;
         }
         let path = entry.path().to_string_lossy().to_string();
         let fname = entry.file_name().to_string_lossy().to_string();
-        if fname.starts_with("test_") && fname.ends_with(".py")
-            || fname.ends_with("_test.py")
-        {
+        if fname.starts_with("test_") && fname.ends_with(".py") || fname.ends_with("_test.py") {
             tests.push(serde_json::json!({
                 "node_id": path,
                 "suite_kind": "unit",
@@ -96,7 +96,10 @@ fn cmd_discover() -> serde_json::Value {
 fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
     let params = &cmd["params"];
     let changed_files: Vec<String> = match params["changed_files"].as_array() {
-        Some(arr) => arr.iter().filter_map(|v| v.as_str().map(String::from)).collect(),
+        Some(arr) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect(),
         None => return json_err("missing 'params.changed_files'"),
     };
 
@@ -106,10 +109,13 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
     // Collect all test nodes mapped by file
     let discover_all = cmd_discover();
     let tests_by_file = if let Some(results) = discover_all["result"].as_array() {
-        let mut map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+        let mut map: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
         for t in results {
             if let (Some(node_id), Some(file)) = (t["node_id"].as_str(), t["file"].as_str()) {
-                map.entry(file.to_string()).or_default().push(node_id.to_string());
+                map.entry(file.to_string())
+                    .or_default()
+                    .push(node_id.to_string());
             }
         }
         map
@@ -141,9 +147,7 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
         }
     }
 
-    let candidates: Vec<String> = tests_by_file.values()
-        .flat_map(|v| v.clone())
-        .collect();
+    let candidates: Vec<String> = tests_by_file.values().flat_map(|v| v.clone()).collect();
 
     // Return flat response with `ok:true` at top level
     serde_json::json!({
@@ -188,7 +192,10 @@ fn parse_python_imports(content: &str) -> Vec<String> {
 fn cmd_fingerprint(cmd: &serde_json::Value) -> serde_json::Value {
     let params = &cmd["params"];
     let files: Vec<String> = match params["files"].as_array() {
-        Some(arr) => arr.iter().filter_map(|v| v.as_str().map(String::from)).collect(),
+        Some(arr) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect(),
         None => return json_err("missing 'params.files'"),
     };
 

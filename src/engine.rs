@@ -5,8 +5,8 @@
 
 use ascent::{ascent, Dual};
 
-use crate::store::Store;
 use crate::change::ChangeSet;
+use crate::store::Store;
 
 /// Origin of a dependency edge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -92,16 +92,16 @@ impl<'a> Engine<'a> {
     pub fn select(&self, delta: &ChangeSet) -> miette::Result<Selection> {
         let ctx = self.store.load_selection_context(delta)?;
 
-        let mut prog = AscentProgram::default();
-
-        // Load EDB facts from the store context
-        prog.changed = ctx.changed.iter().map(|&c| (c,)).collect();
-        prog.unresolved = ctx.unresolved.iter().map(|&c| (c,)).collect();
-        prog.cu_dep = ctx.cu_deps.clone();
-        prog.test_dep = ctx.test_deps.clone();
-        prog.always_run = ctx.always_run.iter().map(|&t| (t,)).collect();
-        prog.comp_fallback = ctx.comp_fallback.iter().map(|&k| (k,)).collect();
-        prog.test_comp = ctx.test_comp.clone();
+        let mut prog = AscentProgram {
+            changed: ctx.changed.iter().map(|&c| (c,)).collect(),
+            unresolved: ctx.unresolved.iter().map(|&c| (c,)).collect(),
+            cu_dep: ctx.cu_deps.clone(),
+            test_dep: ctx.test_deps.clone(),
+            always_run: ctx.always_run.iter().map(|&t| (t,)).collect(),
+            comp_fallback: ctx.comp_fallback.iter().map(|&k| (k,)).collect(),
+            test_comp: ctx.test_comp.clone(),
+            ..Default::default()
+        };
 
         // Run the Ascent program
         prog.run();
@@ -110,25 +110,38 @@ impl<'a> Engine<'a> {
         let mut affected = Vec::new();
 
         for &(t,) in &prog.affected {
-            let conf = prog.test_conf.iter()
+            let conf = prog
+                .test_conf
+                .iter()
                 .find(|&&(tid, _)| tid == t)
                 .map(|&(_, c)| c as f64 / ONE as f64)
                 .unwrap_or(0.0);
 
-            let dist = prog.test_dist.iter()
+            let dist = prog
+                .test_dist
+                .iter()
                 .find(|&&(tid, _)| tid == t)
                 .map(|&(_, Dual(d))| d);
 
-            let witness: Vec<WitnessEdge> = prog.test_pred.iter()
+            let witness: Vec<WitnessEdge> = prog
+                .test_pred
+                .iter()
                 .filter(|&&(tid, _, _)| tid == t)
-                .map(|&(_, c, o)| WitnessEdge { content_unit: c, origin: o })
+                .map(|&(_, c, o)| WitnessEdge {
+                    content_unit: c,
+                    origin: o,
+                })
                 .collect();
 
             affected.push(SelectedTest {
                 id: t,
                 confidence: conf,
                 distance: dist,
-                witness: if witness.is_empty() { None } else { Some(witness) },
+                witness: if witness.is_empty() {
+                    None
+                } else {
+                    Some(witness)
+                },
             });
         }
 

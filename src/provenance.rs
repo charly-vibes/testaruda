@@ -35,10 +35,18 @@ pub struct BooleanSemiring;
 
 impl ProvenanceSemiring for BooleanSemiring {
     type Element = bool;
-    fn zero() -> bool { false }
-    fn one() -> bool { true }
-    fn add(a: &bool, b: &bool) -> bool { *a || *b }
-    fn mul(a: &bool, b: &bool) -> bool { *a && *b }
+    fn zero() -> bool {
+        false
+    }
+    fn one() -> bool {
+        true
+    }
+    fn add(a: &bool, b: &bool) -> bool {
+        *a || *b
+    }
+    fn mul(a: &bool, b: &bool) -> bool {
+        *a && *b
+    }
 }
 
 /// Viterbi semiring (max, ×, 0, 1) for confidence
@@ -47,10 +55,18 @@ pub struct ViterbiSemiring;
 
 impl ProvenanceSemiring for ViterbiSemiring {
     type Element = f64;
-    fn zero() -> f64 { 0.0 }
-    fn one() -> f64 { 1.0 }
-    fn add(a: &f64, b: &f64) -> f64 { a.max(*b) }
-    fn mul(a: &f64, b: &f64) -> f64 { a * b }
+    fn zero() -> f64 {
+        0.0
+    }
+    fn one() -> f64 {
+        1.0
+    }
+    fn add(a: &f64, b: &f64) -> f64 {
+        a.max(*b)
+    }
+    fn mul(a: &f64, b: &f64) -> f64 {
+        a * b
+    }
 }
 
 /// Tropical semiring (min, +, ∞, 0) for distance
@@ -59,10 +75,18 @@ pub struct TropicalSemiring;
 
 impl ProvenanceSemiring for TropicalSemiring {
     type Element = u32;
-    fn zero() -> u32 { u32::MAX }
-    fn one() -> u32 { 0 }
-    fn add(a: &u32, b: &u32) -> u32 { (*a).min(*b) }
-    fn mul(a: &u32, b: &u32) -> u32 { a.saturating_add(*b) }
+    fn zero() -> u32 {
+        u32::MAX
+    }
+    fn one() -> u32 {
+        0
+    }
+    fn add(a: &u32, b: &u32) -> u32 {
+        (*a).min(*b)
+    }
+    fn mul(a: &u32, b: &u32) -> u32 {
+        a.saturating_add(*b)
+    }
 }
 
 #[cfg(test)]

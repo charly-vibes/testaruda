@@ -2,11 +2,11 @@
 //!
 //! See TIA-STORE-001 through TIA-STORE-005.
 
-use std::path::{Path, PathBuf};
 use rusqlite::Connection;
+use std::path::{Path, PathBuf};
 
-use crate::engine::Origin;
 use crate::change::ChangeSet;
+use crate::engine::Origin;
 
 /// The store holds the dependency graph, test history, and run payloads.
 pub struct Store {
@@ -46,7 +46,11 @@ impl Store {
         let conn = Connection::open(&db_path)
             .map_err(|e| miette::miette!("Failed to open store database: {}", e))?;
 
-        Ok(Self { conn, _db_path: db_path, _blob_dir: blob_dir })
+        Ok(Self {
+            conn,
+            _db_path: db_path,
+            _blob_dir: blob_dir,
+        })
     }
 
     /// Initialize the store schema.
@@ -125,9 +129,10 @@ impl Store {
             test_comp: Vec::new(),
         };
 
-        let mut stmt = self.conn.prepare(
-            "SELECT id, fingerprint FROM content_units WHERE component = ?1 AND path = ?2"
-        ).map_err(|e| miette::miette!("Query prep failed: {}", e))?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, fingerprint FROM content_units WHERE component = ?1 AND path = ?2")
+            .map_err(|e| miette::miette!("Query prep failed: {}", e))?;
 
         for path in &delta.files {
             let component = "default";
@@ -144,9 +149,7 @@ impl Store {
                 Ok((id, fingerprint))
             });
             match (result, current_fp) {
-                (Ok((id, stored_fp)), Ok(fp))
-                    if stored_fp == "unknown" || stored_fp != fp =>
-                {
+                (Ok((id, stored_fp)), Ok(fp)) if stored_fp == "unknown" || stored_fp != fp => {
                     // Cold-start (stored_fp == "unknown"): first observed content unit
                     // with no prior real fingerprint → unresolved per TIA-CHG-009
                     if stored_fp == "unknown" {
@@ -157,10 +160,12 @@ impl Store {
                     }
                     // Update stored fingerprint (even for cold-start: record the
                     // real fingerprint so next invocation knows it's not unknown)
-                    self.conn.execute(
-                        "UPDATE content_units SET fingerprint = ?1 WHERE id = ?2",
-                        rusqlite::params![fp, id],
-                    ).map_err(|e| miette::miette!("Failed to update fingerprint: {}", e))?;
+                    self.conn
+                        .execute(
+                            "UPDATE content_units SET fingerprint = ?1 WHERE id = ?2",
+                            rusqlite::params![fp, id],
+                        )
+                        .map_err(|e| miette::miette!("Failed to update fingerprint: {}", e))?;
                 }
                 (Ok((_id, _stored_fp)), Ok(_fp)) => {
                     // Fingerprint matches → unchanged, skip this file
@@ -172,55 +177,68 @@ impl Store {
                 }
                 (Err(_), Ok(fp)) => {
                     // New content unit: create and store fingerprint
-                    let id = self.ensure_content_unit(component, path, None, "source")
+                    let id = self
+                        .ensure_content_unit(component, path, None, "source")
                         .map_err(|e| miette::miette!("Failed to create content unit: {}", e))?;
-                    self.conn.execute(
-                        "UPDATE content_units SET fingerprint = ?1 WHERE id = ?2",
-                        rusqlite::params![fp, id],
-                    ).map_err(|e| miette::miette!("Failed to set fingerprint: {}", e))?;
+                    self.conn
+                        .execute(
+                            "UPDATE content_units SET fingerprint = ?1 WHERE id = ?2",
+                            rusqlite::params![fp, id],
+                        )
+                        .map_err(|e| miette::miette!("Failed to set fingerprint: {}", e))?;
                     ctx.unresolved.push(id); // Cold-start per TIA-CHG-009
                 }
                 (Err(_), Err(_)) => {
                     // Neither in store nor readable — create placeholder
-                    let id = self.ensure_content_unit(component, path, None, "source")
+                    let id = self
+                        .ensure_content_unit(component, path, None, "source")
                         .map_err(|e| miette::miette!("Failed to create content unit: {}", e))?;
                     ctx.unresolved.push(id);
                 }
             }
         }
 
-        let mut edge_stmt = self.conn.prepare(
-            "SELECT de.test_item_id, de.content_unit_id, de.origin, de.k_value
+        let mut edge_stmt = self
+            .conn
+            .prepare(
+                "SELECT de.test_item_id, de.content_unit_id, de.origin, de.k_value
              FROM dependency_edges de
              JOIN reverse_index ri ON ri.content_unit_id = de.content_unit_id
-             WHERE ri.content_unit_id = ?1"
-        ).map_err(|e| miette::miette!("Edge query prep failed: {}", e))?;
+             WHERE ri.content_unit_id = ?1",
+            )
+            .map_err(|e| miette::miette!("Edge query prep failed: {}", e))?;
 
         for &cu_id in ctx.changed.iter().chain(ctx.unresolved.iter()) {
-            let rows = edge_stmt.query_map(rusqlite::params![cu_id], |row| {
-                let test_id: u32 = row.get(0)?;
-                let cu_id_val: u32 = row.get(1)?;
-                let origin_str: String = row.get(2)?;
-                let k_val: u32 = row.get(3)?;
-                let origin = match origin_str.as_str() {
-                    "static" => Origin::Static,
-                    "runtime" => Origin::Runtime,
-                    "manual" => Origin::Manual,
-                    _ => Origin::Static,
-                };
-                Ok((test_id, cu_id_val, origin, k_val))
-            }).map_err(|e| miette::miette!("Edge query failed: {}", e))?;
+            let rows = edge_stmt
+                .query_map(rusqlite::params![cu_id], |row| {
+                    let test_id: u32 = row.get(0)?;
+                    let cu_id_val: u32 = row.get(1)?;
+                    let origin_str: String = row.get(2)?;
+                    let k_val: u32 = row.get(3)?;
+                    let origin = match origin_str.as_str() {
+                        "static" => Origin::Static,
+                        "runtime" => Origin::Runtime,
+                        "manual" => Origin::Manual,
+                        _ => Origin::Static,
+                    };
+                    Ok((test_id, cu_id_val, origin, k_val))
+                })
+                .map_err(|e| miette::miette!("Edge query failed: {}", e))?;
             for row in rows.flatten() {
                 ctx.test_deps.push(row);
             }
         }
 
-        let mut ar_stmt = self.conn.prepare(
-            "SELECT DISTINCT test_item_id FROM run_history
-             WHERE outcome = 'failed' ORDER BY id DESC LIMIT 1000"
-        ).map_err(|e| miette::miette!("Always-run query failed: {}", e))?;
+        let mut ar_stmt = self
+            .conn
+            .prepare(
+                "SELECT DISTINCT test_item_id FROM run_history
+             WHERE outcome = 'failed' ORDER BY id DESC LIMIT 1000",
+            )
+            .map_err(|e| miette::miette!("Always-run query failed: {}", e))?;
 
-        let rows = ar_stmt.query_map([], |row| row.get::<_, u32>(0))
+        let rows = ar_stmt
+            .query_map([], |row| row.get::<_, u32>(0))
             .map_err(|e| miette::miette!("Always-run exec failed: {}", e))?;
         for row in rows.flatten() {
             ctx.always_run.push(row);
@@ -248,11 +266,18 @@ impl Store {
     }
 
     /// Store discovered test items from an adapter (TIA-ADAPT-004).
-    pub fn store_test_items(&self, adapter: &str, items: &[crate::adapter::TestItem]) -> miette::Result<()> {
-        let mut stmt = self.conn.prepare(
-            "INSERT OR IGNORE INTO test_items (component, adapter, node_id)
-             VALUES (?1, ?2, ?3)"
-        ).map_err(|e| miette::miette!("Failed to prepare insert: {}", e))?;
+    pub fn store_test_items(
+        &self,
+        adapter: &str,
+        items: &[crate::adapter::TestItem],
+    ) -> miette::Result<()> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "INSERT OR IGNORE INTO test_items (component, adapter, node_id)
+             VALUES (?1, ?2, ?3)",
+            )
+            .map_err(|e| miette::miette!("Failed to prepare insert: {}", e))?;
         for item in items {
             stmt.execute(rusqlite::params!["default", adapter, item.node_id])
                 .map_err(|e| miette::miette!("Failed to insert test item: {}", e))?;
@@ -262,11 +287,8 @@ impl Store {
 
     /// Count all test items in the store.
     pub fn test_items_count(&self) -> rusqlite::Result<usize> {
-        self.conn.query_row(
-            "SELECT COUNT(*) FROM test_items",
-            [],
-            |row| row.get(0),
-        )
+        self.conn
+            .query_row("SELECT COUNT(*) FROM test_items", [], |row| row.get(0))
     }
 
     /// Find the project root (git repo root or first ancestor with testaruda.toml).
@@ -278,10 +300,15 @@ impl Store {
     ///
     /// Creates content units for edges and inserts dependency edges into the
     /// dependency_edges and reverse_index tables.
-    pub fn store_static_deps(&self, adapter: &str, deps: &[crate::adapter::DepEdge]) -> miette::Result<()> {
+    pub fn store_static_deps(
+        &self,
+        adapter: &str,
+        deps: &[crate::adapter::DepEdge],
+    ) -> miette::Result<()> {
         for edge in deps {
             // Ensure the content unit (target) exists
-            let cu_id = self.ensure_content_unit("default", &edge.to, None, "source")
+            let cu_id = self
+                .ensure_content_unit("default", &edge.to, None, "source")
                 .map_err(|e| miette::miette!("Failed to create content unit: {}", e))?;
 
             // Find the test item (source) by node_id
@@ -304,11 +331,13 @@ impl Store {
                 ).map_err(|e| miette::miette!("Failed to insert dependency edge: {}", e))?;
 
                 // Also update the reverse index
-                self.conn.execute(
-                    "INSERT OR IGNORE INTO reverse_index (content_unit_id, test_item_id)
+                self.conn
+                    .execute(
+                        "INSERT OR IGNORE INTO reverse_index (content_unit_id, test_item_id)
                      VALUES (?1, ?2)",
-                    rusqlite::params![cu_id, tid],
-                ).map_err(|e| miette::miette!("Failed to update reverse index: {}", e))?;
+                        rusqlite::params![cu_id, tid],
+                    )
+                    .map_err(|e| miette::miette!("Failed to update reverse index: {}", e))?;
             }
         }
         Ok(())
@@ -317,10 +346,12 @@ impl Store {
     /// Update the fingerprint for a content unit identified by path.
     /// Used by adapter fingerprint command integration (TIA-ADAPT-006).
     pub fn update_fingerprint(&self, path: &str, fingerprint: &str) -> miette::Result<()> {
-        self.conn.execute(
-            "UPDATE content_units SET fingerprint = ?1 WHERE path = ?2",
-            rusqlite::params![fingerprint, path],
-        ).map_err(|e| miette::miette!("Failed to update fingerprint: {}", e))?;
+        self.conn
+            .execute(
+                "UPDATE content_units SET fingerprint = ?1 WHERE path = ?2",
+                rusqlite::params![fingerprint, path],
+            )
+            .map_err(|e| miette::miette!("Failed to update fingerprint: {}", e))?;
         Ok(())
     }
 
@@ -329,53 +360,73 @@ impl Store {
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
 
-        let mut stmt = self.conn.prepare(
-            "SELECT id, component, path, symbol, kind FROM content_units"
-        ).map_err(|e| miette::miette!("Graph query failed: {}", e))?;
-        let rows = stmt.query_map([], |row| {
-            Ok(serde_json::json!({
-                "id": row.get::<_, u32>(0)?,
-                "component": row.get::<_, String>(1)?,
-                "path": row.get::<_, String>(2)?,
-                "symbol": row.get::<_, Option<String>>(3)?,
-                "kind": row.get::<_, String>(4)?,
-            }))
-        }).map_err(|e| miette::miette!("Graph exec failed: {}", e))?;
-        for row in rows.flatten() { nodes.push(row); }
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, component, path, symbol, kind FROM content_units")
+            .map_err(|e| miette::miette!("Graph query failed: {}", e))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, u32>(0)?,
+                    "component": row.get::<_, String>(1)?,
+                    "path": row.get::<_, String>(2)?,
+                    "symbol": row.get::<_, Option<String>>(3)?,
+                    "kind": row.get::<_, String>(4)?,
+                }))
+            })
+            .map_err(|e| miette::miette!("Graph exec failed: {}", e))?;
+        for row in rows.flatten() {
+            nodes.push(row);
+        }
 
-        let mut estmt = self.conn.prepare(
-            "SELECT test_item_id, content_unit_id, origin, k_value FROM dependency_edges"
-        ).map_err(|e| miette::miette!("Edge export failed: {}", e))?;
-        let erows = estmt.query_map([], |row| {
-            Ok(serde_json::json!({
-                "from": row.get::<_, u32>(0)?,
-                "to": row.get::<_, u32>(1)?,
-                "origin": row.get::<_, String>(2)?,
-                "k": row.get::<_, u32>(3)?,
-            }))
-        }).map_err(|e| miette::miette!("Edge export exec failed: {}", e))?;
-        for row in erows.flatten() { edges.push(row); }
+        let mut estmt = self
+            .conn
+            .prepare("SELECT test_item_id, content_unit_id, origin, k_value FROM dependency_edges")
+            .map_err(|e| miette::miette!("Edge export failed: {}", e))?;
+        let erows = estmt
+            .query_map([], |row| {
+                Ok(serde_json::json!({
+                    "from": row.get::<_, u32>(0)?,
+                    "to": row.get::<_, u32>(1)?,
+                    "origin": row.get::<_, String>(2)?,
+                    "k": row.get::<_, u32>(3)?,
+                }))
+            })
+            .map_err(|e| miette::miette!("Edge export exec failed: {}", e))?;
+        for row in erows.flatten() {
+            edges.push(row);
+        }
 
         Ok(serde_json::json!({ "nodes": nodes, "edges": edges }))
     }
 
     /// Explain why a test was or was not selected.
-    pub fn explain(&self, test_id: &str, _change: Option<&str>) -> miette::Result<serde_json::Value> {
+    pub fn explain(
+        &self,
+        test_id: &str,
+        _change: Option<&str>,
+    ) -> miette::Result<serde_json::Value> {
         let tid: u32 = test_id.parse().unwrap_or(0);
-        let mut stmt = self.conn.prepare(
-            "SELECT cu.path, de.origin, de.k_value
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT cu.path, de.origin, de.k_value
              FROM dependency_edges de
              JOIN content_units cu ON cu.id = de.content_unit_id
-             WHERE de.test_item_id = ?1"
-        ).map_err(|e| miette::miette!("Explain query failed: {}", e))?;
-        let deps: Vec<_> = stmt.query_map(rusqlite::params![tid], |row| {
-            Ok(serde_json::json!({
-                "path": row.get::<_, String>(0)?,
-                "origin": row.get::<_, String>(1)?,
-                "confidence": row.get::<_, u32>(2)? as f64 / 1_000_000.0,
-            }))
-        }).map_err(|e| miette::miette!("Explain exec failed: {}", e))?
-        .flatten().collect();
+             WHERE de.test_item_id = ?1",
+            )
+            .map_err(|e| miette::miette!("Explain query failed: {}", e))?;
+        let deps: Vec<_> = stmt
+            .query_map(rusqlite::params![tid], |row| {
+                Ok(serde_json::json!({
+                    "path": row.get::<_, String>(0)?,
+                    "origin": row.get::<_, String>(1)?,
+                    "confidence": row.get::<_, u32>(2)? as f64 / 1_000_000.0,
+                }))
+            })
+            .map_err(|e| miette::miette!("Explain exec failed: {}", e))?
+            .flatten()
+            .collect();
         Ok(serde_json::json!({ "test_id": tid, "dependencies": deps }))
     }
 
@@ -390,7 +441,13 @@ impl Store {
         Ok(hash.to_hex().to_string())
     }
 
-    fn ensure_content_unit(&self, component: &str, path: &str, symbol: Option<&str>, kind: &str) -> rusqlite::Result<u32> {
+    fn ensure_content_unit(
+        &self,
+        component: &str,
+        path: &str,
+        symbol: Option<&str>,
+        kind: &str,
+    ) -> rusqlite::Result<u32> {
         self.conn.execute(
             "INSERT OR IGNORE INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -430,8 +487,11 @@ mod tests {
 
         let fp = Store::compute_fingerprint(&path).unwrap();
         // blake3("hello world")
-        assert_eq!(fp.len(), 64,"blake3 hex should be 64 chars");
-        assert!(fp.chars().all(|c| c.is_digit(16)), "blake3 hex should be hex digits");
+        assert_eq!(fp.len(), 64, "blake3 hex should be 64 chars");
+        assert!(
+            fp.chars().all(|c| c.is_ascii_hexdigit()),
+            "blake3 hex should be hex digits"
+        );
 
         // Same content should produce same hash
         let fp2 = Store::compute_fingerprint(&path).unwrap();
@@ -477,18 +537,25 @@ mod tests {
         assert_eq!(ctx.unresolved.len(), 1, "cold-start should be unresolved");
 
         // Verify the fingerprint was updated from 'unknown' to a real hash
-        let fp: String = store.conn.query_row(
-            "SELECT fingerprint FROM content_units WHERE path = ?1",
-            rusqlite::params![abs_path],
-            |row| row.get(0),
-        ).unwrap();
+        let fp: String = store
+            .conn
+            .query_row(
+                "SELECT fingerprint FROM content_units WHERE path = ?1",
+                rusqlite::params![abs_path],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_ne!(fp, "unknown", "fingerprint should be updated from unknown");
         assert_eq!(fp.len(), 64);
 
         // Second selection with same content: should be unchanged (empty Δ)
         let ctx2 = store.load_selection_context(&delta).unwrap();
         assert_eq!(ctx2.changed.len(), 0, "unchanged file should not be in Δ");
-        assert_eq!(ctx2.unresolved.len(), 0, "unchanged file should not be unresolved");
+        assert_eq!(
+            ctx2.unresolved.len(),
+            0,
+            "unchanged file should not be unresolved"
+        );
 
         // Modify the file
         std::fs::write(&file_path, b"fn bar() {}").unwrap();

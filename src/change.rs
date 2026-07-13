@@ -22,9 +22,7 @@ impl ChangeSet {
         files: Option<&str>,
     ) -> miette::Result<Self> {
         if let Some(f) = files {
-            let paths: Vec<String> = f.split(',')
-                .map(|s| s.trim().to_string())
-                .collect();
+            let paths: Vec<String> = f.split(',').map(|s| s.trim().to_string()).collect();
             return Ok(Self {
                 files: paths,
                 base: base.map(String::from),
@@ -69,8 +67,17 @@ impl ChangeSet {
             .lines()
             .filter_map(|l| {
                 let trimmed = l.trim_start();
-                let rest = trimmed.chars().skip(1).collect::<String>().trim().to_string();
-                if rest.is_empty() { None } else { Some(rest) }
+                let rest = trimmed
+                    .chars()
+                    .skip(1)
+                    .collect::<String>()
+                    .trim()
+                    .to_string();
+                if rest.is_empty() {
+                    None
+                } else {
+                    Some(rest)
+                }
             })
             .collect();
 

@@ -65,8 +65,7 @@ fn main() -> miette::Result<()> {
     // Initialize tracing
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
@@ -85,9 +84,19 @@ fn main() -> miette::Result<()> {
             println!("✅ testaruda initialized at {}", project_root.display());
             Ok(())
         }
-        Command::Select { base, head, files, shadow, json } => {
+        Command::Select {
+            base,
+            head,
+            files,
+            shadow,
+            json,
+        } => {
             let store = testaruda::Store::open_default()?;
-            let delta = testaruda::ChangeSet::from_diff(base.as_deref(), head.as_deref(), files.as_deref())?;
+            let delta = testaruda::ChangeSet::from_diff(
+                base.as_deref(),
+                head.as_deref(),
+                files.as_deref(),
+            )?;
 
             // Adapter pipeline: populate store via adapters before selection
             let project_root = find_project_root()?;
@@ -108,7 +117,10 @@ fn main() -> miette::Result<()> {
                 outcome = CiOutcome {
                     code: ci_exit::FULL_RUN,
                     reason: if all_tests_count > 0 {
-                        format!("shadow mode — {} known tests should all run", all_tests_count)
+                        format!(
+                            "shadow mode — {} known tests should all run",
+                            all_tests_count
+                        )
                     } else {
                         "shadow mode — all tests should run".to_string()
                     },
@@ -195,10 +207,13 @@ fn main() -> miette::Result<()> {
             let delta = if let Some(f) = files {
                 testaruda::ChangeSet::from_diff(None, None, Some(&f))?
             } else {
-                testaruda::ChangeSet { files: Vec::new(), base: None, head: None }
+                testaruda::ChangeSet {
+                    files: Vec::new(),
+                    base: None,
+                    head: None,
+                }
             };
-            run_discover_pipeline(&store, &registry, &delta)
-                .map_err(|e| miette::miette!(e))?;
+            run_discover_pipeline(&store, &registry, &delta).map_err(|e| miette::miette!(e))?;
             let count = store.test_items_count().unwrap_or(0);
             println!("\n✅ Discovered {} test items", count);
             Ok(())
@@ -236,8 +251,13 @@ pub fn run_adapter_pipeline(
             // Run discover
             match adapter.discover() {
                 Ok(items) => {
-                    eprintln!("  📋 {} discovered {} test items", adapter.name, items.len());
-                    store.store_test_items(&adapter.name, &items)
+                    eprintln!(
+                        "  📋 {} discovered {} test items",
+                        adapter.name,
+                        items.len()
+                    );
+                    store
+                        .store_test_items(&adapter.name, &items)
                         .map_err(|e| format!("store error: {}", e))?;
                 }
                 Err(e) => {
@@ -247,7 +267,9 @@ pub fn run_adapter_pipeline(
 
             // Run static-deps on changed files for this adapter
             // We pass only the files that match this adapter's extension
-            let adapter_files: Vec<String> = delta.files.iter()
+            let adapter_files: Vec<String> = delta
+                .files
+                .iter()
                 .filter(|f| registry.resolve(f) == Some(binary))
                 .cloned()
                 .collect();
@@ -255,8 +277,13 @@ pub fn run_adapter_pipeline(
             if !adapter_files.is_empty() {
                 match adapter.static_deps(&adapter_files) {
                     Ok(result) => {
-                        eprintln!("  🔗 {} computed {} edges", adapter.name, result.edges.len());
-                        store.store_static_deps(&adapter.name, &result.edges)
+                        eprintln!(
+                            "  🔗 {} computed {} edges",
+                            adapter.name,
+                            result.edges.len()
+                        );
+                        store
+                            .store_static_deps(&adapter.name, &result.edges)
                             .map_err(|e| format!("store error: {}", e))?;
                     }
                     Err(e) => {
@@ -285,7 +312,8 @@ pub fn run_discover_pipeline(
             let name = e.file_name().to_string_lossy();
             name != "target" && name != ".git" && name != "node_modules"
         })
-        .filter_map(|e| e.ok()) {
+        .filter_map(|e| e.ok())
+    {
         if !entry.file_type().is_file() {
             continue;
         }
@@ -306,7 +334,8 @@ pub fn run_discover_pipeline(
             match adapter.discover() {
                 Ok(items) => {
                     eprintln!("  📋 {} found {} tests", adapter.name, items.len());
-                    store.store_test_items(&adapter.name, &items)
+                    store
+                        .store_test_items(&adapter.name, &items)
                         .map_err(|e| format!("store error: {}", e))?;
                 }
                 Err(e) => {
@@ -336,10 +365,10 @@ pub fn find_project_root() -> miette::Result<std::path::PathBuf> {
 /// Exit codes for CI pipeline integration.
 #[allow(dead_code)]
 mod ci_exit {
-    pub const SUCCESS: i32 = 0;   // TIA-CI-001
-    pub const FULL_RUN: i32 = 10;  // TIA-CI-002
-    pub const EMPTY: i32 = 20;     // TIA-CI-003
-    pub const ERROR: i32 = 1;      // TIA-CI-004 (distinct from 10, 20)
+    pub const SUCCESS: i32 = 0; // TIA-CI-001
+    pub const FULL_RUN: i32 = 10; // TIA-CI-002
+    pub const EMPTY: i32 = 20; // TIA-CI-003
+    pub const ERROR: i32 = 1; // TIA-CI-004 (distinct from 10, 20)
 }
 
 /// Classifies a selection result into a CI exit code and reason.
@@ -403,7 +432,7 @@ struct CiPlan<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use testaruda::{Selection, SelectedTest};
+    use testaruda::{SelectedTest, Selection};
 
     #[test]
     fn test_shadow_mode_output() {
@@ -411,14 +440,12 @@ mod tests {
         let sel = Selection {
             changed_count: 1,
             selected_count: 1,
-            tests: vec![
-                SelectedTest {
-                    id: 42,
-                    confidence: 1.0,
-                    distance: Some(0),
-                    witness: None,
-                },
-            ],
+            tests: vec![SelectedTest {
+                id: 42,
+                confidence: 1.0,
+                distance: Some(0),
+                witness: None,
+            }],
         };
         // In shadow mode, the outcome should still report the actual exit code
         let outcome = CiOutcome::from_selection(&sel);
@@ -430,14 +457,12 @@ mod tests {
         let sel = Selection {
             changed_count: 2,
             selected_count: 2,
-            tests: vec![
-                SelectedTest {
-                    id: 1,
-                    confidence: 1.0,
-                    distance: Some(0),
-                    witness: None,
-                },
-            ],
+            tests: vec![SelectedTest {
+                id: 1,
+                confidence: 1.0,
+                distance: Some(0),
+                witness: None,
+            }],
         };
         let plan = CiPlan {
             shadow_mode: false,
@@ -516,17 +541,19 @@ mod tests {
         let sel = Selection {
             changed_count: 2,
             selected_count: 2,
-            tests: vec![
-                SelectedTest {
-                    id: 1,
-                    confidence: 0.5,
-                    distance: Some(0),
-                    witness: None,
-                },
-            ],
+            tests: vec![SelectedTest {
+                id: 1,
+                confidence: 0.5,
+                distance: Some(0),
+                witness: None,
+            }],
         };
         let outcome = CiOutcome::from_selection(&sel);
-        assert_eq!(outcome.exit_code(), ci_exit::FULL_RUN, "low confidence → 10");
+        assert_eq!(
+            outcome.exit_code(),
+            ci_exit::FULL_RUN,
+            "low confidence → 10"
+        );
     }
 
     #[test]
