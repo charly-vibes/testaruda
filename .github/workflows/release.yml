@@ -1,3 +1,13 @@
+# Release workflow — build cross-platform binaries and publish a GitHub release
+#
+# Triggered by pushing a version tag (e.g., `git tag v0.1.0 && git push --tags`).
+# Creates a GitHub Release with pre-built binaries for Linux, macOS, and Windows,
+# then auto-updates the homebrew-charly tap formula and scoop-charly bucket manifest.
+#
+# Required secrets:
+#   GITHUB_TOKEN       - automatically provided by GitHub Actions
+#   TAP_GITHUB_TOKEN   - PAT with repo write access to homebrew-charly and scoop-charly
+
 name: Release
 
 on:
@@ -20,57 +30,184 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-gnu
+          targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: linux
+
+      - name: Install aarch64 cross-compile toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Build x86_64 Linux
-        run: cargo build --release --locked
+        run: cargo build --release --locked --target x86_64-unknown-linux-gnu
 
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
+      - name: Build aarch64 Linux
+        run: cargo build --release --locked --target aarch64-unknown-linux-gnu
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+
+      - name: Stage binaries
+        run: |
+          mkdir -p bins/linux_amd64 bins/linux_arm64
+          for bin in testaruda testaruda-adapter-rust testaruda-adapter-python; do
+            cp "target/x86_64-unknown-linux-gnu/release/${bin}" "bins/linux_amd64/${bin}"
+            cp "target/aarch64-unknown-linux-gnu/release/${bin}" "bins/linux_arm64/${bin}"
+          done
+
+      - uses: actions/upload-artifact@v4
         with:
-          name: testaruda-x86_64-linux
-          path: target/release/testaruda
+          name: bins-linux
+          path: bins/
+          retention-days: 1
 
-  build-macos:
+  build-darwin:
     name: Build macOS
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
 
       - uses: Swatinem/rust-cache@v2
-
-      - name: Build macOS
-        run: cargo build --release --locked
-
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
         with:
-          name: testaruda-x86_64-macos
-          path: target/release/testaruda
+          key: darwin
 
-  create-release:
-    name: Create Release
-    needs: [build-linux, build-macos]
-    runs-on: ubuntu-latest
+      - name: Build x86_64 macOS
+        run: cargo build --release --locked --target x86_64-apple-darwin
+
+      - name: Build aarch64 macOS
+        run: cargo build --release --locked --target aarch64-apple-darwin
+
+      - name: Stage binaries
+        run: |
+          mkdir -p bins/darwin_amd64 bins/darwin_arm64
+          for bin in testaruda testaruda-adapter-rust testaruda-adapter-python; do
+            cp "target/x86_64-apple-darwin/release/${bin}" "bins/darwin_amd64/${bin}"
+            cp "target/aarch64-apple-darwin/release/${bin}" "bins/darwin_arm64/${bin}"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bins-darwin
+          path: bins/
+          retention-days: 1
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-
-      - name: Create release archive
-        run: |
-          mkdir dist
-          cp testaruda-x86_64-linux/testaruda dist/testaruda-linux
-          cp testaruda-x86_64-macos/testaruda dist/testaruda-macos
-          cd dist && sha256sum * > SHA256SUMS
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          files: dist/*
-          generate_release_notes: true
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows
+
+      - name: Build x86_64 Windows
+        run: cargo build --release --locked --target x86_64-pc-windows-msvc
+
+      - name: Stage binaries
+        shell: bash
+        run: |
+          mkdir -p bins/windows_amd64
+          for bin in testaruda testaruda-adapter-rust testaruda-adapter-python; do
+            cp "target/x86_64-pc-windows-msvc/release/${bin}.exe" "bins/windows_amd64/${bin}.exe"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bins-windows
+          path: bins/
+          retention-days: 1
+
+  publish:
+    name: Publish Release
+    needs: [build-linux, build-darwin, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bins-*
+          path: bins/
+          merge-multiple: true
+
+      - name: Package archives and checksums
+        id: pkg
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          mkdir -p dist
+
+          for plat in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
+            tar -czf "dist/testaruda_${VERSION}_${plat}.tar.gz" \
+              -C "bins/${plat}" testaruda testaruda-adapter-rust testaruda-adapter-python
+          done
+
+          (cd bins/windows_amd64 && \
+           zip "../../dist/testaruda_${VERSION}_windows_amd64.zip" \
+             testaruda.exe testaruda-adapter-rust.exe testaruda-adapter-python.exe)
+
+          cd dist && sha256sum *.tar.gz *.zip > checksums.txt
+
+      - name: Create GitHub release
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${{ steps.pkg.outputs.version }}"
+          PRERELEASE=""
+          [[ "${TAG}" == *-* ]] && PRERELEASE="--prerelease"
+          gh release create "${TAG}" \
+            --title "${TAG}" \
+            --generate-notes \
+            $PRERELEASE \
+            dist/*.tar.gz \
+            dist/*.zip \
+            dist/checksums.txt
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Homebrew tap
+        env:
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${{ steps.pkg.outputs.version }}"
+          git clone "https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/charly-vibes/homebrew-charly.git" /tmp/tap
+          python3 scripts/update-homebrew.py \
+            /tmp/tap/Formula/testaruda.rb \
+            "${VERSION}" "${TAG}" dist/checksums.txt
+          cd /tmp/tap
+          git config user.email "github-actions@github.com"
+          git config user.name "GitHub Actions"
+          git add Formula/testaruda.rb
+          git diff --staged --quiet || git commit -m "Update testaruda to ${VERSION}"
+          git push
+
+      - name: Update Scoop bucket
+        env:
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${{ steps.pkg.outputs.version }}"
+          git clone "https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/charly-vibes/scoop-charly.git" /tmp/scoop
+          python3 scripts/update-scoop.py \
+            /tmp/scoop/bucket/testaruda.json \
+            "${VERSION}" "${TAG}" dist/checksums.txt
+          cd /tmp/scoop
+          git config user.email "github-actions@github.com"
+          git config user.name "GitHub Actions"
+          git add bucket/testaruda.json
+          git diff --staged --quiet || git commit -m "Update testaruda to ${VERSION}"
+          git push

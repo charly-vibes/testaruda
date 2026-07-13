@@ -16,11 +16,11 @@ Initialize the store and configuration in the current project.
 testaruda init
 ```
 
-Creates a `.testaruda/` directory with the SQLite database schema.
+Creates `.testaruda/store.db` (SQLite schema) and `testaruda.toml` (default adapter config).
 
 ### `select`
 
-Select affected tests from a code change.
+Select affected tests from a code change. Runs the **adapter pipeline** (discovers tests, computes static dependencies) before running the engine query.
 
 ```
 testaruda select [OPTIONS]
@@ -31,6 +31,8 @@ testaruda select [OPTIONS]
 | `--base <REF>` | Base revision (git ref) |
 | `--head <REF>` | Head revision (git ref) |
 | `--files <LIST>` | Explicit changed-file list (comma-separated) |
+| `--shadow` | Shadow mode (TIA-CI-007): compute but signal full run |
+| `--json` | Emit machine-readable `CiPlan` JSON (TIA-CI-006) |
 
 If no options are provided, uses uncommitted working tree changes.
 
@@ -38,9 +40,22 @@ If no options are provided, uses uncommitted working tree changes.
 
 | Code | Meaning |
 |------|---------|
-| 0 | Selection computed — run selected set |
-| 10 | Low confidence / fallback — run all tests |
-| 20 | No tests affected — safe to skip |
+| 0 | Selection complete — run the selected tests |
+| 10 | Low confidence or shadow mode — run all tests |
+| 20 | Empty selection — safe to skip |
+| 1+ | Error (distinct from 10 and 20) |
+
+### `discover`
+
+Discover tests via configured adapters. Scans the project for test files and stores them in the database.
+
+```
+testaruda discover [--files <LIST>]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--files <LIST>` | Scope discovery to specific files (comma-separated) |
 
 ### `ingest`
 
@@ -50,7 +65,7 @@ Ingest test run results to update the dependency model.
 testaruda ingest <PATH>
 ```
 
-Where `<PATH>` is a JSON file with run results.
+Where `<PATH>` is a JSON file with run results (`{"run_id": "...", "tests": [...]}`).
 
 ### `graph`
 
@@ -70,7 +85,7 @@ testaruda explain <TEST_ID> [--change <REF>]
 
 ### `oracle`
 
-Run Soufflé oracle for cross-validation.
+Run Soufflé Datalog oracle for cross-validation.
 
 ```
 testaruda oracle --program <PATH>
