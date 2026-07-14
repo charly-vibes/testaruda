@@ -364,23 +364,108 @@ fn main() -> miette::Result<()> {
 
 // ===== Adapter Pipeline =====
 
-/// Populate store from adapters: run discover on all files in the workspace,
-/// then run static-deps on changed files.
+/// Populate store from adapters: run discover + static-deps on the full project
+/// tree, then process any changed files from the delta.
+///
+/// Previously, only changed files were processed, leaving the store's dependency
+/// graph incomplete on first invocation (TIA-ADAPT-004, TIA-ADAPT-005).
 pub fn run_adapter_pipeline(
     store: &testaruda::Store,
     registry: &testaruda::adapter::AdapterRegistry,
     delta: &testaruda::ChangeSet,
 ) -> std::result::Result<(), String> {
-    // Step 1: Run discover on all files that have registered adapters
-    // Use a broad scan — any extension we have a registered adapter for
-    let mut seen_adapters = std::collections::HashSet::new();
+    // Step 1: Walk the project tree to find all files matching registered adapters
+    let mut adapter_files: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
 
-    // For the changed files, resolve adapters and run discover
+    for entry in walkdir::WalkDir::new(".")
+        .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy();
+            name != "target"
+                && name != ".git"
+                && name != "node_modules"
+                && name != ".venv"
+                && name != "venv"
+                && name != "__pycache__"
+                && name != ".mypy_cache"
+                && name != ".pytest_cache"
+                && name != "build"
+                && name != "dist"
+                && name != ".tox"
+        })
+        .filter_map(|e| e.ok())
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path().to_string_lossy().to_string();
+        let clean_path = path.strip_prefix("./").unwrap_or(&path);
+        if let Some(binary) = registry.resolve(clean_path) {
+            adapter_files
+                .entry(binary.to_string())
+                .or_default()
+                .push(clean_path.to_string());
+        }
+    }
+
+    // Step 2: For each adapter, run discover + static-deps on all files
+    for (binary, files) in &adapter_files {
+        let mut adapter = match testaruda::adapter::AdapterIO::spawn(binary, &[], None) {
+            Ok(a) => a,
+            Err(e) => {
+                eprintln!("  ⚠️  Failed to spawn {}: {}", binary, e);
+                continue;
+            }
+        };
+
+        // Run discover (TIA-ADAPT-004)
+        match adapter.discover() {
+            Ok(items) => {
+                eprintln!(
+                    "  📋 {} discovered {} test items",
+                    adapter.name,
+                    items.len()
+                );
+                store
+                    .store_test_items(&adapter.name, &items)
+                    .map_err(|e| format!("store error: {}", e))?;
+            }
+            Err(e) => {
+                eprintln!("  ⚠️  Discover failed for {}: {}", binary, e);
+            }
+        }
+
+        // Run static-deps on ALL files for this adapter (not just changed files)
+        // This builds the full import graph so the store has complete dependency
+        // data for any file that might be changed in future selections.
+        match adapter.static_deps(files) {
+            Ok(result) => {
+                eprintln!(
+                    "  🔗 {} computed {} edges from {} files",
+                    adapter.name,
+                    result.edges.len(),
+                    files.len()
+                );
+                store
+                    .store_static_deps(&adapter.name, &result.edges)
+                    .map_err(|e| format!("store error: {}", e))?;
+            }
+            Err(e) => {
+                eprintln!("  ⚠️  Static-deps failed for {}: {}", binary, e);
+            }
+        }
+    }
+
+    // Step 3: Also process any changed files that aren't already covered
+    // (e.g., files with no registered adapter, or files in directories
+    // that were excluded from the full walk)
     for path in &delta.files {
         if let Some(binary) = registry.resolve(path) {
-            if !seen_adapters.insert(binary.to_string()) {
-                continue; // already ran this adapter
+            if adapter_files.contains_key(binary) {
+                continue; // already processed in the full walk
             }
+            // Edge case: a changed file for an adapter not seen in the full walk
             let mut adapter = match testaruda::adapter::AdapterIO::spawn(binary, &[], None) {
                 Ok(a) => a,
                 Err(e) => {
@@ -388,49 +473,15 @@ pub fn run_adapter_pipeline(
                     continue;
                 }
             };
-
-            // Run discover
-            match adapter.discover() {
-                Ok(items) => {
-                    eprintln!(
-                        "  📋 {} discovered {} test items",
-                        adapter.name,
-                        items.len()
-                    );
-                    store
-                        .store_test_items(&adapter.name, &items)
-                        .map_err(|e| format!("store error: {}", e))?;
-                }
-                Err(e) => {
-                    eprintln!("  ⚠️  Discover failed for {}: {}", binary, e);
-                }
+            if let Ok(items) = adapter.discover() {
+                store
+                    .store_test_items(&adapter.name, &items)
+                    .map_err(|e| format!("store error: {}", e))?;
             }
-
-            // Run static-deps on changed files for this adapter
-            // We pass only the files that match this adapter's extension
-            let adapter_files: Vec<String> = delta
-                .files
-                .iter()
-                .filter(|f| registry.resolve(f) == Some(binary))
-                .cloned()
-                .collect();
-
-            if !adapter_files.is_empty() {
-                match adapter.static_deps(&adapter_files) {
-                    Ok(result) => {
-                        eprintln!(
-                            "  🔗 {} computed {} edges",
-                            adapter.name,
-                            result.edges.len()
-                        );
-                        store
-                            .store_static_deps(&adapter.name, &result.edges)
-                            .map_err(|e| format!("store error: {}", e))?;
-                    }
-                    Err(e) => {
-                        eprintln!("  ⚠️  Static-deps failed for {}: {}", binary, e);
-                    }
-                }
+            if let Ok(result) = adapter.static_deps(&[path.clone()]) {
+                store
+                    .store_static_deps(&adapter.name, &result.edges)
+                    .map_err(|e| format!("store error: {}", e))?;
             }
         }
     }
