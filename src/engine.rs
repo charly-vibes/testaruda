@@ -56,6 +56,8 @@ ascent! {
     relation test_comp(u32, u32);
     /// Quarantined tests (TIA-SAFE-010)
     relation quarantined(u32);
+    /// Invocation-level quality multiplier in ppm (TIA-CONF-002)
+    relation invocation_quality(u32);
 
     // ===== Boolean selection = reverse reachability (ARCH-004/005, SEL-001) =====
 
@@ -72,11 +74,13 @@ ascent! {
     affected(t) <-- comp_fallback(k), test_comp(t, k);      // fallback
 
     // ===== Confidence (Viterbi: lub = max, product along path) =====
+    // Invocation-level quality factor multiplies the base confidence
+    // (TIA-CONF-002: effective confidence reflects dependency evidence quality).
 
     lattice impact_conf(u32, u32);
     lattice test_conf(u32, u32);
-    impact_conf(c, ONE) <-- changed(c);
-    impact_conf(c, ONE) <-- unresolved(c);
+    impact_conf(c, q) <-- changed(c), invocation_quality(q);
+    impact_conf(c, q) <-- unresolved(c), invocation_quality(q);
     impact_conf(a, ((*w as u64 * *d as u64) / ONE as u64) as u32) <-- cu_dep(a, b, _, w), impact_conf(b, d);
     test_conf(t, ((*w as u64 * *d as u64) / ONE as u64) as u32) <-- test_dep(t, c, _, w), impact_conf(c, d);
     test_conf(t, ONE) <-- always_run(t);
@@ -134,20 +138,88 @@ impl<'a> Engine<'a> {
         ordering: TestOrdering,
     ) -> miette::Result<Selection> {
 
+        let mut comp_fallback_start: Vec<(u32,)> = ctx.comp_fallback.iter().map(|&k| (k,)).collect();
+
+        // Build the initial Ascent program. `comp_fallback` may be extended
+        // by the confidence floor loop below (TIA-SAFE-002, TIA-SAFE-003).
         let mut prog = AscentProgram {
             changed: ctx.changed.iter().map(|&c| (c,)).collect(),
             unresolved: ctx.unresolved.iter().map(|&c| (c,)).collect(),
             cu_dep: ctx.cu_deps.clone(),
             test_dep: ctx.test_deps.clone(),
             always_run: ctx.always_run.iter().map(|&t| (t,)).collect(),
-            comp_fallback: ctx.comp_fallback.iter().map(|&k| (k,)).collect(),
+            comp_fallback: comp_fallback_start.clone(),
             test_comp: ctx.test_comp.clone(),
             quarantined: ctx.quarantined.iter().map(|&t| (t,)).collect(),
+            invocation_quality: vec![(ctx.invocation_quality,)],
             ..Default::default()
         };
 
         // Run the Ascent program
         prog.run();
+
+        // ===== Confidence floor & fallback (TIA-SAFE-002, TIA-SAFE-003) =====
+        // After the first run, check if any component has reachability-selected
+        // tests whose min confidence is below the configured threshold. If so,
+        // add that component to comp_fallback and re-run.
+        //
+        // Always-run-only components skip fallback (TIA-SAFE-002 second clause).
+
+        // Collect per-component reachability-selected test confidences.
+        // Always-run tests are excluded from the floor check.
+        let always_run_ids: std::collections::HashSet<u32> =
+            ctx.always_run.iter().copied().collect();
+        let mut comp_confs: std::collections::HashMap<u32, Vec<f64>> =
+            std::collections::HashMap::new();
+        for &(t, c) in &prog.test_conf {
+            if always_run_ids.contains(&t) {
+                continue; // always-run-only component skip (SAFE-002 second clause)
+            }
+            // Only consider reachability-selected tests (those with a dep path)
+            if !prog
+                .test_pred
+                .iter()
+                .any(|&(tid, _, _)| tid == t)
+            {
+                continue; // no witness path → not reachability-selected
+            }
+            if let Some(&(k, _)) = prog.test_comp.iter().find(|&&(tid, _)| tid == t) {
+                let conf = c as f64 / ONE as f64;
+                comp_confs.entry(k).or_default().push(conf);
+            }
+        }
+
+        let mut needs_fallback = Vec::new();
+        let threshold = ctx.confidence_threshold as f64 / ONE as f64;
+        for (comp, confs) in &comp_confs {
+            let min_conf = confs.iter().cloned().fold(f64::MAX, f64::min);
+            if min_conf < threshold {
+                needs_fallback.push(*comp);
+            }
+        }
+
+        // If any components need fallback, re-run with extended comp_fallback
+        if !needs_fallback.is_empty() {
+            for comp in &needs_fallback {
+                if !comp_fallback_start.iter().any(|&(k,)| k == *comp) {
+                    comp_fallback_start.push((*comp,));
+                }
+            }
+            let mut prog2 = AscentProgram {
+                changed: ctx.changed.iter().map(|&c| (c,)).collect(),
+                unresolved: ctx.unresolved.iter().map(|&c| (c,)).collect(),
+                cu_dep: ctx.cu_deps.clone(),
+                test_dep: ctx.test_deps.clone(),
+                always_run: ctx.always_run.iter().map(|&t| (t,)).collect(),
+                comp_fallback: comp_fallback_start.clone(),
+                test_comp: ctx.test_comp.clone(),
+                quarantined: ctx.quarantined.iter().map(|&t| (t,)).collect(),
+                invocation_quality: vec![(ctx.invocation_quality,)],
+                ..Default::default()
+            };
+            prog2.run();
+            prog = prog2;
+        }
 
         // Collect results — iterate over the `affected` relation
         let mut affected: Vec<SelectedTest> = Vec::new();

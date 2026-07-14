@@ -5,10 +5,30 @@ use std::path::Path;
 use serde::Deserialize;
 
 /// Top-level project configuration.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub adapters: AdapterConfig,
+    /// Confidence threshold in [0.0, 1.0] (TIA-CONF-002, TIA-SAFE-002).
+    /// If the minimum Viterbi path confidence across reachability-selected
+    /// tests in a component falls below this threshold, all tests in that
+    /// component are selected (component-scoped fallback).
+    /// Default: 0.5
+    #[serde(default = "default_confidence_threshold")]
+    pub confidence_threshold: f64,
+}
+
+fn default_confidence_threshold() -> f64 {
+    0.5
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            adapters: AdapterConfig::default(),
+            confidence_threshold: default_confidence_threshold(),
+        }
+    }
 }
 
 impl Config {

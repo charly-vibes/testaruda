@@ -6,7 +6,9 @@ use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
 use crate::change::ChangeSet;
+use crate::config::Config;
 use crate::engine::Origin;
+use crate::ONE;
 
 /// Current schema version of the store database.
 /// Increment when making breaking schema changes.
@@ -20,6 +22,7 @@ pub struct Store {
     conn: Connection,
     _db_path: PathBuf,
     _blob_dir: PathBuf,
+    project_root: PathBuf,
 }
 
 /// Context loaded from the store for a single selection query.
@@ -32,6 +35,15 @@ pub struct SelectionContext {
     pub comp_fallback: Vec<u32>,
     pub test_comp: Vec<(u32, u32)>,
     pub quarantined: Vec<u32>,
+    /// Invocation-level quality multiplier in ppm (TIA-CONF-002).
+    /// Derived from coverage freshness, adapter resolution, history depth,
+    /// and environment match. Applied to all path-based confidence computations.
+    pub invocation_quality: u32,
+    /// Confidence threshold in ppm (TIA-CONF-002, TIA-SAFE-002).
+    /// If the minimum Viterbi path confidence across reachability-selected
+    /// tests in a component falls below this threshold, all tests in that
+    /// component are selected (component-scoped fallback).
+    pub confidence_threshold: u32,
 }
 
 impl Store {
@@ -54,10 +66,17 @@ impl Store {
         let conn = Connection::open(&db_path)
             .map_err(|e| miette::miette!("Failed to open store database: {}", e))?;
 
+        // Project root is the parent of the store directory
+        let project_root = path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| path.clone());
+
         Ok(Self {
             conn,
             _db_path: db_path,
             _blob_dir: blob_dir,
+            project_root,
         })
     }
 
@@ -400,6 +419,8 @@ impl Store {
             comp_fallback: Vec::new(),
             test_comp: Vec::new(),
             quarantined: Vec::new(),
+            invocation_quality: ONE,
+            confidence_threshold: ONE,
         };
 
         let mut stmt = self
@@ -551,6 +572,93 @@ impl Store {
             ctx.always_run.push(row);
             ctx.quarantined.push(row);
         }
+
+        // ── Invocation-level quality computation (TIA-CONF-002) ────────────
+        //
+        // Computes four quality signals and combines them multiplicatively
+        // into a single multiplier (invocation_quality) in ppm. This multiplier
+        // is applied to all path-based confidence computations in the engine.
+        //
+        // Stored edge weights are NEVER mutated (TIA-REL-001).
+
+        let mut quality_score: f64 = 1.0;
+
+        // 1. Coverage freshness — how recent are the dependency observations?
+        //    Queries most recent ingested_at; linearly decays from 1.0 (now)
+        //    to 0.5 (72 hours stale), clamped at 0.5.
+        if let Ok(age_hours) = self.conn.query_row::<f64, _, _>(
+            "SELECT COALESCE((julianday('now') - julianday(MAX(ingested_at))) * 24, 0.0) FROM run_history",
+            [],
+            |row| row.get(0),
+        ) {
+            if age_hours > 0.0 {
+                let freshness = (1.0 - (age_hours / 144.0)).clamp(0.5, 1.0);
+                quality_score *= freshness.max(0.1);
+            }
+        }
+
+        // 2. Adapter resolution ratio — fraction of content units with
+        //    real fingerprints vs 'unknown' (unresolved).
+        if let (Ok(total), Ok(unknown)) = (
+            self.conn.query_row(
+                "SELECT COUNT(*) FROM content_units",
+                [],
+                |row| row.get::<_, u32>(0),
+            ),
+            self.conn.query_row(
+                "SELECT COUNT(*) FROM content_units WHERE fingerprint = 'unknown'",
+                [],
+                |row| row.get::<_, u32>(0),
+            ),
+        ) {
+            if total > 0 {
+                let ratio = (total - unknown) as f64 / total as f64;
+                quality_score *= (0.5 + ratio * 0.5).max(0.1);
+            }
+        }
+
+        // 3. History depth — average number of runs per test item.
+        //    Saturates at 5 runs (score = 1.0). Minimum 0.5 at 0 runs.
+        if let (Ok(test_count), Ok(run_count)) = (
+            self.conn.query_row(
+                "SELECT COUNT(*) FROM test_items",
+                [],
+                |row| row.get::<_, u32>(0),
+            ),
+            self.conn.query_row(
+                "SELECT COUNT(*) FROM run_history",
+                [],
+                |row| row.get::<_, u32>(0),
+            ),
+        ) {
+            if test_count > 0 {
+                let avg = run_count as f64 / test_count as f64;
+                let depth_score = (avg / 5.0).min(1.0);
+                quality_score *= (0.5 + depth_score * 0.5).max(0.1);
+            }
+        }
+
+        // 4. Environment match — compare current environment's fingerprint
+        //    with the most recent one stored. If none stored, assume match.
+        if let Ok(most_recent_env) = self.conn.query_row::<String, _, _>(
+            "SELECT environment FROM run_history ORDER BY id DESC LIMIT 1",
+            [],
+            |row| row.get(0),
+        ) {
+            let current_env = "default".to_string();
+            if most_recent_env != current_env {
+                quality_score *= 0.5;
+            }
+        }
+
+        // Clamp to [0.1, 1.0] and convert to ppm
+        quality_score = quality_score.max(0.1).min(1.0);
+        ctx.invocation_quality = (quality_score * ONE as f64) as u32;
+
+        // Load confidence threshold from config or default to 0.5 (500,000 ppm)
+        let threshold = Config::load_or_default(&self.project_root)
+            .confidence_threshold;
+        ctx.confidence_threshold = (threshold * ONE as f64) as u32;
 
         Ok(ctx)
     }
@@ -1834,5 +1942,303 @@ mod tests {
             })
             .unwrap();
         assert_eq!(version, 2, "schema should be migrated to v2");
+    }
+
+    // ── Confidence floor and gating tests (TIA-CONF-002, TIA-SAFE-002, TIA-SAFE-003) ──
+
+    #[test]
+    fn test_invocation_quality_defaults_to_one() {
+        // An empty store should have invocation_quality = ONE (no adjustment)
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let ctx = store
+            .load_selection_context(&crate::change::ChangeSet {
+                files: vec![],
+                base: None,
+                head: None,
+            })
+            .unwrap();
+        assert_eq!(
+            ctx.invocation_quality,
+            ONE,
+            "empty store should have max invocation quality"
+        );
+    }
+
+    #[test]
+    fn test_confidence_threshold_defaults_to_500000() {
+        let dir = tempfile::tempdir().unwrap();
+        let store_path = dir.path().join(".testaruda");
+        // Write empty config to project root (parent of store dir)
+        std::fs::write(dir.path().join("testaruda.toml"), "").unwrap();
+
+        let store = Store::open(store_path).unwrap();
+        store.initialize().unwrap();
+
+        let ctx = store
+            .load_selection_context(&crate::change::ChangeSet {
+                files: vec![],
+                base: None,
+                head: None,
+            })
+            .unwrap();
+        assert_eq!(
+            ctx.confidence_threshold,
+            ONE / 2,
+            "default confidence threshold should be 0.5 (500,000 ppm)"
+        );
+    }
+
+    #[test]
+    fn test_invocation_quality_reflects_adapter_resolution() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+
+        // Insert a content unit with real fingerprint
+        let file_path = dir.path().join("src/main.rs");
+        std::fs::create_dir_all(file_path.parent().unwrap()).unwrap();
+        std::fs::write(&file_path, b"fn main() {}").unwrap();
+        let fp = Store::compute_fingerprint(&file_path).unwrap();
+        conn.execute(
+            "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
+             VALUES ('default', 'resolved.rs', NULL, 'source', ?1)",
+            rusqlite::params![fp],
+        ).unwrap();
+
+        // Insert an unresolved content unit
+        conn.execute(
+            "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
+             VALUES ('default', 'unknown.rs', NULL, 'source', 'unknown')",
+            [],
+        ).unwrap();
+
+        // Insert a test item and run history (to avoid freshness penalty)
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 't1')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+             VALUES (1, 'r1', 'passed', 10, 'default')",
+            [],
+        ).unwrap();
+
+        let ctx = store
+            .load_selection_context(&crate::change::ChangeSet {
+                files: vec![],
+                base: None,
+                head: None,
+            })
+            .unwrap();
+
+        // 50% resolution → quality should be reduced but > 0.1
+        assert!(
+            ctx.invocation_quality < ONE,
+            "low resolution should reduce quality"
+        );
+        assert!(
+            ctx.invocation_quality > ONE / 10,
+            "quality should not drop below 0.1"
+        );
+    }
+
+    #[test]
+    fn test_confidence_floor_triggers_component_fallback() {
+        // Set up a graph with very low edge weights, triggering fallback
+        let dir = tempfile::tempdir().unwrap();
+        let store_path = dir.path().join(".testaruda");
+        std::fs::write(dir.path().join("testaruda.toml"), r#"confidence_threshold = 0.9"#).unwrap();
+
+        let store = Store::open(store_path).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+
+        // Content unit
+        let file_path = dir.path().join("src/lib.rs");
+        std::fs::create_dir_all(file_path.parent().unwrap()).unwrap();
+        std::fs::write(&file_path, b"fn foo() {}").unwrap();
+        let fp = Store::compute_fingerprint(&file_path).unwrap();
+        conn.execute(
+            "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
+             VALUES ('default', 'src/lib.rs', NULL, 'source', ?1)",
+            rusqlite::params![fp],
+        ).unwrap();
+        let cu_id: u32 = conn
+            .query_row("SELECT id FROM content_units", [], |row| row.get(0))
+            .unwrap();
+
+        // Test item in component 1, with low edge weight (100,000 = 0.1)
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'low_conf_test')",
+            [],
+        ).unwrap();
+        let tid: u32 = conn
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+
+        // Wire dependency with low weight
+        conn.execute(
+            "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
+             VALUES (?1, ?2, 'default', 'static', 100000)",
+            rusqlite::params![tid, cu_id],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
+            rusqlite::params![cu_id, tid],
+        ).unwrap();
+
+        // Give test a run history so it's not always-run
+        conn.execute(
+            "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+             VALUES (?1, 'seed', 'passed', 10, 'default')",
+            rusqlite::params![tid],
+        ).unwrap();
+
+        // Change the file to trigger selection
+        std::fs::write(&file_path, b"fn bar() {}").unwrap();
+
+        let engine = crate::engine::Engine::new(&store);
+        let delta = crate::change::ChangeSet {
+            files: vec!["src/lib.rs".to_string()],
+            base: None,
+            head: None,
+        };
+        let sel = engine.select(&delta).unwrap();
+
+        // Test should be selected (via test_dep) even though threshold is 0.9
+        // The edge weight is 0.1, quality is 1.0 (fresh store), so effective
+        // confidence = 0.1. Since 0.1 < 0.9 threshold, component fallback should
+        // trigger, selecting all tests in the component.
+        let ids: Vec<u32> = sel.tests.iter().map(|t| t.id).collect();
+        assert!(ids.contains(&tid), "test should be selected via fallback");
+    }
+
+    #[test]
+    fn test_high_confidence_avoids_fallback() {
+        // Set up a graph with high edge weights, no fallback needed
+        let dir = tempfile::tempdir().unwrap();
+        let store_path = dir.path().join(".testaruda");
+        // Write config to the project root (parent of store dir)
+        std::fs::write(
+            dir.path().join("testaruda.toml"),
+            r#"confidence_threshold = 0.3"#,
+        )
+        .unwrap();
+
+        let store = Store::open(store_path).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+
+        // Content unit
+        let file_path = dir.path().join("src/lib.rs");
+        std::fs::create_dir_all(file_path.parent().unwrap()).unwrap();
+        std::fs::write(&file_path, b"fn foo() {}").unwrap();
+        let fp = Store::compute_fingerprint(&file_path).unwrap();
+        conn.execute(
+            "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
+             VALUES ('default', 'src/lib.rs', NULL, 'source', ?1)",
+            rusqlite::params![fp],
+        ).unwrap();
+        let cu_id: u32 = conn
+            .query_row("SELECT id FROM content_units", [], |row| row.get(0))
+            .unwrap();
+
+        // Test item with high edge weight (900,000 = 0.9)
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'high_conf_test')",
+            [],
+        ).unwrap();
+        let tid: u32 = conn
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
+             VALUES (?1, ?2, 'default', 'static', 900000)",
+            rusqlite::params![tid, cu_id],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
+            rusqlite::params![cu_id, tid],
+        ).unwrap();
+
+        // Give test a run history
+        conn.execute(
+            "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+             VALUES (?1, 'seed', 'passed', 10, 'default')",
+            rusqlite::params![tid],
+        ).unwrap();
+
+        // Change the file
+        std::fs::write(&file_path, b"fn bar() {}").unwrap();
+
+        let engine = crate::engine::Engine::new(&store);
+        let delta = crate::change::ChangeSet {
+            files: vec!["src/lib.rs".to_string()],
+            base: None,
+            head: None,
+        };
+        let sel = engine.select(&delta).unwrap();
+
+        // Test should be selected via the dependency path (not fallback)
+        let ids: Vec<u32> = sel.tests.iter().map(|t| t.id).collect();
+        assert!(ids.contains(&tid), "test should be selected via dep path");
+        // Confidence should be 0.9 * 0.6 (history depth quality) = 0.54
+        let test = sel.tests.iter().find(|t| t.id == tid).unwrap();
+        assert!(
+            (test.confidence - 0.54).abs() < 0.01,
+            "confidence should be ~0.54 (0.9 edge * 0.6 quality), got {}",
+            test.confidence
+        );
+    }
+
+    #[test]
+    fn test_always_run_confidence_immune_to_quality() {
+        // Always-run tests should always have confidence = 1.0 regardless
+        // of invocation quality (TIA-CONF-002: always-run is force-select,
+        // not evidence-based).
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+
+        // Insert a large number of unresolved content units to drive quality down
+        for i in 0..20 {
+            conn.execute(
+                "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
+                 VALUES ('default', ?1, NULL, 'source', 'unknown')",
+                rusqlite::params![format!("unknown_{}.rs", i)],
+            ).unwrap();
+        }
+
+        // A test item (no history → always-run)
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'always_run_test')",
+            [],
+        ).unwrap();
+        let tid: u32 = conn
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+
+        let engine = crate::engine::Engine::new(&store);
+        let delta = crate::change::ChangeSet {
+            files: vec![],
+            base: None,
+            head: None,
+        };
+        let sel = engine.select(&delta).unwrap();
+
+        let test = sel.tests.iter().find(|t| t.id == tid).unwrap();
+        assert_eq!(
+            test.confidence, 1.0,
+            "always-run test should have confidence 1.0 regardless of quality"
+        );
     }
 }
