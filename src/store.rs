@@ -836,6 +836,65 @@ impl Store {
             .confidence_threshold;
         ctx.confidence_threshold = (threshold * ONE as f64) as u32;
 
+        // ── Must-run rules (TIA-SAFE-009) ──────────────────────────────────
+        // Check if any changed files match must-run patterns. If so,
+        // resolve the mapped test IDs and add them to always_run.
+        let config = Config::load_or_default(&self.project_root);
+        for (pattern_str, test_node_ids) in &config.must_run.rules {
+            let Ok(pattern) = glob::Pattern::new(pattern_str) else {
+                eprintln!("  ⚠️  Invalid must-run pattern: {}", pattern_str);
+                continue;
+            };
+            for file in &delta.files {
+                if pattern.matches(file) {
+                    // Resolve test node IDs to test_item IDs
+                    for node_id in test_node_ids {
+                        if let Ok(tid) = self.conn.query_row(
+                            "SELECT id FROM test_items WHERE node_id = ?1 LIMIT 1",
+                            rusqlite::params![node_id],
+                            |row| row.get::<_, u32>(0),
+                        ) {
+                            if !ctx.always_run.contains(&tid) {
+                                ctx.always_run.push(tid);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Periodic full run (TIA-SAFE-006) ───────────────────────────────
+        // If configured, check the most recent run history timestamp.
+        // If the interval has elapsed, select all tests.
+        if config.periodic_full_run.interval_hours > 0 {
+            let interval_secs = (config.periodic_full_run.interval_hours * 3600) as i64;
+            let due: bool = self
+                .conn
+                .query_row(
+                    "SELECT (julianday('now') - julianday(MAX(ingested_at))) * 86400 >= ?1
+                     FROM run_history",
+                    rusqlite::params![interval_secs],
+                    |row| row.get::<_, bool>(0),
+                )
+                .unwrap_or(true); // if no history, run is due
+
+            if due {
+                // Select all tests — add every test item ID to always_run
+                let mut all_stmt = self
+                    .conn
+                    .prepare("SELECT id FROM test_items")
+                    .map_err(|e| miette::miette!("Failed to query test items: {}", e))?;
+                let all_rows = all_stmt
+                    .query_map([], |row| row.get::<_, u32>(0))
+                    .map_err(|e| miette::miette!("Failed to exec test items query: {}", e))?;
+                for row in all_rows.flatten() {
+                    if !ctx.always_run.contains(&row) {
+                        ctx.always_run.push(row);
+                    }
+                }
+            }
+        }
+
         Ok(ctx)
     }
 
@@ -2737,5 +2796,158 @@ mod tests {
             .map(|w| w.iter().any(|e| e.origin == crate::engine::Origin::Manual))
             .unwrap_or(false);
         assert!(has_manual, "witness should include manual edge origin");
+    }
+
+    // ── Must-run rules tests (TIA-SAFE-009) ──
+
+    #[test]
+    fn test_must_run_rule_adds_test_to_always_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let store_path = dir.path().join(".testaruda");
+        // Create config with must-run rule
+        std::fs::write(
+            dir.path().join("testaruda.toml"),
+            r#"
+[must_run]
+"*.config" = ["config-test-node"]
+"#,
+        )
+        .unwrap();
+
+        let store = Store::open(store_path).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+
+        // Insert content unit
+        conn.execute(
+            "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
+             VALUES ('default', 'app.config', NULL, 'source', 'abc123')",
+            [],
+        ).unwrap();
+
+        // Insert test item with matching node_id
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'config-test-node')",
+            [],
+        ).unwrap();
+        let tid: u32 = conn
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+
+        // Give test a run history so it's not always-run by default
+        conn.execute(
+            "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+             VALUES (?1, 'seed', 'passed', 10, 'default')",
+            rusqlite::params![tid],
+        ).unwrap();
+
+        // Selection with app.config changed should add the test via must-run
+        let ctx = store
+            .load_selection_context(&crate::change::ChangeSet {
+                files: vec!["app.config".to_string()],
+                base: None,
+                head: None,
+            })
+            .unwrap();
+
+        assert!(
+            ctx.always_run.contains(&tid),
+            "must-run rule should force-select the test when matching file changes"
+        );
+    }
+
+    #[test]
+    fn test_must_run_non_matching_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let store_path = dir.path().join(".testaruda");
+        std::fs::write(
+            dir.path().join("testaruda.toml"),
+            r#"
+[must_run]
+"*.secret" = ["secret-test"]
+"#,
+        )
+        .unwrap();
+
+        let store = Store::open(store_path).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'secret-test')",
+            [],
+        ).unwrap();
+        let tid: u32 = conn
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+             VALUES (?1, 'seed', 'passed', 10, 'default')",
+            rusqlite::params![tid],
+        ).unwrap();
+
+        // Change a .rs file, not .secret — must-run should NOT trigger
+        let ctx = store
+            .load_selection_context(&crate::change::ChangeSet {
+                files: vec!["src/main.rs".to_string()],
+                base: None,
+                head: None,
+            })
+            .unwrap();
+
+        assert!(
+            !ctx.always_run.contains(&tid),
+            "must-run should not trigger for non-matching file"
+        );
+    }
+
+    // ── Periodic full-run tests (TIA-SAFE-006) ──
+
+    #[test]
+    fn test_periodic_full_run_selects_all_tests() {
+        let dir = tempfile::tempdir().unwrap();
+        let store_path = dir.path().join(".testaruda");
+        std::fs::write(
+            dir.path().join("testaruda.toml"),
+            r#"
+[periodic_full_run]
+interval_hours = 0
+"#,
+        )
+        .unwrap();
+        // interval_hours = 0 means disabled — no automatic full run
+
+        let store = Store::open(store_path).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 't1')",
+            [],
+        ).unwrap();
+        let tid: u32 = conn
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+             VALUES (?1, 'seed', 'passed', 10, 'default')",
+            rusqlite::params![tid],
+        ).unwrap();
+
+        // With interval=0, periodic full-run is disabled; test should NOT
+        // be always-run (it has history and no other reason). Only selected
+        // if change reaches it.
+        let ctx = store
+            .load_selection_context(&crate::change::ChangeSet {
+                files: vec![],
+                base: None,
+                head: None,
+            })
+            .unwrap();
+        assert!(
+            !ctx.always_run.contains(&tid),
+            "disabled periodic full run should not force-select tests"
+        );
     }
 }

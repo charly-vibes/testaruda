@@ -16,6 +16,42 @@ pub struct Config {
     /// Default: 0.5
     #[serde(default = "default_confidence_threshold")]
     pub confidence_threshold: f64,
+    /// Must-run rules (TIA-SAFE-009): path glob patterns mapped to test
+    /// node IDs. When a file matching the pattern changes, the mapped tests
+    /// are force-selected.
+    #[serde(default)]
+    pub must_run: MustRunConfig,
+    /// Periodic full-run configuration (TIA-SAFE-006).
+    #[serde(default)]
+    pub periodic_full_run: PeriodicFullRunConfig,
+}
+
+/// Must-run rules configuration (TIA-SAFE-009).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct MustRunConfig {
+    /// Glob patterns mapped to lists of test node IDs.
+    /// Flattened so TOML looks like:
+    /// ```toml
+    /// [must_run]
+    /// "*.config" = ["config-test"]
+    /// ```
+    #[serde(flatten)]
+    pub rules: std::collections::HashMap<String, Vec<String>>,
+}
+
+/// Periodic full-run configuration (TIA-SAFE-006).
+#[derive(Debug, Clone, Deserialize)]
+pub struct PeriodicFullRunConfig {
+    /// How often (in hours) to run a full test suite, regardless of
+    /// change-based selection. 0 or missing means disabled.
+    #[serde(default)]
+    pub interval_hours: u64,
+}
+
+impl Default for PeriodicFullRunConfig {
+    fn default() -> Self {
+        Self { interval_hours: 0 }
+    }
 }
 
 fn default_confidence_threshold() -> f64 {
@@ -27,6 +63,8 @@ impl Default for Config {
         Self {
             adapters: AdapterConfig::default(),
             confidence_threshold: default_confidence_threshold(),
+            must_run: MustRunConfig::default(),
+            periodic_full_run: PeriodicFullRunConfig::default(),
         }
     }
 }
