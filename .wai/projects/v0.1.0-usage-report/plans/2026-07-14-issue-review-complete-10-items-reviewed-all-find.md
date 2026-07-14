@@ -1,0 +1,1 @@
+Issue review complete: 10 items reviewed, all findings applied. Dependencies wired: hfm blocks dq4+16f, 6j0 blocks bmm+sse, bmm blocks bb8+m2z. Split 6j0 into bug fix (6j0) + config feature (sse). Concrete decisions made on ingest path and import parser approach. All acceptance criteria tightened.
