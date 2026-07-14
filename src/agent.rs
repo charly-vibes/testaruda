@@ -69,6 +69,10 @@ pub struct SelectedTestInfo {
     pub distance: Option<u32>,
     /// Whether this test is in the always-run set.
     pub always_run: bool,
+    /// Whether this test is quarantined (TIA-SAFE-010).
+    /// Quarantined tests are selected-and-run but their
+    /// outcome is excluded from pass/fail trust calculations.
+    pub quarantined: bool,
     /// Reason chain: witness edges explaining why this test was selected.
     pub reason_chain: Vec<ReasonEdge>,
 }
@@ -141,6 +145,7 @@ impl AgentOutput {
                     confidence: t.confidence,
                     distance: t.distance,
                     always_run: t.confidence >= 1.0 && t.distance.is_none(),
+                    quarantined: t.quarantined,
                     reason_chain,
                 }
             })
@@ -288,6 +293,7 @@ mod tests {
                 confidence: 1.0,
                 distance: Some(0),
                 always_run: false,
+                quarantined: false,
                 reason_chain: vec![ReasonEdge {
                     content_unit_id: 1,
                     origin: "static".to_string(),
@@ -323,6 +329,7 @@ mod tests {
                     content_unit: 5,
                     origin: Origin::Runtime,
                 }]),
+                quarantined: false,
             }],
         };
         let mut node_ids = std::collections::HashMap::new();

@@ -116,6 +116,18 @@ fn setup_graph(
     ];
     store.store_static_deps("rust-adapter", &edges).unwrap();
 
+    // Seed a passed run for all tests so no-history always-run doesn't
+    // interfere with the precision assertions (TIA-SAFE-007 always-run is
+    // tested directly in store-level tests)
+    for &tid in &tids {
+        conn.execute(
+            "INSERT OR IGNORE INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)\
+             VALUES (?1, 'seed-run', 'passed', 50, 'default')",
+            rusqlite::params![tid],
+        )
+        .unwrap();
+    }
+
     (cids, tids)
 }
 

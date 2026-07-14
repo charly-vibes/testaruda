@@ -543,6 +543,7 @@ mod tests {
                 confidence: 1.0,
                 distance: Some(0),
                 witness: None,
+                quarantined: false,
             }],
         };
         // In shadow mode, the outcome should still report the actual exit code
@@ -560,6 +561,7 @@ mod tests {
                 confidence: 1.0,
                 distance: Some(0),
                 witness: None,
+                quarantined: false,
             }],
         };
         let plan = CiPlan {
@@ -609,12 +611,14 @@ mod tests {
                     confidence: 1.0,
                     distance: Some(0),
                     witness: None,
+                    quarantined: false,
                 },
                 SelectedTest {
                     id: 2,
                     confidence: 1.0,
                     distance: Some(1),
                     witness: None,
+                    quarantined: false,
                 },
             ],
         };
@@ -644,6 +648,7 @@ mod tests {
                 confidence: 0.5,
                 distance: Some(0),
                 witness: None,
+                quarantined: false,
             }],
         };
         let outcome = CiOutcome::from_selection(&sel);

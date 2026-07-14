@@ -10,7 +10,7 @@ use crate::engine::Origin;
 
 /// Current schema version of the store database.
 /// Increment when making breaking schema changes.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// Name of the internal schema version table.
 const SCHEMA_TABLE: &str = "_schema_version";
@@ -31,6 +31,7 @@ pub struct SelectionContext {
     pub always_run: Vec<u32>,
     pub comp_fallback: Vec<u32>,
     pub test_comp: Vec<(u32, u32)>,
+    pub quarantined: Vec<u32>,
 }
 
 impl Store {
@@ -138,6 +139,7 @@ impl Store {
                 component TEXT NOT NULL,
                 adapter TEXT NOT NULL,
                 node_id TEXT NOT NULL,
+                quarantined INTEGER NOT NULL DEFAULT 0,
                 UNIQUE(component, adapter, node_id)
             );
             CREATE TABLE IF NOT EXISTS dependency_edges (
@@ -231,6 +233,14 @@ impl Store {
             (0, 1) => {
                 // Ensure all tables exist (idempotent)
                 self.create_schema()?;
+            }
+            // v1 → v2: add quarantined column to test_items (TIA-SAFE-010)
+            (1, 2) => {
+                self.conn
+                    .execute_batch(
+                        "ALTER TABLE test_items ADD COLUMN quarantined INTEGER NOT NULL DEFAULT 0;",
+                    )
+                    .map_err(|e| miette::miette!("Failed to add quarantined column: {}", e))?;
             }
             _ => {
                 return Err(miette::miette!(
@@ -389,6 +399,7 @@ impl Store {
             always_run: Vec::new(),
             comp_fallback: Vec::new(),
             test_comp: Vec::new(),
+            quarantined: Vec::new(),
         };
 
         let mut stmt = self
@@ -491,6 +502,7 @@ impl Store {
             }
         }
 
+        // Previously-failed tests (TIA-SAFE-007: always-run category 1)
         let mut ar_stmt = self
             .conn
             .prepare(
@@ -504,6 +516,40 @@ impl Store {
             .map_err(|e| miette::miette!("Always-run exec failed: {}", e))?;
         for row in rows.flatten() {
             ctx.always_run.push(row);
+        }
+
+        // Tests with no recorded history (TIA-SAFE-007: no-history + newly-added)
+        // Covers both newly added tests and tests that have never been run.
+        let mut nh_stmt = self
+            .conn
+            .prepare(
+                "SELECT ti.id FROM test_items ti
+             LEFT JOIN run_history rh ON rh.test_item_id = ti.id
+             WHERE rh.id IS NULL",
+            )
+            .map_err(|e| miette::miette!("No-history query failed: {}", e))?;
+
+        let nh_rows = nh_stmt
+            .query_map([], |row| row.get::<_, u32>(0))
+            .map_err(|e| miette::miette!("No-history exec failed: {}", e))?;
+        for row in nh_rows.flatten() {
+            ctx.always_run.push(row);
+        }
+
+        // Quarantined tests (TIA-SAFE-010: always-run category 4)
+        let mut q_stmt = self
+            .conn
+            .prepare(
+                "SELECT id FROM test_items WHERE quarantined = 1",
+            )
+            .map_err(|e| miette::miette!("Quarantine query failed: {}", e))?;
+
+        let q_rows = q_stmt
+            .query_map([], |row| row.get::<_, u32>(0))
+            .map_err(|e| miette::miette!("Quarantine exec failed: {}", e))?;
+        for row in q_rows.flatten() {
+            ctx.always_run.push(row);
+            ctx.quarantined.push(row);
         }
 
         Ok(ctx)
@@ -1425,5 +1471,368 @@ mod tests {
         });
         let result = store.ingest(&payload);
         assert!(result.is_err(), "empty run_id should be rejected");
+    }
+
+    // ── Always-run set completeness tests (TIA-SAFE-007, TIA-SAFE-010) ──
+
+    #[test]
+    fn test_always_run_includes_previously_failed() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test','failed_test')",
+            [],
+        ).unwrap();
+        let tid: u32 = conn
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+             VALUES (?1, 'r1', 'failed', 10, 'default')",
+            rusqlite::params![tid],
+        ).unwrap();
+
+        let ctx = store
+            .load_selection_context(&crate::change::ChangeSet {
+                files: vec![],
+                base: None,
+                head: None,
+            })
+            .unwrap();
+        assert!(ctx.always_run.contains(&tid), "previously-failed test should be always-run");
+    }
+
+    #[test]
+    fn test_always_run_includes_no_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'no_history_test')",
+            [],
+        ).unwrap();
+        let tid: u32 = conn
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+
+        let ctx = store
+            .load_selection_context(&crate::change::ChangeSet {
+                files: vec![],
+                base: None,
+                head: None,
+            })
+            .unwrap();
+        assert!(
+            ctx.always_run.contains(&tid),
+            "test with no run history should be always-run"
+        );
+    }
+
+    #[test]
+    fn test_always_run_includes_quarantined() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id, quarantined)
+             VALUES ('default', 'test', 'quarantined_test', 1)",
+            [],
+        ).unwrap();
+        let tid: u32 = conn
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+
+        let ctx = store
+            .load_selection_context(&crate::change::ChangeSet {
+                files: vec![],
+                base: None,
+                head: None,
+            })
+            .unwrap();
+        assert!(
+            ctx.always_run.contains(&tid),
+            "quarantined test should be always-run"
+        );
+        assert!(
+            ctx.quarantined.contains(&tid),
+            "quarantined test should appear in quarantined set"
+        );
+    }
+
+    #[test]
+    fn test_always_run_all_categories_in_selection() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+
+        // Insert content unit so fingerprint matching works
+        let file_path = dir.path().join("src/lib.rs");
+        std::fs::create_dir_all(file_path.parent().unwrap()).unwrap();
+        std::fs::write(&file_path, b"fn foo() {}").unwrap();
+        let fp = Store::compute_fingerprint(&file_path).unwrap();
+        conn.execute(
+            "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
+             VALUES ('default', ?1, NULL, 'source', ?2)",
+            rusqlite::params![file_path.to_string_lossy().to_string(), fp],
+        ).unwrap();
+        let cu_id: u32 = conn
+            .query_row("SELECT id FROM content_units", [], |row| row.get(0))
+            .unwrap();
+
+        // 4 test items, one for each always-run category:
+        // cat 1: previously-failed (run_history with 'failed')
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'failed')",
+            [],
+        ).unwrap();
+        let tid_failed: u32 = conn
+            .query_row("SELECT id FROM test_items WHERE node_id='failed'", [], |row| row.get(0))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+             VALUES (?1, 'fail-run', 'failed', 10, 'default')",
+            rusqlite::params![tid_failed],
+        ).unwrap();
+
+        // cat 2: newly-added / no-history
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'no_history')",
+            [],
+        ).unwrap();
+        let tid_nohist: u32 = conn
+            .query_row("SELECT id FROM test_items WHERE node_id='no_history'", [], |row| row.get(0))
+            .unwrap();
+
+        // cat 3: quarantined
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id, quarantined)
+             VALUES ('default', 'test', 'quarantined', 1)",
+            [],
+        ).unwrap();
+        let tid_quar: u32 = conn
+            .query_row("SELECT id FROM test_items WHERE node_id='quarantined'", [], |row| row.get(0))
+            .unwrap();
+
+        // cat 4: passed-with-history (should NOT be always-run)
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'passed')",
+            [],
+        ).unwrap();
+        let tid_passed: u32 = conn
+            .query_row("SELECT id FROM test_items WHERE node_id='passed'", [], |row| row.get(0))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+             VALUES (?1, 'pass-run', 'passed', 10, 'default')",
+            rusqlite::params![tid_passed],
+        ).unwrap();
+
+        // Wire a small dep graph so selection can run through Engine
+        conn.execute(
+            "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
+            rusqlite::params![cu_id, tid_failed],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
+             VALUES (?1, ?2, 'default', 'static', 1000000)",
+            rusqlite::params![tid_failed, cu_id],
+        ).unwrap();
+
+        // Change the file to trigger selection
+        std::fs::write(&file_path, b"fn bar() {}").unwrap();
+
+        let engine = crate::engine::Engine::new(&store);
+        let delta = crate::change::ChangeSet {
+            files: vec![file_path.to_string_lossy().to_string()],
+            base: None,
+            head: None,
+        };
+        let sel = engine.select(&delta).unwrap();
+        let ids: std::collections::HashSet<u32> = sel.tests.iter().map(|t| t.id).collect();
+
+        assert!(ids.contains(&tid_failed), "previously-failed should be selected");
+        assert!(ids.contains(&tid_nohist), "no-history should be selected");
+        assert!(ids.contains(&tid_quar), "quarantined should be selected");
+        // passed-with-history test is NOT in always-run — only included if
+        // it's in the transitive closure of the change. Since it has no
+        // dependency edges, it should NOT be selected.
+        assert!(!ids.contains(&tid_passed), "passed-with-history should NOT be selected");
+    }
+
+    #[test]
+    fn test_quarantined_flag_in_selection_result() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+
+        // Content unit
+        let file_path = dir.path().join("src/main.rs");
+        std::fs::create_dir_all(file_path.parent().unwrap()).unwrap();
+        std::fs::write(&file_path, b"fn main() {}").unwrap();
+        let fp = Store::compute_fingerprint(&file_path).unwrap();
+        conn.execute(
+            "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
+             VALUES ('default', ?1, NULL, 'source', ?2)",
+            rusqlite::params![file_path.to_string_lossy().to_string(), fp],
+        ).unwrap();
+        let cu_id: u32 = conn
+            .query_row("SELECT id FROM content_units", [], |row| row.get(0))
+            .unwrap();
+
+        // A quarantined test
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id, quarantined)
+             VALUES ('default', 'test', 'quarantined_test', 1)",
+            [],
+        ).unwrap();
+        let tid_quar: u32 = conn
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+
+        // A regular always-run test (previously failed)
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'failed_test')",
+            [],
+        ).unwrap();
+        let tid_fail: u32 = conn
+            .query_row("SELECT id FROM test_items WHERE node_id='failed_test'", [], |row| row.get(0))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+             VALUES (?1, 'fail-r', 'failed', 10, 'default')",
+            rusqlite::params![tid_fail],
+        ).unwrap();
+
+        // Wire both to the content unit (so they'd be selected even without always_run)
+        conn.execute(
+            "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
+            rusqlite::params![cu_id, tid_quar],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
+             VALUES (?1, ?2, 'default', 'static', 1000000)",
+            rusqlite::params![tid_quar, cu_id],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
+            rusqlite::params![cu_id, tid_fail],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
+             VALUES (?1, ?2, 'default', 'static', 1000000)",
+            rusqlite::params![tid_fail, cu_id],
+        ).unwrap();
+
+        // Change the file
+        std::fs::write(&file_path, b"fn main() { println!(\"hi\"); }").unwrap();
+
+        let engine = crate::engine::Engine::new(&store);
+        let delta = crate::change::ChangeSet {
+            files: vec![file_path.to_string_lossy().to_string()],
+            base: None,
+            head: None,
+        };
+        let sel = engine.select(&delta).unwrap();
+
+        let quarantined_test = sel.tests.iter().find(|t| t.id == tid_quar).unwrap();
+        assert!(
+            quarantined_test.quarantined,
+            "quarantined test should have quarantined=true"
+        );
+
+        let failed_test = sel.tests.iter().find(|t| t.id == tid_fail).unwrap();
+        assert!(
+            !failed_test.quarantined,
+            "previously-failed test should have quarantined=false"
+        );
+    }
+
+    #[test]
+    fn test_no_history_test_not_quarantined() {
+        // A test with no run history is always-run but NOT quarantined
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'fresh')",
+            [],
+        ).unwrap();
+        let tid: u32 = conn
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+
+        let ctx = store
+            .load_selection_context(&crate::change::ChangeSet {
+                files: vec![],
+                base: None,
+                head: None,
+            })
+            .unwrap();
+        assert!(ctx.always_run.contains(&tid), "no-history should be always-run");
+        assert!(
+            !ctx.quarantined.contains(&tid),
+            "no-history test should NOT be quarantined"
+        );
+    }
+
+    #[test]
+    fn test_schema_migration_v1_to_v2() {
+        let dir = tempfile::tempdir().unwrap();
+        let store_dir = dir.path().join("store_v1");
+
+        // Create a v1 database manually
+        std::fs::create_dir_all(&store_dir).unwrap();
+        let db_path = store_dir.join("store.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS test_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                component TEXT NOT NULL,
+                adapter TEXT NOT NULL,
+                node_id TEXT NOT NULL,
+                UNIQUE(component, adapter, node_id)
+            );
+            INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'v1_test');
+            CREATE TABLE IF NOT EXISTS _schema_version (version INTEGER NOT NULL);
+            INSERT INTO _schema_version (version) VALUES (1);",
+        ).unwrap();
+        drop(conn);
+
+        // Open with Store (should trigger migration)
+        let store = Store::open(store_dir.clone()).unwrap();
+        store.initialize().unwrap();
+
+        // Verify quarantined column exists and defaults to 0
+        let quarantined: i32 = store
+            .conn()
+            .query_row(
+                "SELECT quarantined FROM test_items WHERE node_id='v1_test'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(quarantined, 0, "migrated v1 test should have quarantined=0");
+
+        // Verify schema version is 2
+        let version: u32 = store
+            .conn()
+            .query_row("SELECT MAX(version) FROM _schema_version", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, 2, "schema should be migrated to v2");
     }
 }

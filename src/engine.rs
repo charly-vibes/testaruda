@@ -54,6 +54,8 @@ ascent! {
     relation comp_fallback(u32);
     /// Test-to-component mapping
     relation test_comp(u32, u32);
+    /// Quarantined tests (TIA-SAFE-010)
+    relation quarantined(u32);
 
     // ===== Boolean selection = reverse reachability (ARCH-004/005, SEL-001) =====
 
@@ -140,6 +142,7 @@ impl<'a> Engine<'a> {
             always_run: ctx.always_run.iter().map(|&t| (t,)).collect(),
             comp_fallback: ctx.comp_fallback.iter().map(|&k| (k,)).collect(),
             test_comp: ctx.test_comp.clone(),
+            quarantined: ctx.quarantined.iter().map(|&t| (t,)).collect(),
             ..Default::default()
         };
 
@@ -173,6 +176,8 @@ impl<'a> Engine<'a> {
                 })
                 .collect();
 
+            let is_quarantined = prog.quarantined.iter().any(|&(qt,)| qt == t);
+
             affected.push(SelectedTest {
                 id: t,
                 confidence: conf,
@@ -182,6 +187,7 @@ impl<'a> Engine<'a> {
                 } else {
                     Some(witness)
                 },
+                quarantined: is_quarantined,
             });
         }
 
@@ -224,6 +230,10 @@ pub struct SelectedTest {
     pub confidence: f64,
     pub distance: Option<u32>,
     pub witness: Option<Vec<WitnessEdge>>,
+    /// Whether this test is quarantined (TIA-SAFE-010).
+    /// Quarantined tests are selected-and-run but their outcome is
+    /// excluded from pass/fail trust calculations.
+    pub quarantined: bool,
 }
 
 /// The full selection result.
