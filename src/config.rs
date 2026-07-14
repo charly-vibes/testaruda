@@ -24,6 +24,29 @@ pub struct Config {
     /// Periodic full-run configuration (TIA-SAFE-006).
     #[serde(default)]
     pub periodic_full_run: PeriodicFullRunConfig,
+    /// Environment configuration (TIA-CORE-008, TIA-RUN-006).
+    #[serde(default)]
+    pub environment: EnvironmentConfig,
+}
+
+/// Environment configuration (TIA-CORE-008).
+#[derive(Debug, Clone, Deserialize)]
+pub struct EnvironmentConfig {
+    /// Name/fingerprint of the current environment. Defaults to "default".
+    #[serde(default = "default_environment_name")]
+    pub name: String,
+}
+
+fn default_environment_name() -> String {
+    "default".to_string()
+}
+
+impl Default for EnvironmentConfig {
+    fn default() -> Self {
+        Self {
+            name: default_environment_name(),
+        }
+    }
 }
 
 /// Must-run rules configuration (TIA-SAFE-009).
@@ -65,6 +88,7 @@ impl Default for Config {
             confidence_threshold: default_confidence_threshold(),
             must_run: MustRunConfig::default(),
             periodic_full_run: PeriodicFullRunConfig::default(),
+            environment: EnvironmentConfig::default(),
         }
     }
 }

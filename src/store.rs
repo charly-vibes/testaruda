@@ -35,10 +35,13 @@ pub struct SelectionContext {
     pub comp_fallback: Vec<u32>,
     pub test_comp: Vec<(u32, u32)>,
     pub quarantined: Vec<u32>,
+    /// Current environment fingerprint for scoped queries (TIA-CORE-008).
+    pub current_environment: String,
     /// Invocation-level quality multiplier in ppm (TIA-CONF-002).
     /// Derived from coverage freshness, adapter resolution, history depth,
     /// and environment match. Applied to all path-based confidence computations.
     pub invocation_quality: u32,
+    /// Confidence threshold in ppm (TIA-CONF-002, TIA-SAFE-002).
     /// Confidence threshold in ppm (TIA-CONF-002, TIA-SAFE-002).
     /// If the minimum Viterbi path confidence across reachability-selected
     /// tests in a component falls below this threshold, all tests in that
@@ -595,6 +598,7 @@ impl Store {
             comp_fallback: Vec::new(),
             test_comp: Vec::new(),
             quarantined: Vec::new(),
+            current_environment: "default".to_string(),
             invocation_quality: ONE,
             confidence_threshold: ONE,
         };
@@ -604,13 +608,19 @@ impl Store {
             .prepare("SELECT id, fingerprint FROM content_units WHERE component = ?1 AND path = ?2")
             .map_err(|e| miette::miette!("Query prep failed: {}", e))?;
 
+        // Load config early for environment (needed by edge query below)
+        let config = Config::load_or_default(&self.project_root);
+        if !config.environment.name.is_empty() {
+            ctx.current_environment = config.environment.name.clone();
+        }
+
         for path in &delta.files {
             let component = "default";
             // Resolve relative paths against the project root
             let abs_path = if Path::new(path).is_absolute() {
                 Path::new(path).to_path_buf()
             } else {
-                find_project_root()?.join(path)
+                self.project_root.join(path)
             };
             let current_fp = Self::compute_fingerprint(&abs_path);
             let result = stmt.query_row(rusqlite::params![component, path], |row| {
@@ -674,13 +684,13 @@ impl Store {
                 "SELECT de.test_item_id, de.content_unit_id, de.origin, de.k_value
              FROM dependency_edges de
              JOIN reverse_index ri ON ri.content_unit_id = de.content_unit_id
-             WHERE ri.content_unit_id = ?1",
+             WHERE ri.content_unit_id = ?1 AND de.environment = ?2",
             )
             .map_err(|e| miette::miette!("Edge query prep failed: {}", e))?;
 
         for &cu_id in ctx.changed.iter().chain(ctx.unresolved.iter()) {
             let rows = edge_stmt
-                .query_map(rusqlite::params![cu_id], |row| {
+                .query_map(rusqlite::params![cu_id, ctx.current_environment], |row| {
                     let test_id: u32 = row.get(0)?;
                     let cu_id_val: u32 = row.get(1)?;
                     let origin_str: String = row.get(2)?;
@@ -704,12 +714,12 @@ impl Store {
             .conn
             .prepare(
                 "SELECT DISTINCT test_item_id FROM run_history
-             WHERE outcome = 'failed' ORDER BY id DESC LIMIT 1000",
+             WHERE outcome = 'failed' AND environment = ?1 ORDER BY id DESC LIMIT 1000",
             )
             .map_err(|e| miette::miette!("Always-run query failed: {}", e))?;
 
         let rows = ar_stmt
-            .query_map([], |row| row.get::<_, u32>(0))
+            .query_map(rusqlite::params![ctx.current_environment], |row| row.get::<_, u32>(0))
             .map_err(|e| miette::miette!("Always-run exec failed: {}", e))?;
         for row in rows.flatten() {
             ctx.always_run.push(row);
@@ -717,17 +727,20 @@ impl Store {
 
         // Tests with no recorded history (TIA-SAFE-007: no-history + newly-added)
         // Covers both newly added tests and tests that have never been run.
+        // For environment-scoped queries, only consider run_history in current env.
+        // A test that never ran in this environment but ran elsewhere is treated
+        // as having no history for scoping purposes.
         let mut nh_stmt = self
             .conn
             .prepare(
                 "SELECT ti.id FROM test_items ti
-             LEFT JOIN run_history rh ON rh.test_item_id = ti.id
+             LEFT JOIN run_history rh ON rh.test_item_id = ti.id AND rh.environment = ?1
              WHERE rh.id IS NULL",
             )
             .map_err(|e| miette::miette!("No-history query failed: {}", e))?;
 
         let nh_rows = nh_stmt
-            .query_map([], |row| row.get::<_, u32>(0))
+            .query_map(rusqlite::params![ctx.current_environment], |row| row.get::<_, u32>(0))
             .map_err(|e| miette::miette!("No-history exec failed: {}", e))?;
         for row in nh_rows.flatten() {
             ctx.always_run.push(row);
@@ -831,15 +844,13 @@ impl Store {
         quality_score = quality_score.max(0.1).min(1.0);
         ctx.invocation_quality = (quality_score * ONE as f64) as u32;
 
-        // Load confidence threshold from config or default to 0.5 (500,000 ppm)
-        let threshold = Config::load_or_default(&self.project_root)
-            .confidence_threshold;
+        // Threshold and must-run rules (config already loaded above for env)
+        let threshold = config.confidence_threshold;
         ctx.confidence_threshold = (threshold * ONE as f64) as u32;
 
-        // ── Must-run rules (TIA-SAFE-009) ──────────────────────────────────
-        // Check if any changed files match must-run patterns. If so,
-        // resolve the mapped test IDs and add them to always_run.
-        let config = Config::load_or_default(&self.project_root);
+        // Must-run rules (TIA-SAFE-009): check if any changed files match
+        // must-run patterns. If so, resolve the mapped test IDs and add
+        // them to always_run.
         for (pattern_str, test_node_ids) in &config.must_run.rules {
             let Ok(pattern) = glob::Pattern::new(pattern_str) else {
                 eprintln!("  ⚠️  Invalid must-run pattern: {}", pattern_str);
@@ -943,6 +954,12 @@ impl Store {
                 )
                 .map_err(|e| miette::miette!("Failed to record run: {}", e))?;
 
+            // Resolve environment fingerprint from payload metadata (TIA-RUN-006)
+            let env = results["environment"].as_object();
+            let toolchain = env.and_then(|e| e.get("toolchain")).and_then(|v| v.as_str());
+            let os = env.and_then(|e| e.get("os")).and_then(|v| v.as_str());
+            let environment = self.resolve_environment(toolchain, os)?;
+
             // Insert per-test results
             if let Some(tests) = results["tests"].as_array() {
                 for test in tests {
@@ -951,8 +968,8 @@ impl Store {
                     let duration = test["duration_ms"].as_u64();
                     self.conn.execute(
                         "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
-                         VALUES (?1, ?2, ?3, ?4, 'default')",
-                        rusqlite::params![test_id, run_id, outcome, duration],
+                         VALUES (?1, ?2, ?3, ?4, ?5)",
+                        rusqlite::params![test_id, run_id, outcome, duration, environment],
                     )
                     .map_err(|e| miette::miette!("Failed to insert run result: {}", e))?;
                 }
@@ -1043,7 +1060,7 @@ impl Store {
                 };
                 self.conn.execute(
                     "INSERT OR IGNORE INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
-                     VALUES (?1, ?2, '', ?3, ?4)",
+                     VALUES (?1, ?2, 'default', ?3, ?4)",
                     rusqlite::params![tid, cu_id, origin, edge.weight],
                 ).map_err(|e| miette::miette!("Failed to insert dependency edge: {}", e))?;
 
@@ -1351,7 +1368,7 @@ impl Store {
             .prepare(
                 "SELECT test_item_id, CAST(ROUND(AVG(duration_ms)) AS INTEGER)
                  FROM run_history
-                 WHERE duration_ms IS NOT NULL
+                 WHERE duration_ms IS NOT NULL AND environment = 'default'
                  GROUP BY test_item_id",
             )
             .map_err(|e| miette::miette!("Duration query prep failed: {}", e))?;
@@ -1367,6 +1384,50 @@ impl Store {
             map.insert(row.0, row.1);
         }
         Ok(map)
+    }
+
+    /// Resolve or create an environment fingerprint (TIA-RUN-006, TIA-CORE-008).
+    ///
+    /// Looks up the environment_fingerprints table by toolchain and OS.
+    /// If not found, inserts a new fingerprint. Returns the fingerprint string.
+    pub fn resolve_environment(
+        &self,
+        toolchain: Option<&str>,
+        os: Option<&str>,
+    ) -> miette::Result<String> {
+        // First try exact match
+        if let (Some(tc), Some(os_val)) = (toolchain, os) {
+            if let Ok(fp) = self.conn.query_row(
+                "SELECT fingerprint FROM environment_fingerprints
+                 WHERE toolchain = ?1 AND os = ?2",
+                rusqlite::params![tc, os_val],
+                |row| row.get::<_, String>(0),
+            ) {
+                return Ok(fp);
+            }
+        }
+
+        // Compute a deterministic fingerprint from metadata
+        use std::hash::{Hash, Hasher};
+        let fingerprint = match (toolchain, os) {
+            (Some(tc), Some(os_val)) => {
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                format!("tc:{}|os:{}", tc, os_val).hash(&mut hasher);
+                format!("env-{:016x}", hasher.finish())
+            }
+            _ => "default".to_string(),
+        };
+
+        // Insert if not exists
+        self.conn
+            .execute(
+                "INSERT OR IGNORE INTO environment_fingerprints (fingerprint, toolchain, os)
+                 VALUES (?1, ?2, ?3)",
+                rusqlite::params![fingerprint, toolchain, os],
+            )
+            .map_err(|e| miette::miette!("Failed to store environment fingerprint: {}", e))?;
+
+        Ok(fingerprint)
     }
 }
 
@@ -2948,6 +3009,272 @@ interval_hours = 0
         assert!(
             !ctx.always_run.contains(&tid),
             "disabled periodic full run should not force-select tests"
+        );
+    }
+
+    // ── Environment fingerprinting tests (TIA-CORE-008, TIA-RUN-006) ──
+
+    #[test]
+    fn test_resolve_environment_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let fp = store.resolve_environment(None, None).unwrap();
+        assert_eq!(fp, "default", "no metadata should return 'default'");
+    }
+
+    #[test]
+    fn test_resolve_environment_with_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let fp1 = store.resolve_environment(Some("rustc-1.80"), Some("linux")).unwrap();
+        assert_ne!(fp1, "default", "should return a non-default fingerprint");
+        assert!(fp1.starts_with("env-"), "fingerprint should start with 'env-'");
+
+        // Same metadata should return the same fingerprint
+        let fp2 = store.resolve_environment(Some("rustc-1.80"), Some("linux")).unwrap();
+        assert_eq!(fp1, fp2, "same metadata should return same fingerprint");
+    }
+
+    #[test]
+    fn test_ingest_records_environment() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'env_test')",
+            [],
+        ).unwrap();
+        let tid: u32 = conn
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+
+        // Ingest with environment metadata
+        let payload = serde_json::json!({
+            "run_id": "env-run-1",
+            "environment": {"toolchain": "rustc-1.80", "os": "linux"},
+            "tests": [{"id": tid, "outcome": "passed", "duration_ms": 10}]
+        });
+        store.ingest(&payload).unwrap();
+
+        // Verify environment was recorded in run_history
+        let env: String = conn
+            .query_row(
+                "SELECT environment FROM run_history WHERE run_id='env-run-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(env.starts_with("env-"), "environment should be a fingerprint, got: {}", env);
+        assert_ne!(env, "default", "environment should not be 'default'");
+    }
+
+    #[test]
+    fn test_environment_scoped_edge_query() {
+        // Verify that edges from 'env-a' environment are properly scoped.
+        let dir = tempfile::tempdir().unwrap();
+        let store_path = dir.path().join(".testaruda");
+
+        // Write config with environment = env-a
+        std::fs::write(
+            dir.path().join("testaruda.toml"),
+            r#"
+[environment]
+name = "env-a"
+"#,
+        ).unwrap();
+
+        let store = Store::open(store_path).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+
+        // Content unit — create file on disk
+        let file_path = dir.path().join("src/lib.rs");
+        std::fs::create_dir_all(file_path.parent().unwrap()).unwrap();
+        std::fs::write(&file_path, b"fn foo() {}").unwrap();
+
+        // Seed the CU with a placeholder fingerprint
+        conn.execute(
+            "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
+             VALUES ('default', 'src/lib.rs', NULL, 'source', 'seed-fp')",
+            [],
+        ).unwrap();
+        let cu_id: u32 = conn
+            .query_row("SELECT id FROM content_units", [], |row| row.get(0))
+            .unwrap();
+
+        // Test item
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'env_test')",
+            [],
+        ).unwrap();
+        let tid: u32 = conn
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+
+        // Insert edge in 'env-a' environment
+        conn.execute(
+            "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
+             VALUES (?1, ?2, 'env-a', 'static', 1000000)",
+            rusqlite::params![tid, cu_id],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
+            rusqlite::params![cu_id, tid],
+        ).unwrap();
+
+        // Give test a run history so it's not always-run
+        conn.execute(
+            "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+             VALUES (?1, 'seed', 'passed', 10, 'default')",
+            rusqlite::params![tid],
+        ).unwrap();
+
+        // Verify the config environment name is picked up
+        let ctx = store
+            .load_selection_context(&crate::change::ChangeSet {
+                files: vec![],
+                base: None,
+                head: None,
+            })
+            .unwrap();
+        assert_eq!(
+            ctx.current_environment, "env-a",
+            "environment should be 'env-a' from config"
+        );
+
+        // Now change the file so fingerprints differ
+        std::fs::write(&file_path, b"fn bar() {}").unwrap();
+
+        let delta = crate::change::ChangeSet {
+            files: vec!["src/lib.rs".to_string()],
+            base: None,
+            head: None,
+        };
+        let ctx = store
+            .load_selection_context(&delta)
+            .unwrap();
+        assert!(!ctx.changed.is_empty(), "no changed CUs");
+        assert!(!ctx.test_deps.is_empty(), "env-a should have dep edges");
+        assert_eq!(ctx.current_environment, "env-a", "env should be env-a from config");
+
+        let engine = crate::engine::Engine::new(&store);
+        let sel = engine.select_with_context(ctx, crate::engine::TestOrdering::Default).unwrap();
+
+        // The test should be selected via the env-a edge
+        let ids: Vec<u32> = sel.tests.iter().map(|t| t.id).collect();
+        assert!(
+            ids.contains(&tid),
+            "test should be selected via env-a edge. selected: {:?}",
+            ids
+        );
+    }
+
+    #[test]
+    fn test_environment_isolated_edge_queries() {
+        // Two stores with different environments — edges from one should
+        // not leak into the other's selection context.
+        //
+        // Uses raw SQL for env-a edges and the store's load_selection_context
+        // with default env.
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+
+        // Content unit
+        let file_path = dir.path().join("src/lib.rs");
+        std::fs::create_dir_all(file_path.parent().unwrap()).unwrap();
+        std::fs::write(&file_path, b"fn foo() {}").unwrap();
+        let fp = Store::compute_fingerprint(&file_path).unwrap();
+        conn.execute(
+            "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
+             VALUES ('default', 'src/lib.rs', NULL, 'source', ?1)",
+            rusqlite::params![fp],
+        ).unwrap();
+        let cu_id: u32 = conn
+            .query_row("SELECT id FROM content_units", [], |row| row.get(0))
+            .unwrap();
+
+        // Two test items
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 't1')",
+            [],
+        ).unwrap();
+        let tid1: u32 = conn
+            .query_row("SELECT id FROM test_items WHERE node_id='t1'", [], |row| row.get(0))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 't2')",
+            [],
+        ).unwrap();
+        let tid2: u32 = conn
+            .query_row("SELECT id FROM test_items WHERE node_id='t2'", [], |row| row.get(0))
+            .unwrap();
+
+        // Edge for t1 in 'env-a' environment
+        conn.execute(
+            "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
+             VALUES (?1, ?2, 'env-a', 'static', 1000000)",
+            rusqlite::params![tid1, cu_id],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
+            rusqlite::params![cu_id, tid1],
+        ).unwrap();
+
+        // Edge for t2 in 'default' environment
+        conn.execute(
+            "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
+             VALUES (?1, ?2, 'default', 'static', 1000000)",
+            rusqlite::params![tid2, cu_id],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
+            rusqlite::params![cu_id, tid2],
+        ).unwrap();
+
+        // Give both tests run history so they're not always-run
+        conn.execute(
+            "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+             VALUES (?1, 'seed', 'passed', 10, 'default')",
+            rusqlite::params![tid1],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+             VALUES (?1, 'seed', 'passed', 10, 'default')",
+            rusqlite::params![tid2],
+        ).unwrap();
+
+        // Change the file
+        std::fs::write(&file_path, b"fn bar() {}").unwrap();
+
+        // Load selection context with default environment
+        let ctx = store
+            .load_selection_context(&crate::change::ChangeSet {
+                files: vec!["src/lib.rs".to_string()],
+                base: None,
+                head: None,
+            })
+            .unwrap();
+
+        // Only t2's edge (environment='default') should be in test_deps
+        let dep_ids: std::collections::HashSet<u32> =
+            ctx.test_deps.iter().map(|&(t, ..)| t).collect();
+        assert!(
+            !dep_ids.contains(&tid1),
+            "env-a edge should not appear in default env query"
+        );
+        assert!(
+            dep_ids.contains(&tid2),
+            "default env edge should appear in default env query"
         );
     }
 }
