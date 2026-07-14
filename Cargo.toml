@@ -5,6 +5,8 @@ edition = "2021"
 description = "Language-agnostic test selection engine — compute the affected test set from a code change via provenance-semiring dependency analysis"
 license = "Apache-2.0"
 repository = "https://github.com/charly-vibes/testaruda"
+keywords = ["test-selection", "dependency-analysis", "testing", "cli"]
+categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
 name = "testaruda"
