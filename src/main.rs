@@ -30,6 +30,12 @@ enum Command {
         /// Emit machine-readable JSON plan (TIA-CI-006)
         #[arg(long)]
         json: bool,
+        /// Agent output format: structured JSON for LLM agent consumption (TIA-AGENT-001)
+        #[arg(long)]
+        agent: bool,
+        /// Pre-edit blast radius: report affected tests for proposed changes (TIA-AGENT-005)
+        #[arg(long)]
+        pre_edit: bool,
     },
     /// Ingest test run results to update the model
     Ingest {
@@ -90,6 +96,8 @@ fn main() -> miette::Result<()> {
             files,
             shadow,
             json,
+            agent,
+            pre_edit,
         } => {
             let store = testaruda::Store::open_default()?;
             let delta = testaruda::ChangeSet::from_diff(
@@ -106,7 +114,19 @@ fn main() -> miette::Result<()> {
                 eprintln!("⚠️  Adapter warning: {} (using existing store data)", e);
             }
 
-            let selection = testaruda::Selector::select(&store, &delta)?;
+            // Agent mode implies deterministic ordering (TIA-AGENT-007)
+            let ordering = if agent {
+                testaruda::TestOrdering::Deterministic
+            } else {
+                testaruda::TestOrdering::Default
+            };
+
+            // Load selection context once, reuse for both engine and agent output
+            let ctx = store.load_selection_context(&delta)?;
+            let changed_ids = ctx.changed.clone();
+            let unresolved_ids = ctx.unresolved.clone();
+            let engine = testaruda::Engine::new(&store);
+            let selection = engine.select_with_context(ctx, ordering)?;
 
             // Determine CI exit code (TIA-CI-001..004)
             let mut outcome = CiOutcome::from_selection(&selection);
@@ -127,7 +147,57 @@ fn main() -> miette::Result<()> {
                 };
             }
 
-            if json {
+            if agent {
+                // Agent output format (TIA-AGENT-001)
+                let mut changed_units = Vec::new();
+                let mut test_node_ids = std::collections::HashMap::new();
+
+                // Build changed unit info from pre-saved context IDs
+                for &cu_id in &changed_ids {
+                    if let Ok((path, symbol, kind)) = store.get_content_unit_info(cu_id) {
+                        changed_units.push(testaruda::agent::ChangedUnit {
+                            id: cu_id,
+                            path,
+                            symbol,
+                            kind,
+                            unresolved: false,
+                        });
+                    }
+                }
+                for &cu_id in &unresolved_ids {
+                    if let Ok((path, symbol, kind)) = store.get_content_unit_info(cu_id) {
+                        changed_units.push(testaruda::agent::ChangedUnit {
+                            id: cu_id,
+                            path,
+                            symbol,
+                            kind,
+                            unresolved: true,
+                        });
+                    }
+                }
+
+                // Build test node ID map for all selected tests
+                for t in &selection.tests {
+                    if let Ok(node_id) = store.get_test_node_id(t.id) {
+                        test_node_ids.insert(t.id, node_id);
+                    }
+                }
+
+                // Get candidate test IDs (all tests that have deps on changed units)
+                let candidate_ids = store.get_test_ids_for_content_units(&changed_ids, &unresolved_ids)?;
+
+                let output = testaruda::agent::AgentOutput::from_selection(
+                    &store,
+                    &selection,
+                    &changed_units,
+                    &test_node_ids,
+                    &candidate_ids,
+                )?;
+
+                let out = serde_json::to_string_pretty(&output)
+                    .map_err(|e| miette::miette!("Agent output serialization failed: {}", e))?;
+                println!("{}", out);
+            } else if json {
                 // Machine-readable plan (TIA-CI-006)
                 let plan = CiPlan {
                     shadow_mode: shadow,
@@ -141,6 +211,27 @@ fn main() -> miette::Result<()> {
                 let out = serde_json::to_string_pretty(&plan)
                     .map_err(|e| miette::miette!("JSON serialization failed: {}", e))?;
                 println!("{}", out);
+            } else if pre_edit {
+                // Pre-edit blast radius (TIA-AGENT-005): report affected tests
+                println!("📡 Blast radius — pre-edit analysis");
+                println!(
+                    "  Changed units: {}",
+                    selection.changed_count
+                );
+                println!(
+                    "  Affected tests: {} ({})",
+                    selection.selected_count,
+                    if selection.selected_count == 1 {
+                        "1 test".to_string()
+                    } else {
+                        format!("{} tests", selection.selected_count)
+                    }
+                );
+                if !selection.tests.is_empty() {
+                    println!("  Affected test IDs: {:?}", 
+                        selection.tests.iter().map(|t| t.id).collect::<Vec<_>>()
+                    );
+                }
             } else {
                 // Human-readable output (CORR-004: include reason)
                 let reason_note = outcome.reason();
@@ -153,11 +244,11 @@ fn main() -> miette::Result<()> {
                 let out = serde_json::to_string_pretty(&selection)
                     .map_err(|e| miette::miette!("JSON serialization failed: {}", e))?;
                 println!("{}", out);
-            }
 
-            let code = outcome.exit_code();
-            if code != 0 {
-                std::process::exit(code);
+                let code = outcome.exit_code();
+                if code != 0 {
+                    std::process::exit(code);
+                }
             }
             Ok(())
         }

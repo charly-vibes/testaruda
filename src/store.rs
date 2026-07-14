@@ -698,6 +698,111 @@ impl Store {
         Ok(())
     }
 
+    /// Get the path for a content unit by ID.
+    pub fn get_content_unit_path(&self, id: u32) -> miette::Result<String> {
+        self.conn
+            .query_row(
+                "SELECT path FROM content_units WHERE id = ?1",
+                rusqlite::params![id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|e| miette::miette!("Failed to get content unit path: {}", e))
+    }
+
+    /// Check if any test has a dependency edge to the given content unit.
+    pub fn has_test_for_content_unit(&self, cu_id: u32) -> miette::Result<bool> {
+        let exists: bool = self
+            .conn
+            .query_row(
+                "SELECT 1 FROM dependency_edges WHERE content_unit_id = ?1 LIMIT 1",
+                rusqlite::params![cu_id],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        Ok(exists)
+    }
+
+    /// Get the content unit info (path, symbol, kind) for a given ID.
+    pub fn get_content_unit_info(&self, id: u32) -> miette::Result<(String, Option<String>, String)> {
+        self.conn
+            .query_row(
+                "SELECT path, symbol, kind FROM content_units WHERE id = ?1",
+                rusqlite::params![id],
+                |row| {
+                    let path: String = row.get(0)?;
+                    let symbol: Option<String> = row.get(1)?;
+                    let kind: String = row.get(2)?;
+                    Ok((path, symbol, kind))
+                },
+            )
+            .map_err(|e| miette::miette!("Failed to get content unit info: {}", e))
+    }
+
+    /// Get the node_id for a test item by its internal ID.
+    pub fn get_test_node_id(&self, id: u32) -> miette::Result<String> {
+        self.conn
+            .query_row(
+                "SELECT node_id FROM test_items WHERE id = ?1",
+                rusqlite::params![id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|e| miette::miette!("Failed to get test node ID: {}", e))
+    }
+
+    /// Look up a content unit ID by component and path.
+    pub fn lookup_content_unit(&self, component: &str, path: &str) -> miette::Result<(u32, String)> {
+        self.conn
+            .query_row(
+                "SELECT id, fingerprint FROM content_units WHERE component = ?1 AND path = ?2",
+                rusqlite::params![component, path],
+                |row| {
+                    let id: u32 = row.get(0)?;
+                    let fingerprint: String = row.get(1)?;
+                    Ok((id, fingerprint))
+                },
+            )
+            .map_err(|e| miette::miette!("Failed to look up content unit: {}", e))
+    }
+
+    /// Get all test item IDs that have dependency edges to the given content units.
+    pub fn get_test_ids_for_content_units(
+        &self,
+        changed: &[u32],
+        unresolved: &[u32],
+    ) -> miette::Result<Vec<u32>> {
+        let mut ids = Vec::new();
+        let all_cus: Vec<u32> = changed.iter().chain(unresolved.iter()).copied().collect();
+        if all_cus.is_empty() {
+            return Ok(ids);
+        }
+
+        // Build a parameterized query with placeholders
+        let placeholders: Vec<String> = all_cus.iter().map(|_| "?".to_string()).collect();
+        let sql = format!(
+            "SELECT DISTINCT test_item_id FROM dependency_edges
+             WHERE content_unit_id IN ({})
+             ORDER BY test_item_id",
+            placeholders.join(",")
+        );
+
+        let params: Vec<&dyn rusqlite::types::ToSql> =
+            all_cus.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
+            .map_err(|e| miette::miette!("Query prep failed: {}", e))?;
+
+        let rows = stmt
+            .query_map(params.as_slice(), |row| row.get::<_, u32>(0))
+            .map_err(|e| miette::miette!("Query failed: {}", e))?;
+
+        for row in rows.flatten() {
+            ids.push(row);
+        }
+        Ok(ids)
+    }
+
     /// Load the mean recorded duration (in ms) for each test item that has
     /// run history. Returns a map of test_item_id → mean_duration_ms.
     ///

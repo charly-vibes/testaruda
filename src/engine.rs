@@ -118,6 +118,19 @@ impl<'a> Engine<'a> {
         ordering: TestOrdering,
     ) -> miette::Result<Selection> {
         let ctx = self.store.load_selection_context(delta)?;
+        self.select_with_context(ctx, ordering)
+    }
+
+    /// Run the selection query with a pre-loaded selection context.
+    ///
+    /// Useful when the caller needs the selection context for additional
+    /// processing (e.g., agent output format) and wants to avoid a second
+    /// `load_selection_context` call that would see stale fingerprints.
+    pub fn select_with_context(
+        &self,
+        ctx: crate::store::SelectionContext,
+        ordering: TestOrdering,
+    ) -> miette::Result<Selection> {
 
         let mut prog = AscentProgram {
             changed: ctx.changed.iter().map(|&c| (c,)).collect(),

@@ -33,6 +33,8 @@ pub mod provenance;
 pub mod selector;
 mod store;
 
+pub mod agent;
+
 pub use change::ChangeSet;
 pub use engine::{Engine, ONE, Origin, SelectedTest, Selection, TestOrdering, WitnessEdge};
 pub use provenance::{
