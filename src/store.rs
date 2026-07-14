@@ -217,7 +217,17 @@ impl Store {
             );
 
             CREATE INDEX IF NOT EXISTS idx_provenance_run ON provenance(run_id);
-            CREATE INDEX IF NOT EXISTS idx_provenance_test ON provenance(test_item_id);").map_err(|e| miette::miette!("Failed to initialize schema: {}", e))?;
+            CREATE INDEX IF NOT EXISTS idx_provenance_test ON provenance(test_item_id);
+
+            CREATE TABLE IF NOT EXISTS missed_selection_incidents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL,
+                test_item_id INTEGER NOT NULL REFERENCES test_items(id),
+                implicated_content_unit_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_missed_sel_run ON missed_selection_incidents(run_id);").map_err(|e| miette::miette!("Failed to initialize schema: {}", e))?;
         Ok(())
     }
 
@@ -260,6 +270,21 @@ impl Store {
                         "ALTER TABLE test_items ADD COLUMN quarantined INTEGER NOT NULL DEFAULT 0;",
                     )
                     .map_err(|e| miette::miette!("Failed to add quarantined column: {}", e))?;
+            }
+            // v2 → v3: add missed_selection_incidents table (TIA-SAFE-008)
+            (2, 3) => {
+                self.conn
+                    .execute_batch(
+                        "CREATE TABLE IF NOT EXISTS missed_selection_incidents (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            run_id TEXT NOT NULL,
+                            test_item_id INTEGER NOT NULL REFERENCES test_items(id),
+                            implicated_content_unit_id INTEGER NOT NULL,
+                            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_missed_sel_run ON missed_selection_incidents(run_id);",
+                    )
+                    .map_err(|e| miette::miette!("Failed to create missed_selection_incidents table: {}", e))?;
             }
             _ => {
                 return Err(miette::miette!(
@@ -383,6 +408,157 @@ impl Store {
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(e) => Err(miette::miette!("Provenance query failed: {}", e)),
         }
+    }
+
+    /// Detect and record missed-selection incidents (TIA-SAFE-008).
+    ///
+    /// After ingesting a full run, compares the results against the last
+    /// selection's provenance. For every test that failed in the full run
+    /// but was skipped by the last selection, records a missed-selection
+    /// incident and creates a `manual` edge so the test is forced on the
+    /// implicated change in future selections.
+    ///
+    /// Returns the number of incidents recorded.
+    pub fn detect_missed_selections(
+        &self,
+        run_id: &str,
+        results: &serde_json::Value,
+    ) -> miette::Result<usize> {
+        // Get the last selection run ID from provenance
+        let last_sel_run: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT run_id FROM provenance ORDER BY id DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .ok();
+
+        let Some(prev_run_id) = last_sel_run else {
+            // No previous selection to compare against
+            return Ok(0);
+        };
+
+        // Build a set of what the last selection would have skipped
+        let mut skip_stmt = self
+            .conn
+            .prepare(
+                "SELECT test_item_id FROM provenance WHERE run_id = ?1 AND selected = 0",
+            )
+            .map_err(|e| miette::miette!("Query prep failed: {}", e))?;
+        let skipped_ids: std::collections::HashSet<u32> = skip_stmt
+            .query_map(rusqlite::params![prev_run_id], |row| row.get::<_, u32>(0))
+            .map_err(|e| miette::miette!("Query exec failed: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        if skipped_ids.is_empty() {
+            return Ok(0);
+        }
+
+        // Get the last selection's changed content units (for implicated cu)
+        let mut changed_stmt = self
+            .conn
+            .prepare(
+                "SELECT test_item_id, witness_json FROM provenance WHERE run_id = ?1 AND selected = 1",
+            )
+            .map_err(|e| miette::miette!("Query prep failed: {}", e))?;
+        let witness_map: std::collections::HashMap<u32, Vec<u32>> = changed_stmt
+            .query_map(rusqlite::params![prev_run_id], |row| {
+                let tid: u32 = row.get(0)?;
+                let wjson: Option<String> = row.get(1)?;
+                Ok((tid, wjson))
+            })
+            .map_err(|e| miette::miette!("Query exec failed: {}", e))?
+            .filter_map(|r| r.ok())
+            .map(|(tid, wjson)| {
+                let cus = wjson
+                    .and_then(|w| {
+                        serde_json::from_str::<Vec<crate::engine::WitnessEdge>>(&w).ok()
+                    })
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|e| e.content_unit)
+                    .collect();
+                (tid, cus)
+            })
+            .collect();
+
+        // Collect all content units implicated in the last selection
+        let all_implicated_cus: Vec<u32> = witness_map
+            .values()
+            .flat_map(|v| v.iter())
+            .copied()
+            .collect();
+
+        let mut incidents = 0;
+
+        // Check each test in the ingested run
+        if let Some(tests) = results["tests"].as_array() {
+            for test in tests {
+                let test_id = test["id"].as_u64().unwrap_or(0) as u32;
+                let outcome = test["outcome"].as_str().unwrap_or("passed");
+
+                // Only care about tests that failed and were skipped by last selection
+                if outcome == "failed" && skipped_ids.contains(&test_id) {
+                    // Determine the implicated content unit: use the first one
+                    // from witness data, or the first from all_implicated_cus
+                    let implicated_cu = witness_map
+                        .get(&test_id)
+                        .and_then(|cus| cus.first().copied())
+                        .or_else(|| all_implicated_cus.first().copied())
+                        .unwrap_or(0);
+
+                    self.record_missed_selection(run_id, test_id, implicated_cu)?;
+                    incidents += 1;
+                }
+            }
+        }
+
+        Ok(incidents)
+    }
+
+    /// Record a single missed-selection incident and create a manual edge.
+    fn record_missed_selection(
+        &self,
+        run_id: &str,
+        test_id: u32,
+        implicated_cu: u32,
+    ) -> miette::Result<()> {
+        // Insert incident record
+        self.conn
+            .execute(
+                "INSERT INTO missed_selection_incidents (run_id, test_item_id, implicated_content_unit_id)
+                 VALUES (?1, ?2, ?3)",
+                rusqlite::params![run_id, test_id, implicated_cu],
+            )
+            .map_err(|e| miette::miette!("Failed to record incident: {}", e))?;
+
+        // Create a manual edge that forces the test on the implicated change
+        // (k_value = ONE = max confidence)
+        self.conn
+            .execute(
+                "INSERT OR REPLACE INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
+                 VALUES (?1, ?2, 'default', 'manual', ?3)",
+                rusqlite::params![test_id, implicated_cu, crate::ONE],
+            )
+            .map_err(|e| miette::miette!("Failed to create manual edge: {}", e))?;
+
+        // Also add to reverse_index if not already there
+        self.conn
+            .execute(
+                "INSERT OR IGNORE INTO reverse_index (content_unit_id, test_item_id)
+                 VALUES (?1, ?2)",
+                rusqlite::params![implicated_cu, test_id],
+            )
+            .map_err(|e| miette::miette!("Failed to update reverse index: {}", e))?;
+
+        eprintln!(
+            "  ⚠️  Missed-selection incident: test {} failed but was skipped by last selection",
+            test_id
+        );
+
+        Ok(())
     }
 
     /// Get the most recent run ID from provenance.
@@ -730,6 +906,14 @@ impl Store {
             self.conn
                 .execute_batch("COMMIT")
                 .map_err(|e| miette::miette!("Failed to commit transaction: {}", e))?;
+
+            // Check for missed-selection incidents if this is a full run
+            let is_full_run = results["full_run"].as_bool().unwrap_or(false);
+            if is_full_run {
+                if let Err(e) = self.detect_missed_selections(&run_id, results) {
+                    eprintln!("  ⚠️  Missed-selection detection failed: {}", e);
+                }
+            }
         } else {
             self.conn
                 .execute_batch("ROLLBACK")
@@ -2240,5 +2424,318 @@ mod tests {
             test.confidence, 1.0,
             "always-run test should have confidence 1.0 regardless of quality"
         );
+    }
+
+    // ── Missed-selection incident tests (TIA-SAFE-008) ──
+
+    #[test]
+    fn test_detect_missed_selections_no_previous_provenance() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let results = serde_json::json!({
+            "run_id": "full-run-1",
+            "full_run": true,
+            "tests": [{"id": 1, "outcome": "failed", "duration_ms": 10}]
+        });
+        let incidents = store.detect_missed_selections("full-run-1", &results).unwrap();
+        assert_eq!(incidents, 0, "no previous provenance → no incidents");
+    }
+
+    #[test]
+    fn test_detect_missed_selections_with_skipped_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+
+        // Set up content unit and test items
+        conn.execute(
+            "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
+             VALUES ('default', 'src/lib.rs', NULL, 'source', 'abc123')",
+            [],
+        ).unwrap();
+        let cu_id: u32 = conn
+            .query_row("SELECT id FROM content_units", [], |row| row.get(0))
+            .unwrap();
+
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'test_a')",
+            [],
+        ).unwrap();
+        let test_id: u32 = conn
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+
+        // Give test a run history so it's not always-run
+        // (Intentionally no static dep edge — test won't be selected via
+        // dependency path. The missed-selection incident will create a
+        // manual edge instead.)
+        conn.execute(
+            "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+             VALUES (?1, 'seed', 'passed', 10, 'default')",
+            rusqlite::params![test_id],
+        ).unwrap();
+
+        // Simulate a prior selection run:
+        // - test_a was NOT selected (selected=0) — so it was skipped
+        // - Another test was selected with a witness including cu_id
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'other_test')",
+            [],
+        ).unwrap();
+        let other_id: u32 = conn
+            .query_row("SELECT id FROM test_items WHERE node_id='other_test'", [], |row| row.get(0))
+            .unwrap();
+
+        assert_eq!(cu_id, 1, "cu_id should be 1 since it's the first insert");
+
+        let witness_json = serde_json::json!([{"content_unit": cu_id, "origin": "Static"}]).to_string();
+        conn.execute(
+            "INSERT INTO provenance (run_id, test_item_id, selected, confidence, witness_json)
+             VALUES ('prev-sel', ?1, 0, 0.0, '[]')",
+            rusqlite::params![test_id],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO provenance (run_id, test_item_id, selected, confidence, witness_json)
+             VALUES ('prev-sel', ?1, 1, 1.0, ?2)",
+            rusqlite::params![other_id, witness_json],
+        ).unwrap();
+
+        // Ingest a full run where the test failed
+        let results = serde_json::json!({
+            "run_id": "full-run-2",
+            "full_run": true,
+            "tests": [{"id": test_id, "outcome": "failed", "duration_ms": 10}]
+        });
+        let incidents = store.detect_missed_selections("full-run-2", &results).unwrap();
+        assert_eq!(incidents, 1, "should detect one missed-selection incident");
+
+        // Verify incident was recorded
+        let count: u32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM missed_selection_incidents WHERE run_id='full-run-2'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1, "incident should be recorded");
+
+        // Verify manual edge was created
+        let edge_count: u32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM dependency_edges
+                 WHERE test_item_id=?1 AND origin='manual'",
+                rusqlite::params![test_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(edge_count, 1, "manual edge should be created");
+    }
+
+    #[test]
+    fn test_record_missed_selection_direct() {
+        // Directly test record_missed_selection to isolate FK issues
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+
+        // Set up content unit
+        conn.execute(
+            "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
+             VALUES ('default', 'src/lib.rs', NULL, 'source', 'abc123')",
+            [],
+        ).unwrap();
+        let cu_id: u32 = conn
+            .query_row("SELECT id FROM content_units", [], |row| row.get(0))
+            .unwrap();
+
+        // Test item
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'test_x')",
+            [],
+        ).unwrap();
+        let test_id: u32 = conn
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+
+        // Call record_missed_selection directly
+        store.record_missed_selection("run-x", test_id, cu_id).unwrap();
+
+        // Verify incident was recorded
+        let count: u32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM missed_selection_incidents WHERE run_id='run-x'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1, "incident should be recorded");
+
+        // Verify manual edge exists
+        let edge_count: u32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM dependency_edges
+                 WHERE test_item_id=?1 AND origin='manual' AND content_unit_id=?2",
+                rusqlite::params![test_id, cu_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(edge_count, 1, "manual edge should exist");
+    }
+
+    #[test]
+    fn test_detect_missed_selections_passed_test_skipped() {
+        // A skipped test that PASSED should NOT trigger an incident
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'test_b')",
+            [],
+        ).unwrap();
+        let test_id: u32 = conn
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+
+        // Simulate prior selection: test was skipped
+        conn.execute(
+            "INSERT INTO provenance (run_id, test_item_id, selected, confidence, witness_json)
+             VALUES ('prev-sel', ?1, 0, 0.0, '[]')",
+            rusqlite::params![test_id],
+        ).unwrap();
+
+        // Full run: test PASSED
+        let results = serde_json::json!({
+            "run_id": "full-run-3",
+            "full_run": true,
+            "tests": [{"id": test_id, "outcome": "passed", "duration_ms": 10}]
+        });
+        let incidents = store.detect_missed_selections("full-run-3", &results).unwrap();
+        assert_eq!(incidents, 0, "passed test should not trigger incident");
+    }
+
+    #[test]
+    fn test_detect_missed_selections_not_full_run() {
+        // A non-full-run should NOT trigger detection during ingest
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'test_c')",
+            [],
+        ).unwrap();
+        let test_id: u32 = conn
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+
+        // Prior selection: test was skipped
+        conn.execute(
+            "INSERT INTO provenance (run_id, test_item_id, selected, confidence, witness_json)
+             VALUES ('prev-sel', ?1, 0, 0.0, '[]')",
+            rusqlite::params![test_id],
+        ).unwrap();
+
+        // Ingest without full_run flag — should NOT trigger detection
+        let results = serde_json::json!({
+            "run_id": "sel-run-1",
+            "tests": [{"id": test_id, "outcome": "failed", "duration_ms": 10}]
+        });
+        store.ingest(&results).unwrap();
+
+        // Verify no incidents were created by the ingest
+        let count: u32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM missed_selection_incidents WHERE run_id='sel-run-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0, "non-full-run should not create incidents");
+    }
+
+    #[test]
+    fn test_missed_selection_manual_edge_in_selection() {
+        // Verify that the manual edge forces selection in future runs
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+
+        // Set up content unit
+        let file_path = dir.path().join("src/lib.rs");
+        std::fs::create_dir_all(file_path.parent().unwrap()).unwrap();
+        std::fs::write(&file_path, b"fn foo() {}").unwrap();
+        let fp = Store::compute_fingerprint(&file_path).unwrap();
+        conn.execute(
+            "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
+             VALUES ('default', 'src/lib.rs', NULL, 'source', ?1)",
+            rusqlite::params![fp],
+        ).unwrap();
+        let cu_id: u32 = conn
+            .query_row("SELECT id FROM content_units", [], |row| row.get(0))
+            .unwrap();
+
+        // Test item
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'test_d')",
+            [],
+        ).unwrap();
+        let test_id: u32 = conn
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+
+        // Give test a run history so it's not always-run (no history)
+        conn.execute(
+            "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+             VALUES (?1, 'seed', 'passed', 10, 'default')",
+            rusqlite::params![test_id],
+        ).unwrap();
+
+        // Create a manual edge (simulating what record_missed_selection does)
+        conn.execute(
+            "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
+             VALUES (?1, ?2, 'default', 'manual', 1000000)",
+            rusqlite::params![test_id, cu_id],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
+            rusqlite::params![cu_id, test_id],
+        ).unwrap();
+
+        // Change the file
+        std::fs::write(&file_path, b"fn bar() {}").unwrap();
+
+        let engine = crate::engine::Engine::new(&store);
+        let delta = crate::change::ChangeSet {
+            files: vec!["src/lib.rs".to_string()],
+            base: None,
+            head: None,
+        };
+        let sel = engine.select(&delta).unwrap();
+
+        // Test should be selected via the manual edge
+        let ids: Vec<u32> = sel.tests.iter().map(|t| t.id).collect();
+        assert!(ids.contains(&test_id), "test should be selected via manual edge");
+
+        // Verify the witness includes the manual origin
+        let test = sel.tests.iter().find(|t| t.id == test_id).unwrap();
+        let has_manual = test
+            .witness
+            .as_ref()
+            .map(|w| w.iter().any(|e| e.origin == crate::engine::Origin::Manual))
+            .unwrap_or(false);
+        assert!(has_manual, "witness should include manual edge origin");
     }
 }
