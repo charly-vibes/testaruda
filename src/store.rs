@@ -172,6 +172,12 @@ impl Store {
             );
             CREATE INDEX IF NOT EXISTS idx_reverse_lookup ON reverse_index(content_unit_id);
             CREATE INDEX IF NOT EXISTS idx_edges_test ON dependency_edges(test_item_id);
+
+            CREATE TABLE IF NOT EXISTS selection_cache (
+                fingerprint TEXT NOT NULL PRIMARY KEY,
+                selection_json TEXT NOT NULL,
+                cached_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
         ").map_err(|e| miette::miette!("Failed to initialize schema: {}", e))?;
         Ok(())
     }
@@ -570,6 +576,65 @@ impl Store {
             |row| row.get(0),
         )
     }
+
+    /// Compute a fingerprint for a component by hashing all its content unit fingerprints.
+    ///
+    /// Used as a cache key for cached selection decisions (TIA-COMP-010).
+    pub fn compute_component_fingerprint(&self, component: &str) -> miette::Result<String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT fingerprint FROM content_units WHERE component = ?1 ORDER BY path, symbol",
+            )
+            .map_err(|e| miette::miette!("Query prep failed: {}", e))?;
+        let fps: Vec<String> = stmt
+            .query_map(rusqlite::params![component], |row| row.get(0))
+            .map_err(|e| miette::miette!("Query failed: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect();
+        let combined = fps.join("|");
+        let hash = blake3::hash(combined.as_bytes());
+        Ok(hash.to_hex().to_string())
+    }
+
+    /// Look up a cached selection by component fingerprint (TIA-COMP-010).
+    pub fn get_cached_selection(&self, fingerprint: &str) -> miette::Result<Option<String>> {
+        let result = self.conn.query_row(
+            "SELECT selection_json FROM selection_cache WHERE fingerprint = ?1",
+            rusqlite::params![fingerprint],
+            |row| row.get::<_, String>(0),
+        );
+        match result {
+            Ok(json) => Ok(Some(json)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(miette::miette!("Cache lookup failed: {}", e)),
+        }
+    }
+
+    /// Store a selection result in the cache (TIA-COMP-010).
+    pub fn set_cached_selection(
+        &self,
+        fingerprint: &str,
+        selection_json: &str,
+    ) -> miette::Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO selection_cache (fingerprint, selection_json, cached_at)
+             VALUES (?1, ?2, datetime('now'))",
+            rusqlite::params![fingerprint, selection_json],
+        ).map_err(|e| miette::miette!("Failed to cache selection: {}", e))?;
+        Ok(())
+    }
+
+    /// Invalidate all cached selections for a component (TIA-COMP-010).
+    pub fn invalidate_component_cache(&self, _component: &str) -> miette::Result<()> {
+        // Since the cache key is a global fingerprint, we clear all entries
+        // when any component's cache is invalidated. In a future iteration
+        // with per-component cache keys, this would be more targeted.
+        self.conn
+            .execute("DELETE FROM selection_cache", [])
+            .map_err(|e| miette::miette!("Failed to invalidate cache: {}", e))?;
+        Ok(())
+    }
 }
 
 fn find_project_root() -> miette::Result<PathBuf> {
@@ -832,5 +897,96 @@ mod tests {
             result.is_err(),
             "unknown migration path should return error"
         );
+    }
+
+    #[test]
+    fn test_cache_store_and_retrieve() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let fp = "deadbeef12345678";
+        let json = r#"{"tests":[{"id":1,"confidence":1.0}]}"#;
+
+        // Initially empty
+        let cached = store.get_cached_selection(fp).unwrap();
+        assert!(cached.is_none(), "cache should be empty initially");
+
+        // Store
+        store.set_cached_selection(fp, json).unwrap();
+
+        // Retrieve
+        let cached = store.get_cached_selection(fp).unwrap();
+        assert_eq!(cached.as_deref(), Some(json));
+    }
+
+    #[test]
+    fn test_cache_overwrite_and_miss() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        store
+            .set_cached_selection("fp1", r#"{"sel":1}"#)
+            .unwrap();
+        store
+            .set_cached_selection("fp2", r#"{"sel":2}"#)
+            .unwrap();
+
+        // Each fingerprint retrieves its own
+        assert_eq!(
+            store.get_cached_selection("fp1").unwrap().as_deref(),
+            Some(r#"{"sel":1}"#)
+        );
+        assert_eq!(
+            store.get_cached_selection("fp2").unwrap().as_deref(),
+            Some(r#"{"sel":2}"#)
+        );
+
+        // Overwrite fp1
+        store
+            .set_cached_selection("fp1", r#"{"sel":99}"#)
+            .unwrap();
+        assert_eq!(
+            store.get_cached_selection("fp1").unwrap().as_deref(),
+            Some(r#"{"sel":99}"#)
+        );
+
+        // Unknown fingerprint returns None
+        assert!(store.get_cached_selection("unknown").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_cache_invalidation() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        store
+            .set_cached_selection("fp_a", r#"{}"#)
+            .unwrap();
+        store
+            .set_cached_selection("fp_b", r#"{}"#)
+            .unwrap();
+
+        // Invalidate (clears all, since cache key is global)
+        store.invalidate_component_cache("default").unwrap();
+
+        assert!(store.get_cached_selection("fp_a").unwrap().is_none());
+        assert!(store.get_cached_selection("fp_b").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_component_fingerprint_empty_component() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        // Empty component should produce a deterministic hash
+        let fp = store.compute_component_fingerprint("empty").unwrap();
+        assert_eq!(fp.len(), 64, "blake3 hex should be 64 chars");
+        // Same empty component should produce same hash
+        let fp2 = store.compute_component_fingerprint("empty").unwrap();
+        assert_eq!(fp, fp2);
     }
 }
