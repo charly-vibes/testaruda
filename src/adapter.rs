@@ -79,6 +79,15 @@ fn default_granularity() -> String {
     "file".to_string()
 }
 
+/// Envelope for handshake responses (TIA-ADAPT-002).
+/// Matches the `{"ok": true, "result": {...}}` wire format used by all adapter responses.
+#[derive(Debug, Deserialize)]
+struct HandshakeResponse {
+    result: Option<Handshake>,
+    #[allow(dead_code)]
+    error: Option<String>,
+}
+
 // ===== Discover =====
 
 /// A single test item (TIA-ADAPT-004).
@@ -156,7 +165,11 @@ impl AdapterIO {
         };
 
         // Handshake (TIA-ADAPT-002)
-        let hs: Handshake = io.send(&AdapterCommand::handshake())?;
+        // Deserialize through the envelope (TIA-ADAPT-001 — every response is wrapped)
+        let hs_resp: HandshakeResponse = io.send(&AdapterCommand::handshake())?;
+        let hs = hs_resp.result.ok_or_else(|| {
+            AdapterError::MalformedResponse("missing result in handshake response".to_string())
+        })?;
         io.name = hs.name;
         io.capabilities = hs.capabilities;
 
@@ -635,19 +648,24 @@ mod tests {
 
     #[test]
     fn test_handshake_deserialization() {
+        // Real wire format: enveloped like every other adapter response (TIA-ADAPT-001)
         let json = r#"{
-            "name": "rust-adapter",
-            "version": "1.0.0",
-            "protocol": 1,
-            "languages": ["rust"],
-            "granularity": "symbol",
-            "capabilities": {
-                "symbol_model_complete": true,
-                "fingerprinting": true,
-                "runtime_edges": false
+            "ok": true,
+            "result": {
+                "name": "rust-adapter",
+                "version": "1.0.0",
+                "protocol": 1,
+                "languages": ["rust"],
+                "granularity": "symbol",
+                "capabilities": {
+                    "symbol_model_complete": true,
+                    "fingerprinting": true,
+                    "runtime_edges": false
+                }
             }
         }"#;
-        let hs: Handshake = serde_json::from_str(json).unwrap();
+        let resp: HandshakeResponse = serde_json::from_str(json).unwrap();
+        let hs = resp.result.unwrap();
         assert_eq!(hs.name, "rust-adapter");
         assert_eq!(hs.protocol, 1);
         assert!(hs.capabilities.symbol_model_complete);
@@ -656,8 +674,17 @@ mod tests {
 
     #[test]
     fn test_handshake_defaults() {
-        let json = r#"{"name":"min","version":"1.0","protocol":1}"#;
-        let hs: Handshake = serde_json::from_str(json).unwrap();
+        // Real wire format: enveloped with minimal handshake data
+        let json = r#"{
+            "ok": true,
+            "result": {
+                "name": "min",
+                "version": "1.0",
+                "protocol": 1
+            }
+        }"#;
+        let resp: HandshakeResponse = serde_json::from_str(json).unwrap();
+        let hs = resp.result.unwrap();
         assert_eq!(hs.granularity, "file");
         assert!(!hs.capabilities.symbol_model_complete);
         assert!(hs.capabilities.fingerprinting);
@@ -686,8 +713,16 @@ mod tests {
 
     #[test]
     fn test_version_mismatch_detection() {
-        let json = r#"{"name":"old","version":"0.5","protocol":0}"#;
-        let hs: Handshake = serde_json::from_str(json).unwrap();
+        let json = r#"{
+            "ok": true,
+            "result": {
+                "name": "old",
+                "version": "0.5",
+                "protocol": 0
+            }
+        }"#;
+        let resp: HandshakeResponse = serde_json::from_str(json).unwrap();
+        let hs = resp.result.unwrap();
         assert_ne!(hs.protocol, PROTOCOL_VERSION);
     }
 
