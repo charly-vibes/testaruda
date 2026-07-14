@@ -60,6 +60,10 @@ explain test-id:
 clean:
     cargo clean
 
+# Install locally to ~/.cargo/bin
+install:
+    cargo install --path .
+
 # Build documentation
 doc:
     cargo doc --no-deps --open
