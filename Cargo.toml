@@ -21,8 +21,6 @@ path = "src/bin/adapter-python.rs"
 [dependencies]
 # Core engine
 ascent = "0.8"
-ascent-byods-rels = "0.8"
-rayon = "1"
 
 # CLI
 clap = { version = "4", features = ["derive"] }
@@ -30,7 +28,6 @@ clap = { version = "4", features = ["derive"] }
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-serde_yaml = "0.9"
 toml = "0.8"
 
 # Storage
@@ -50,12 +47,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Content hashing
 blake3 = "1"
-
-# Diff computation
-similar = "2"
-
-# UUIDs for node IDs
-uuid = { version = "1", features = ["v4"] }
 
 # File scanning for adapters
 walkdir = "2"
