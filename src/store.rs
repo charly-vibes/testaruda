@@ -1089,14 +1089,20 @@ impl Store {
         Ok(())
     }
 
-    /// Export the dependency graph as JSON.
+    /// Export the dependency graph as JSON (TIA-STORE-003).
+    ///
+    /// Returns content units, test items, dependency edges, and run history
+    /// in a documented interchange format suitable for import.
     pub fn export_graph(&self) -> miette::Result<serde_json::Value> {
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
+        let mut tests = Vec::new();
+        let mut runs = Vec::new();
 
+        // Content units
         let mut stmt = self
             .conn
-            .prepare("SELECT id, component, path, symbol, kind FROM content_units")
+            .prepare("SELECT id, component, path, symbol, kind, fingerprint FROM content_units")
             .map_err(|e| miette::miette!("Graph query failed: {}", e))?;
         let rows = stmt
             .query_map([], |row| {
@@ -1106,6 +1112,7 @@ impl Store {
                     "path": row.get::<_, String>(2)?,
                     "symbol": row.get::<_, Option<String>>(3)?,
                     "kind": row.get::<_, String>(4)?,
+                    "fingerprint": row.get::<_, String>(5)?,
                 }))
             })
             .map_err(|e| miette::miette!("Graph exec failed: {}", e))?;
@@ -1113,17 +1120,47 @@ impl Store {
             nodes.push(row);
         }
 
+        // Test items
+        let mut tstmt = self
+            .conn
+            .prepare("SELECT id, component, adapter, node_id, quarantined FROM test_items")
+            .map_err(|e| miette::miette!("Test items query failed: {}", e))?;
+        let trows = tstmt
+            .query_map([], |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, u32>(0)?,
+                    "component": row.get::<_, String>(1)?,
+                    "adapter": row.get::<_, String>(2)?,
+                    "node_id": row.get::<_, String>(3)?,
+                    "quarantined": row.get::<_, i32>(4)? != 0,
+                }))
+            })
+            .map_err(|e| miette::miette!("Test items exec failed: {}", e))?;
+        for row in trows.flatten() {
+            tests.push(row);
+        }
+
+        // Dependency edges
         let mut estmt = self
             .conn
-            .prepare("SELECT test_item_id, content_unit_id, origin, k_value FROM dependency_edges")
+            .prepare(
+                "SELECT de.test_item_id, de.content_unit_id, de.environment, de.origin, de.k_value,
+                        ti.node_id, cu.path
+                 FROM dependency_edges de
+                 JOIN test_items ti ON ti.id = de.test_item_id
+                 JOIN content_units cu ON cu.id = de.content_unit_id",
+            )
             .map_err(|e| miette::miette!("Edge export failed: {}", e))?;
         let erows = estmt
             .query_map([], |row| {
                 Ok(serde_json::json!({
                     "from": row.get::<_, u32>(0)?,
                     "to": row.get::<_, u32>(1)?,
-                    "origin": row.get::<_, String>(2)?,
-                    "k": row.get::<_, u32>(3)?,
+                    "environment": row.get::<_, String>(2)?,
+                    "origin": row.get::<_, String>(3)?,
+                    "k": row.get::<_, u32>(4)?,
+                    "from_node_id": row.get::<_, String>(5)?,
+                    "to_path": row.get::<_, String>(6)?,
                 }))
             })
             .map_err(|e| miette::miette!("Edge export exec failed: {}", e))?;
@@ -1131,7 +1168,160 @@ impl Store {
             edges.push(row);
         }
 
-        Ok(serde_json::json!({ "nodes": nodes, "edges": edges }))
+        // Run history
+        let mut rstmt = self
+            .conn
+            .prepare(
+                "SELECT rh.test_item_id, rh.run_id, rh.outcome, rh.duration_ms, rh.environment, ti.node_id
+                 FROM run_history rh
+                 JOIN test_items ti ON ti.id = rh.test_item_id",
+            )
+            .map_err(|e| miette::miette!("Run history query failed: {}", e))?;
+        let rrows = rstmt
+            .query_map([], |row| {
+                Ok(serde_json::json!({
+                    "test_item_id": row.get::<_, u32>(0)?,
+                    "run_id": row.get::<_, String>(1)?,
+                    "outcome": row.get::<_, String>(2)?,
+                    "duration_ms": row.get::<_, Option<u64>>(3)?,
+                    "environment": row.get::<_, String>(4)?,
+                    "node_id": row.get::<_, String>(5)?,
+                }))
+            })
+            .map_err(|e| miette::miette!("Run history exec failed: {}", e))?;
+        for row in rrows.flatten() {
+            runs.push(row);
+        }
+
+        Ok(serde_json::json!({
+            "format": "testaruda-graph-v1",
+            "content_units": nodes,
+            "test_items": tests,
+            "edges": edges,
+            "run_history": runs,
+        }))
+    }
+
+    /// Import a dependency graph from a JSON export (TIA-STORE-003).
+    ///
+    /// Reconstructs content units, test items, dependency edges, and run
+    /// history from the exported interchange format.
+    pub fn import_graph(&self, graph: &serde_json::Value) -> miette::Result<()> {
+        // Verify format
+        let format = graph["format"].as_str().unwrap_or("");
+        if !format.starts_with("testaruda-graph-v") {
+            return Err(miette::miette!(
+                "Unknown graph format: '{}'. Expected 'testaruda-graph-v1'",
+                format
+            ));
+        }
+
+        // Import content units
+        if let Some(units) = graph["content_units"].as_array() {
+            for unit in units {
+                let component = unit["component"].as_str().unwrap_or("default");
+                let path = unit["path"].as_str().unwrap_or("");
+                let symbol = unit["symbol"].as_str();
+                let kind = unit["kind"].as_str().unwrap_or("source");
+                let fingerprint = unit["fingerprint"].as_str().unwrap_or("unknown");
+                self.ensure_content_unit(component, path, symbol, kind)
+                    .map_err(|e| miette::miette!("Failed to import content unit: {}", e))?;
+                // Update fingerprint
+                self.conn.execute(
+                    "UPDATE content_units SET fingerprint = ?1 WHERE component = ?2 AND path = ?3",
+                    rusqlite::params![fingerprint, component, path],
+                ).map_err(|e| miette::miette!("Failed to set fingerprint: {}", e))?;
+            }
+        }
+
+        // Import test items
+        if let Some(items) = graph["test_items"].as_array() {
+            for item in items {
+                let component = item["component"].as_str().unwrap_or("default");
+                let adapter = item["adapter"].as_str().unwrap_or("import");
+                let node_id = item["node_id"].as_str().unwrap_or("");
+                let quarantined = item["quarantined"].as_bool().unwrap_or(false);
+                let quarantined_int = if quarantined { 1 } else { 0 };
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO test_items (component, adapter, node_id, quarantined)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    rusqlite::params![component, adapter, node_id, quarantined_int],
+                ).map_err(|e| miette::miette!("Failed to import test item: {}", e))?;
+            }
+        }
+
+        // Import dependency edges
+        if let Some(edges) = graph["edges"].as_array() {
+            for edge in edges {
+                let from_node_id = edge["from_node_id"].as_str();
+                let to_path = edge["to_path"].as_str();
+                let environment = edge["environment"].as_str().unwrap_or("default");
+                let origin = edge["origin"].as_str().unwrap_or("static");
+                let k = edge["k"].as_u64().unwrap_or(1000000) as u32;
+
+                // Resolve test_item_id by node_id
+                let from = match from_node_id {
+                    Some(nid) => self.conn.query_row::<u32, _, _>(
+                        "SELECT id FROM test_items WHERE node_id = ?1 LIMIT 1",
+                        rusqlite::params![nid],
+                        |row| row.get(0),
+                    ).map_err(|e| miette::miette!("Failed to resolve test '{}': {}", nid, e))?,
+                    None => return Err(miette::miette!("Edge missing 'from_node_id'")),
+                };
+
+                // Resolve content_unit_id by path
+                let to = match to_path {
+                    Some(p) => self.conn.query_row::<u32, _, _>(
+                        "SELECT id FROM content_units WHERE path = ?1 LIMIT 1",
+                        rusqlite::params![p],
+                        |row| row.get(0),
+                    ).map_err(|e| miette::miette!("Failed to resolve content unit '{}': {}", p, e))?,
+                    None => return Err(miette::miette!("Edge missing 'to_path'")),
+                };
+
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    rusqlite::params![from, to, environment, origin, k],
+                ).map_err(|e| miette::miette!("Failed to import edge: {}", e))?;
+                // Also maintain reverse index
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
+                    rusqlite::params![to, from],
+                ).map_err(|e| miette::miette!("Failed to update reverse index: {}", e))?;
+            }
+        }
+
+        // Import run history
+        if let Some(runs) = graph["run_history"].as_array() {
+            for run in runs {
+                let node_id = run["node_id"].as_str();
+                let run_id = run["run_id"].as_str().unwrap_or("");
+                let outcome = run["outcome"].as_str().unwrap_or("passed");
+                let duration_ms = run["duration_ms"].as_u64();
+                let environment = run["environment"].as_str().unwrap_or("default");
+
+                // Resolve test_item_id by node_id
+                let test_item_id = match node_id {
+                    Some(nid) => self.conn.query_row::<u32, _, _>(
+                        "SELECT id FROM test_items WHERE node_id = ?1 LIMIT 1",
+                        rusqlite::params![nid],
+                        |row| row.get(0),
+                    ).map_err(|e| miette::miette!(
+                        "Failed to resolve test '{}' for run history: {}", nid, e
+                    ))?,
+                    None => continue,
+                };
+
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    rusqlite::params![test_item_id, run_id, outcome, duration_ms, environment],
+                ).map_err(|e| miette::miette!("Failed to import run history: {}", e))?;
+            }
+        }
+
+        Ok(())
     }
 
     /// Explain why a test was or was not selected.
@@ -3276,5 +3466,204 @@ name = "env-a"
             dep_ids.contains(&tid2),
             "default env edge should appear in default env query"
         );
+    }
+
+    // ── Graph export/import tests (TIA-STORE-003) ──
+
+    #[test]
+    fn test_graph_export_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+
+        // Seed some data
+        conn.execute(
+            "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
+             VALUES ('default', 'src/lib.rs', NULL, 'source', 'abc123')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'test_a')",
+            [],
+        ).unwrap();
+        let tid: u32 = conn
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+        let cu_id: u32 = conn
+            .query_row("SELECT id FROM content_units", [], |row| row.get(0))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
+             VALUES (?1, ?2, 'default', 'static', 1000000)",
+            rusqlite::params![tid, cu_id],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
+            rusqlite::params![cu_id, tid],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+             VALUES (?1, 'r1', 'passed', 10, 'default')",
+            rusqlite::params![tid],
+        ).unwrap();
+
+        // Export
+        let graph = store.export_graph().unwrap();
+
+        // Verify format
+        assert_eq!(graph["format"], "testaruda-graph-v1");
+        assert!(graph["content_units"].as_array().unwrap().len() == 1);
+        assert!(graph["test_items"].as_array().unwrap().len() == 1);
+        assert!(graph["edges"].as_array().unwrap().len() == 1);
+        assert!(graph["run_history"].as_array().unwrap().len() == 1);
+
+        // Verify content unit details
+        let cu = &graph["content_units"][0];
+        assert_eq!(cu["path"], "src/lib.rs");
+        assert_eq!(cu["kind"], "source");
+        assert_eq!(cu["fingerprint"], "abc123");
+
+        // Verify test item details
+        let ti = &graph["test_items"][0];
+        assert_eq!(ti["node_id"], "test_a");
+        assert_eq!(ti["quarantined"], false);
+
+        // Verify edge details
+        let edge = &graph["edges"][0];
+        assert_eq!(edge["origin"], "static");
+        assert_eq!(edge["k"], 1000000);
+
+        // Verify run history details
+        let run = &graph["run_history"][0];
+        assert_eq!(run["outcome"], "passed");
+        assert_eq!(run["duration_ms"], 10);
+    }
+
+    #[test]
+    fn test_graph_import_reconstructs_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        // Import a graph
+        let graph = serde_json::json!({
+            "format": "testaruda-graph-v1",
+            "content_units": [
+                {"id": 1, "component": "default", "path": "src/lib.rs", "symbol": null, "kind": "source", "fingerprint": "abc123"}
+            ],
+            "test_items": [
+                {"id": 10, "component": "default", "adapter": "test", "node_id": "test_a", "quarantined": false}
+            ],
+            "edges": [
+                {"from": 10, "to": 1, "from_node_id": "test_a", "to_path": "src/lib.rs", "environment": "default", "origin": "static", "k": 1000000}
+            ],
+            "run_history": [
+                {"test_item_id": 10, "node_id": "test_a", "run_id": "r1", "outcome": "passed", "duration_ms": 10, "environment": "default"}
+            ]
+        });
+
+        store.import_graph(&graph).unwrap();
+
+        // Verify content unit was created
+        let cu_count: u32 = store.conn().query_row(
+            "SELECT COUNT(*) FROM content_units", [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(cu_count, 1, "should import 1 content unit");
+
+        // Verify test item was created
+        let ti_count: u32 = store.conn().query_row(
+            "SELECT COUNT(*) FROM test_items", [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(ti_count, 1, "should import 1 test item");
+
+        // Verify edge was created
+        let edge_count: u32 = store.conn().query_row(
+            "SELECT COUNT(*) FROM dependency_edges", [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(edge_count, 1, "should import 1 edge");
+
+        // Verify reverse index was created
+        let ri_count: u32 = store.conn().query_row(
+            "SELECT COUNT(*) FROM reverse_index", [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(ri_count, 1, "should import 1 reverse index entry");
+
+        // Verify run history was created
+        let rh_count: u32 = store.conn().query_row(
+            "SELECT COUNT(*) FROM run_history", [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(rh_count, 1, "should import 1 run history entry");
+    }
+
+    #[test]
+    fn test_graph_import_unknown_format_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let graph = serde_json::json!({"format": "unknown-format", "nodes": []});
+        let result = store.import_graph(&graph);
+        assert!(result.is_err(), "unknown format should be rejected");
+        assert!(
+            result.unwrap_err().to_string().contains("Unknown graph format"),
+            "error should mention unknown format"
+        );
+    }
+
+    #[test]
+    fn test_graph_export_import_roundtrip() {
+        // Export from one store, import into another, verify identical state
+        let dir = tempfile::tempdir().unwrap();
+
+        let store1 = Store::open(dir.path().join("store1")).unwrap();
+        store1.initialize().unwrap();
+        let conn1 = store1.conn();
+
+        conn1.execute(
+            "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
+             VALUES ('default', 'src/app.rs', NULL, 'source', 'def456')",
+            [],
+        ).unwrap();
+        let cu_id: u32 = conn1
+            .query_row("SELECT id FROM content_units", [], |row| row.get(0))
+            .unwrap();
+        conn1.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'test_b')",
+            [],
+        ).unwrap();
+        let tid: u32 = conn1
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+        conn1.execute(
+            "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
+             VALUES (?1, ?2, 'default', 'runtime', 500000)",
+            rusqlite::params![tid, cu_id],
+        ).unwrap();
+        conn1.execute(
+            "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
+            rusqlite::params![cu_id, tid],
+        ).unwrap();
+
+        // Export
+        let graph = store1.export_graph().unwrap();
+
+        // Import into a second store
+        let store2 = Store::open(dir.path().join("store2")).unwrap();
+        store2.initialize().unwrap();
+        store2.import_graph(&graph).unwrap();
+
+        // Verify both stores have the same data
+        let cu_count2: u32 = store2.conn().query_row(
+            "SELECT COUNT(*) FROM content_units", [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(cu_count2, 1, "store2 should have 1 content unit");
+
+        let edge_count2: u32 = store2.conn().query_row(
+            "SELECT COUNT(*) FROM dependency_edges WHERE origin='runtime'",
+            [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(edge_count2, 1, "store2 should have 1 runtime edge");
     }
 }

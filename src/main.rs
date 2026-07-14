@@ -44,6 +44,11 @@ enum Command {
     },
     /// Show the current dependency graph
     Graph,
+    /// Import a dependency graph from a JSON export
+    Import {
+        /// Path to graph JSON file
+        path: String,
+    },
     /// Explain why a test was or was not selected
     Explain {
         /// Test node ID
@@ -275,6 +280,16 @@ fn main() -> miette::Result<()> {
             let out = serde_json::to_string_pretty(&graph)
                 .map_err(|e| miette::miette!("JSON serialization failed: {}", e))?;
             println!("{}", out);
+            Ok(())
+        }
+        Command::Import { path } => {
+            let store = testaruda::Store::open_default()?;
+            let data = std::fs::read_to_string(&path)
+                .map_err(|e| miette::miette!("Failed to read {}: {}", path, e))?;
+            let graph: serde_json::Value = serde_json::from_str(&data)
+                .map_err(|e| miette::miette!("Failed to parse JSON: {}", e))?;
+            store.import_graph(&graph)?;
+            println!("✅ Graph imported from {}", path);
             Ok(())
         }
         Command::Explain { test_id, change } => {
