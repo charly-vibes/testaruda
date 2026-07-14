@@ -34,7 +34,7 @@ pub mod selector;
 mod store;
 
 pub use change::ChangeSet;
-pub use engine::{Engine, Origin, SelectedTest, Selection, WitnessEdge};
+pub use engine::{Engine, ONE, Origin, SelectedTest, Selection, WitnessEdge};
 pub use provenance::{
     BooleanSemiring, ProvenanceSemiring, SemiringValue, TropicalSemiring, ViterbiSemiring,
 };

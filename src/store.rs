@@ -60,6 +60,11 @@ impl Store {
         })
     }
 
+    /// Access the underlying SQLite connection (primarily for testing).
+    pub fn conn(&self) -> &Connection {
+        &self.conn
+    }
+
     /// Initialize the store schema, checking version compatibility (TIA-STORE-004).
     ///
     /// On a fresh store: creates all tables and records the schema version.
