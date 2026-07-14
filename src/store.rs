@@ -170,6 +170,10 @@ impl Store {
                 toolchain TEXT,
                 os TEXT
             );
+            CREATE TABLE IF NOT EXISTS ingested_runs (
+                run_id TEXT NOT NULL PRIMARY KEY,
+                ingested_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
             CREATE INDEX IF NOT EXISTS idx_reverse_lookup ON reverse_index(content_unit_id);
             CREATE INDEX IF NOT EXISTS idx_edges_test ON dependency_edges(test_item_id);
 
@@ -364,22 +368,80 @@ impl Store {
         Ok(ctx)
     }
 
-    /// Ingest run results.
+    /// Ingest run results (TIA-RUN-005, TIA-REL-002).
+    ///
+    /// Requires a `run_id` field in the payload (run-identity key).
+    /// Skips ingestion if the run_id has already been processed.
+    /// Wraps all writes in a single transaction for crash safety.
     pub fn ingest(&self, results: &serde_json::Value) -> miette::Result<()> {
-        if let Some(tests) = results["tests"].as_array() {
-            for test in tests {
-                let test_id = test["id"].as_u64().unwrap_or(0) as u32;
-                let outcome = test["outcome"].as_str().unwrap_or("passed");
-                let duration = test["duration_ms"].as_u64();
-                let run_id = results["run_id"].as_str().unwrap_or("unknown");
-                self.conn.execute(
-                    "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
-                     VALUES (?1, ?2, ?3, ?4, 'default')",
-                    rusqlite::params![test_id, run_id, outcome, duration],
-                ).map_err(|e| miette::miette!("Failed to insert run result: {}", e))?;
+        // Extract run-identity key — reject if missing (TIA-RUN-005)
+        let run_id = match results["run_id"].as_str() {
+            Some(id) if !id.is_empty() => id.to_string(),
+            _ => {
+                return Err(miette::miette!(
+                    "rejected: payload missing required 'run_id' field (TIA-RUN-005)"
+                ));
             }
+        };
+
+        // Check for duplicate — skip if already recorded (TIA-RUN-005)
+        let existing: bool = self
+            .conn
+            .query_row(
+                "SELECT 1 FROM ingested_runs WHERE run_id = ?1",
+                rusqlite::params![run_id],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+
+        if existing {
+            eprintln!("  ℹ️  Duplicate ingestion skipped for run '{}'", run_id);
+            return Ok(());
         }
-        Ok(())
+
+        // Wrap ingestion in a single transaction (TIA-REL-002)
+        self.conn
+            .execute_batch("BEGIN TRANSACTION")
+            .map_err(|e| miette::miette!("Failed to begin transaction: {}", e))?;
+
+        let result = (|| -> miette::Result<()> {
+            // Record the run identity
+            self.conn
+                .execute(
+                    "INSERT INTO ingested_runs (run_id) VALUES (?1)",
+                    rusqlite::params![run_id],
+                )
+                .map_err(|e| miette::miette!("Failed to record run: {}", e))?;
+
+            // Insert per-test results
+            if let Some(tests) = results["tests"].as_array() {
+                for test in tests {
+                    let test_id = test["id"].as_u64().unwrap_or(0) as u32;
+                    let outcome = test["outcome"].as_str().unwrap_or("passed");
+                    let duration = test["duration_ms"].as_u64();
+                    self.conn.execute(
+                        "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+                         VALUES (?1, ?2, ?3, ?4, 'default')",
+                        rusqlite::params![test_id, run_id, outcome, duration],
+                    )
+                    .map_err(|e| miette::miette!("Failed to insert run result: {}", e))?;
+                }
+            }
+            Ok(())
+        })();
+
+        // Commit or rollback based on success
+        if result.is_ok() {
+            self.conn
+                .execute_batch("COMMIT")
+                .map_err(|e| miette::miette!("Failed to commit transaction: {}", e))?;
+        } else {
+            self.conn
+                .execute_batch("ROLLBACK")
+                .map_err(|e| miette::miette!("Failed to rollback transaction: {}", e))?;
+        }
+
+        result
     }
 
     /// Store discovered test items from an adapter (TIA-ADAPT-004).
@@ -988,5 +1050,106 @@ mod tests {
         // Same empty component should produce same hash
         let fp2 = store.compute_component_fingerprint("empty").unwrap();
         assert_eq!(fp, fp2);
+    }
+
+    #[test]
+    fn test_ingest_missing_run_id_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        // Payload without run_id should be rejected
+        let payload = serde_json::json!({"tests": []});
+        let result = store.ingest(&payload);
+        assert!(result.is_err(), "missing run_id should be rejected");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("run_id"),
+            "error should mention run_id: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_ingest_duplicate_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        // Insert a test item so the FK constraint is satisfied
+        store.conn().execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'test_node')",
+            [],
+        ).unwrap();
+
+        let payload = serde_json::json!({
+            "run_id": "test-run-001",
+            "tests": [{"id": 1, "outcome": "passed", "duration_ms": 10}]
+        });
+
+        // First ingest should succeed
+        assert!(store.ingest(&payload).is_ok(), "first ingest should succeed");
+
+        // Second ingest with same run_id should skip (not error)
+        assert!(store.ingest(&payload).is_ok(), "duplicate should not error");
+
+        // Verify only one run_history entry exists
+        let count: u32 = store
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM run_history WHERE run_id = ?1",
+                rusqlite::params!["test-run-001"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1, "only one run_history entry for duplicate");
+    }
+
+    #[test]
+    fn test_ingest_transaction_rollback_on_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        // Insert a test item for FK constraint
+        store.conn().execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'test_node2')",
+            [],
+        ).unwrap();
+
+        // Payload with an invalid outcome (CHECK constraint violation)
+        let payload = serde_json::json!({
+            "run_id": "crash-test",
+            "tests": [{"id": 1, "outcome": "invalid_outcome", "duration_ms": 10}]
+        });
+
+        let result = store.ingest(&payload);
+        assert!(result.is_err(), "invalid outcome should cause error");
+
+        // Verify the run was NOT recorded (transaction rolled back)
+        let exists: bool = store
+            .conn()
+            .query_row(
+                "SELECT 1 FROM ingested_runs WHERE run_id = ?1",
+                rusqlite::params!["crash-test"],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        assert!(!exists, "ingested_runs should be empty after rollback");
+    }
+
+    #[test]
+    fn test_ingest_empty_run_id_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        // Empty string run_id should also be rejected
+        let payload = serde_json::json!({
+            "run_id": "",
+            "tests": []
+        });
+        let result = store.ingest(&payload);
+        assert!(result.is_err(), "empty run_id should be rejected");
     }
 }
