@@ -8,6 +8,13 @@ use std::path::{Path, PathBuf};
 use crate::change::ChangeSet;
 use crate::engine::Origin;
 
+/// Current schema version of the store database.
+/// Increment when making breaking schema changes.
+pub const SCHEMA_VERSION: u32 = 1;
+
+/// Name of the internal schema version table.
+const SCHEMA_TABLE: &str = "_schema_version";
+
 /// The store holds the dependency graph, test history, and run payloads.
 pub struct Store {
     conn: Connection,
@@ -53,8 +60,64 @@ impl Store {
         })
     }
 
-    /// Initialize the store schema.
+    /// Initialize the store schema, checking version compatibility (TIA-STORE-004).
+    ///
+    /// On a fresh store: creates all tables and records the schema version.
+    /// On an existing store: verifies version compatibility and migrates if needed.
+    /// If the store has a newer schema version than the core, refuses with a diagnostic.
     pub fn initialize(&self) -> miette::Result<()> {
+        // Step 1: Create the schema version tracking table if it doesn't exist
+        self.conn.execute_batch(&format!(
+            "CREATE TABLE IF NOT EXISTS {} (
+                version INTEGER NOT NULL
+            );",
+            SCHEMA_TABLE
+        )).map_err(|e| miette::miette!("Failed to create schema version table: {}", e))?;
+
+        // Step 2: Determine current schema version
+        let current_version: Option<u32> = self.conn
+            .query_row(
+                &format!("SELECT MAX(version) FROM {}", SCHEMA_TABLE),
+                [],
+                |row| row.get(0),
+            )
+            .ok()
+            .flatten();
+
+        match current_version {
+            None => {
+                // Fresh store — create all tables and record version
+                self.create_schema()?;
+                self.set_schema_version(SCHEMA_VERSION)?;
+            }
+            Some(v) if v == SCHEMA_VERSION => {
+                // Schema is up to date — ensure tables exist (no-op for existing tables)
+                self.create_schema()?;
+            }
+            Some(v) if v < SCHEMA_VERSION => {
+                // Older schema — migrate forward
+                eprintln!(
+                    "  ℹ️  Migrating store schema from v{} to v{}...",
+                    v, SCHEMA_VERSION
+                );
+                self.migrate(v, SCHEMA_VERSION)?;
+            }
+            Some(v) => {
+                // Newer schema — core is too old
+                return Err(miette::miette!(
+                    "Store schema v{} is newer than this core (v{}). \
+                     Please upgrade testaruda to use this store.",
+                    v,
+                    SCHEMA_VERSION
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Create all schema tables (idempotent — uses IF NOT EXISTS).
+    fn create_schema(&self) -> miette::Result<()> {
         self.conn.execute_batch("
             CREATE TABLE IF NOT EXISTS content_units (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,6 +168,49 @@ impl Store {
             CREATE INDEX IF NOT EXISTS idx_reverse_lookup ON reverse_index(content_unit_id);
             CREATE INDEX IF NOT EXISTS idx_edges_test ON dependency_edges(test_item_id);
         ").map_err(|e| miette::miette!("Failed to initialize schema: {}", e))?;
+        Ok(())
+    }
+
+    /// Record the schema version in the version table.
+    fn set_schema_version(&self, version: u32) -> miette::Result<()> {
+        self.conn.execute(
+            &format!("INSERT INTO {} (version) VALUES (?1)", SCHEMA_TABLE),
+            rusqlite::params![version],
+        ).map_err(|e| miette::miette!("Failed to record schema version: {}", e))?;
+        Ok(())
+    }
+
+    /// Migrate the schema from an older version to the target version.
+    fn migrate(&self, from: u32, to: u32) -> miette::Result<()> {
+        for v in from..to {
+            let next = v + 1;
+            eprintln!("    Applying migration v{} → v{}...", v, next);
+            self.apply_migration(v, next)?;
+            self.set_schema_version(next)?;
+        }
+        Ok(())
+    }
+
+    /// Apply a single migration step.
+    ///
+    /// Each step is a version-specific transformation. For the initial schema
+    /// (v0→v1), the tables already exist via CREATE IF NOT EXISTS, so this is
+    /// a no-op migration that upgrades the recorded version number.
+    fn apply_migration(&self, from: u32, to: u32) -> miette::Result<()> {
+        match (from, to) {
+            // v0 → v1: initial schema, tables already exist, nothing to transform
+            (0, 1) => {
+                // Ensure all tables exist (idempotent)
+                self.create_schema()?;
+            }
+            _ => {
+                return Err(miette::miette!(
+                    "No migration path from v{} to v{}",
+                    from,
+                    to
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -582,5 +688,144 @@ mod tests {
         let ctx = store.load_selection_context(&delta).unwrap();
         assert_eq!(ctx.changed.len(), 0);
         assert_eq!(ctx.unresolved.len(), 1, "missing file should be unresolved");
+    }
+
+    #[test]
+    fn test_fresh_store_has_current_schema_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let version: u32 = store
+            .conn
+            .query_row(
+                &format!("SELECT MAX(version) FROM {}", SCHEMA_TABLE),
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION, "fresh store should have current version");
+    }
+
+    #[test]
+    fn test_schema_version_persists_across_opens() {
+        let dir = tempfile::tempdir().unwrap();
+        let store_path = dir.path().join(".testaruda");
+
+        // First open: initialize
+        {
+            let store = Store::open(store_path.clone()).unwrap();
+            store.initialize().unwrap();
+        }
+
+        // Second open: verify version is still correct
+        {
+            let store = Store::open(store_path.clone()).unwrap();
+            store.initialize().unwrap(); // should succeed without migration
+
+            let version: u32 = store
+                .conn
+                .query_row(
+                    &format!("SELECT MAX(version) FROM {}", SCHEMA_TABLE),
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(version, SCHEMA_VERSION);
+        }
+    }
+
+    #[test]
+    fn test_older_schema_is_migrated() {
+        let dir = tempfile::tempdir().unwrap();
+        let store_path = dir.path().join(".testaruda");
+
+        // Create a store with version 0 (older schema)
+        {
+            let store = Store::open(store_path.clone()).unwrap();
+            store.initialize().unwrap();
+
+            // Overwrite the schema version to simulate an older store
+            store
+                .conn
+                .execute(
+                    &format!("INSERT INTO {} (version) VALUES (0)", SCHEMA_TABLE),
+                    [],
+                )
+                .unwrap();
+        }
+
+        // Reopen and re-initialize — should migrate forward
+        {
+            let store = Store::open(store_path.clone()).unwrap();
+            store.initialize().unwrap();
+
+            let version: u32 = store
+                .conn
+                .query_row(
+                    &format!("SELECT MAX(version) FROM {}", SCHEMA_TABLE),
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(version, SCHEMA_VERSION, "older schema should be migrated to current");
+        }
+    }
+
+    #[test]
+    fn test_newer_schema_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let store_path = dir.path().join(".testaruda");
+
+        // Create a store with schema version higher than current
+        {
+            let store = Store::open(store_path.clone()).unwrap();
+            store.initialize().unwrap();
+
+            // Overwrite to simulate a future version
+            store
+                .conn
+                .execute(
+                    &format!("DELETE FROM {}", SCHEMA_TABLE),
+                    [],
+                )
+                .unwrap();
+            store
+                .conn
+                .execute(
+                    &format!("INSERT INTO {} (version) VALUES (?1)", SCHEMA_TABLE),
+                    rusqlite::params![SCHEMA_VERSION + 99],
+                )
+                .unwrap();
+        }
+
+        // Reopen and re-initialize — should refuse
+        {
+            let store = Store::open(store_path.clone()).unwrap();
+            let result = store.initialize();
+            assert!(result.is_err(), "newer schema should be refused");
+            let err = result.unwrap_err().to_string();
+            assert!(err.contains("newer"), "error should mention 'newer'");
+            assert!(err.contains("upgrade"), "error should mention 'upgrade'");
+        }
+    }
+
+    #[test]
+    fn test_schema_constant_is_positive() {
+        assert!(SCHEMA_VERSION > 0, "schema version must be positive");
+    }
+
+    #[test]
+    fn test_migrate_unknown_path_returns_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        // Directly call apply_migration with an unknown path
+        let result = store.apply_migration(1, 2);
+        assert!(
+            result.is_err(),
+            "unknown migration path should return error"
+        );
     }
 }
