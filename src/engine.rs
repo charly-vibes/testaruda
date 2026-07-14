@@ -8,6 +8,24 @@ use ascent::{ascent, Dual};
 use crate::change::ChangeSet;
 use crate::store::Store;
 
+/// Selection ordering mode.
+///
+/// Controls how the selected test set is ordered before being returned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TestOrdering {
+    /// No specific ordering — results in Ascent's internal iteration order.
+    #[default]
+    Default,
+    /// Byte-stable ordering: sort by test ID (TIA-SEL-005).
+    ///
+    /// Guarantees identical output for identical inputs and store state.
+    Deterministic,
+    /// Order by descending recorded mean duration (TIA-SEL-006).
+    ///
+    /// Tests with no recorded history are placed at the end.
+    ByDuration,
+}
+
 /// Origin of a dependency edge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Origin {
@@ -88,8 +106,17 @@ impl<'a> Engine<'a> {
         Self { store }
     }
 
-    /// Run the selection query against the given change set.
+    /// Run the selection query against the given change set with default ordering.
     pub fn select(&self, delta: &ChangeSet) -> miette::Result<Selection> {
+        self.select_with_ordering(delta, TestOrdering::Default)
+    }
+
+    /// Run the selection query against the given change set with a specific ordering.
+    pub fn select_with_ordering(
+        &self,
+        delta: &ChangeSet,
+        ordering: TestOrdering,
+    ) -> miette::Result<Selection> {
         let ctx = self.store.load_selection_context(delta)?;
 
         let mut prog = AscentProgram {
@@ -107,7 +134,7 @@ impl<'a> Engine<'a> {
         prog.run();
 
         // Collect results — iterate over the `affected` relation
-        let mut affected = Vec::new();
+        let mut affected: Vec<SelectedTest> = Vec::new();
 
         for &(t,) in &prog.affected {
             let conf = prog
@@ -143,6 +170,23 @@ impl<'a> Engine<'a> {
                     Some(witness)
                 },
             });
+        }
+
+        // Apply ordering (TIA-SEL-005, TIA-SEL-006, TIA-SEL-007)
+        match ordering {
+            TestOrdering::Default => {}
+            TestOrdering::Deterministic => {
+                affected.sort_by_key(|t| t.id);
+            }
+            TestOrdering::ByDuration => {
+                let durations = self.store.load_mean_durations()?;
+                affected.sort_by(|a, b| {
+                    let da = durations.get(&a.id).copied().unwrap_or(0);
+                    let db = durations.get(&b.id).copied().unwrap_or(0);
+                    // Descending: higher duration first
+                    db.cmp(&da).then_with(|| a.id.cmp(&b.id))
+                });
+            }
         }
 
         Ok(Selection {

@@ -697,6 +697,34 @@ impl Store {
             .map_err(|e| miette::miette!("Failed to invalidate cache: {}", e))?;
         Ok(())
     }
+
+    /// Load the mean recorded duration (in ms) for each test item that has
+    /// run history. Returns a map of test_item_id → mean_duration_ms.
+    ///
+    /// Used by duration-based ordering (TIA-SEL-006).
+    pub fn load_mean_durations(&self) -> miette::Result<std::collections::HashMap<u32, u64>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT test_item_id, CAST(ROUND(AVG(duration_ms)) AS INTEGER)
+                 FROM run_history
+                 WHERE duration_ms IS NOT NULL
+                 GROUP BY test_item_id",
+            )
+            .map_err(|e| miette::miette!("Duration query prep failed: {}", e))?;
+        let rows = stmt
+            .query_map([], |row| {
+                let id: u32 = row.get(0)?;
+                let avg: u64 = row.get(1)?;
+                Ok((id, avg))
+            })
+            .map_err(|e| miette::miette!("Duration query failed: {}", e))?;
+        let mut map = std::collections::HashMap::new();
+        for row in rows.flatten() {
+            map.insert(row.0, row.1);
+        }
+        Ok(map)
+    }
 }
 
 fn find_project_root() -> miette::Result<PathBuf> {
