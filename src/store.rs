@@ -182,7 +182,21 @@ impl Store {
                 selection_json TEXT NOT NULL,
                 cached_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
-        ").map_err(|e| miette::miette!("Failed to initialize schema: {}", e))?;
+
+            CREATE TABLE IF NOT EXISTS provenance (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL,
+                test_item_id INTEGER NOT NULL REFERENCES test_items(id),
+                selected INTEGER NOT NULL CHECK(selected IN (0, 1)),
+                confidence REAL NOT NULL DEFAULT 0.0,
+                distance INTEGER,
+                witness_json TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(run_id, test_item_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_provenance_run ON provenance(run_id);
+            CREATE INDEX IF NOT EXISTS idx_provenance_test ON provenance(test_item_id);").map_err(|e| miette::miette!("Failed to initialize schema: {}", e))?;
         Ok(())
     }
 
@@ -227,6 +241,133 @@ impl Store {
             }
         }
         Ok(())
+    }
+
+    /// Generate a unique run ID for a selection invocation.
+    pub fn generate_run_id(&self) -> miette::Result<String> {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        Ok(format!("sel-{:016x}", nanos))
+    }
+
+    /// Persist provenance for a selection run.
+    ///
+    /// Stores one row per test in the selection. For selected tests, includes
+    /// confidence, distance, and witness chain. Non-selected tests in the
+    /// candidate set are stored with selected=0 and an inferred exclusion reason.
+    pub fn persist_provenance(
+        &self,
+        run_id: &str,
+        selection: &crate::engine::Selection,
+        candidate_test_ids: &[u32],
+    ) -> miette::Result<()> {
+        let tx = self.conn
+            .unchecked_transaction()
+            .map_err(|e| miette::miette!("Failed to start provenance transaction: {}", e))?;
+
+        let mut stmt = tx
+            .prepare(
+                "INSERT OR REPLACE INTO provenance (run_id, test_item_id, selected, confidence, distance, witness_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            )
+            .map_err(|e| miette::miette!("Provenance insert prep failed: {}", e))?;
+
+        // Build a set of selected test IDs for fast lookup
+        use std::collections::HashSet;
+        let selected_ids: HashSet<u32> = selection.tests.iter().map(|t| t.id).collect();
+
+        // Persist selected tests
+        for test in &selection.tests {
+            let witness_json = test
+                .witness
+                .as_ref()
+                .map(|w| serde_json::to_string(w).unwrap_or_default())
+                .unwrap_or_default();
+            stmt.execute(rusqlite::params![
+                run_id,
+                test.id,
+                1i32,
+                test.confidence,
+                test.distance,
+                witness_json,
+            ])
+            .map_err(|e| miette::miette!("Failed to persist provenance for test {}: {}", test.id, e))?;
+        }
+
+        // Persist non-selected candidates with exclusion marker
+        for &tid in candidate_test_ids {
+            if !selected_ids.contains(&tid) {
+                stmt.execute(rusqlite::params![
+                    run_id,
+                    tid,
+                    0i32,
+                    0.0f64,
+                    None::<u32>,
+                    r#"{"reason":"no change reaches test"}"#,
+                ])
+                .map_err(|e| miette::miette!("Failed to persist exclusion for test {}: {}", tid, e))?;
+            }
+        }
+
+        drop(stmt);
+        tx.commit()
+            .map_err(|e| miette::miette!("Failed to commit provenance: {}", e))?;
+        Ok(())
+    }
+
+    /// Retrieve provenance for a specific run and test.
+    pub fn get_provenance_entry(
+        &self,
+        run_id: &str,
+        test_id: u32,
+    ) -> miette::Result<Option<serde_json::Value>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT selected, confidence, distance, witness_json, created_at
+                 FROM provenance WHERE run_id = ?1 AND test_item_id = ?2",
+            )
+            .map_err(|e| miette::miette!("Provenance query prep failed: {}", e))?;
+
+        let result = stmt.query_row(rusqlite::params![run_id, test_id], |row| {
+            let selected: i32 = row.get(0)?;
+            let confidence: f64 = row.get(1)?;
+            let distance: Option<u32> = row.get(2)?;
+            let witness_json: Option<String> = row.get(3)?;
+            let created_at: String = row.get(4)?;
+            let witness = witness_json
+                .and_then(|w| serde_json::from_str::<serde_json::Value>(&w).ok());
+            Ok(serde_json::json!({
+                "selected": selected != 0,
+                "confidence": confidence,
+                "distance": distance,
+                "witness": witness,
+                "created_at": created_at,
+            }))
+        });
+
+        match result {
+            Ok(v) => Ok(Some(v)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(miette::miette!("Provenance query failed: {}", e)),
+        }
+    }
+
+    /// Get the most recent run ID from provenance.
+    pub fn get_latest_run_id(&self) -> miette::Result<Option<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT run_id FROM provenance ORDER BY id DESC LIMIT 1")
+            .map_err(|e| miette::miette!("Latest run query prep failed: {}", e))?;
+
+        match stmt.query_row([], |row| row.get::<_, String>(0)) {
+            Ok(id) => Ok(Some(id)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(miette::miette!("Latest run query failed: {}", e)),
+        }
     }
 
     /// Load the selection context for a given change set.

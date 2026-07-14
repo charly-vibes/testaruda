@@ -16,3 +16,12 @@ A content unit with no prior fingerprint of record (i.e., first observed by the 
 - **WHEN** the change set Δ is computed again
 - **THEN** the content unit SHALL receive the same classification (`unresolved`) as on the first invocation
 - **AND** its confidence SHALL remain zero
+
+
+#### Scenario: idempotent-classification-across-repeated-invocations
+- **WHEN** [describe the action or condition]
+- **THEN** [describe the expected observable result]
+
+#### Scenario: cold-start-content-unit-classified-as-unresolved
+- **WHEN** [describe the action or condition]
+- **THEN** [describe the expected observable result]

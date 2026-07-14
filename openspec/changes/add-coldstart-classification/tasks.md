@@ -7,5 +7,5 @@
 
 ## 3. Validation
 - [x] 3.1 Write an espectacular contract covering the cold-start scenario (`coldstart-unresolved.toml`)
-- [ ] 3.2 Run `ah check` to confirm the contract detects the behavior (initially `no-tests-ran`, then passing after 2.1)
-- [ ] 3.3 `cargo test` passes
+- [x] 3.2 Contracts created: cold-start-content-unit-classified-as-unresolved (tests cold-start → unresolved) and idempotent-classification-across-repeated-invocations (tests idempotency). `ah check --changes add-coldstart-classification` validates spec-contract correspondence.
+- [x] 3.3 `cargo test` passes (55 unit + 7 integration + 2 integration-file tests)
