@@ -24,9 +24,16 @@ test-v:
 clippy:
     cargo clippy --all-targets -- -D warnings
 
+# Alias for lefthook
+lint: clippy
+
 # Check formatting
 fmt-check:
     cargo fmt --check
+
+# Pre-push checks (fast gate)
+pre-push: fmt-check lint test
+    @echo "✅ Pre-push checks passed"
 
 # Format code
 fmt:

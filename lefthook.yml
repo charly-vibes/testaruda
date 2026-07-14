@@ -1,0 +1,37 @@
+# lefthook.yml - pre-commit/pre-push hooks
+#
+# Install: lefthook install
+# Bypass (WIP only): git push --no-verify
+#
+# Warning: --no-verify requires:
+#   - Commit message MUST contain "WIP" or "wip"
+#   - Tests MUST be fixed before merging
+
+pre-commit:
+  parallel: true
+  commands:
+    beads:
+      run: bd hooks run pre-commit
+      skip: no_beads
+    format-check:
+      glob: "*.rs"
+      run: just fmt-check
+    lint:
+      glob: "*.rs"
+      run: just lint
+
+pre-push:
+  commands:
+    beads:
+      run: bd hooks run pre-push
+      skip: no_beads
+    test:
+      run: just pre-push
+      fail_text: |
+        Tests failed. Push blocked.
+
+        To bypass (WIP only): git push --no-verify
+
+        Warning: --no-verify requires justification:
+        - Commit message MUST contain "WIP" or "wip"
+        - You MUST fix tests before merging
