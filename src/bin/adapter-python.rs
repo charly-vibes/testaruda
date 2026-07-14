@@ -70,11 +70,30 @@ fn cmd_handshake() -> serde_json::Value {
 }
 
 /// Discover: find test_*.py and *_test.py files (TIA-ADAPT-004).
+/// Excludes common virtual environment and cache directories.
 fn cmd_discover() -> serde_json::Value {
     let mut tests = Vec::new();
 
+    let excluded_dirs = [
+        ".venv",
+        "venv",
+        "__pycache__",
+        ".mypy_cache",
+        ".pytest_cache",
+        "build",
+        "dist",
+        ".git",
+        "target",
+        "node_modules",
+        ".tox",
+    ];
+
     for entry in walkdir::WalkDir::new(".")
         .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy();
+            !excluded_dirs.contains(&name.as_ref())
+        })
         .filter_map(|e| e.ok())
     {
         if !entry.file_type().is_file() {
@@ -571,5 +590,69 @@ mod tests {
         assert!(froms.contains(&"tests/test_view.py"));
         assert!(tos.contains(&"src/model.py"));
         assert!(tos.contains(&"src/view.py"));
+    }
+
+    #[test]
+    fn test_cmd_discover_excludes_venv() {
+        let dir = tempfile::tempdir().unwrap();
+        let venv_dir = dir.path().join(".venv").join("lib").join("python3.12").join("site-packages");
+        std::fs::create_dir_all(&venv_dir).unwrap();
+
+        // Write a vendored test file inside .venv
+        std::fs::write(venv_dir.join("test_vendored.py"), "def test_vendored(): pass\n").unwrap();
+
+        // Write a real project test file
+        let tests_dir = dir.path().join("tests");
+        std::fs::create_dir_all(&tests_dir).unwrap();
+        std::fs::write(tests_dir.join("test_real.py"), "def test_real(): pass\n").unwrap();
+
+        let orig_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+
+        let result = cmd_discover();
+
+        std::env::set_current_dir(&orig_dir).unwrap();
+
+        assert!(result["ok"].as_bool().unwrap());
+        let items = result["result"].as_array().unwrap();
+        let node_ids: Vec<&str> = items.iter().filter_map(|t| t["node_id"].as_str()).collect();
+
+        assert!(
+            node_ids.contains(&"tests/test_real.py"),
+            "project test should be discovered"
+        );
+        assert!(
+            !node_ids.iter().any(|id| id.contains(".venv")),
+            "vendored tests in .venv should be excluded, got: {:?}",
+            node_ids
+        );
+        assert_eq!(node_ids.len(), 1, "only one test should be discovered");
+    }
+
+    #[test]
+    fn test_cmd_discover_excludes_cache_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path().join("__pycache__");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+
+        std::fs::write(cache_dir.join("test_cache.py"), "def test_cache(): pass\n").unwrap();
+
+        let tests_dir = dir.path().join("tests");
+        std::fs::create_dir_all(&tests_dir).unwrap();
+        std::fs::write(tests_dir.join("test_real.py"), "def test_real(): pass\n").unwrap();
+
+        let orig_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+
+        let result = cmd_discover();
+
+        std::env::set_current_dir(&orig_dir).unwrap();
+
+        assert!(result["ok"].as_bool().unwrap());
+        let items = result["result"].as_array().unwrap();
+        let node_ids: Vec<&str> = items.iter().filter_map(|t| t["node_id"].as_str()).collect();
+
+        assert_eq!(node_ids.len(), 1, "only project test should be discovered");
+        assert_eq!(node_ids[0], "tests/test_real.py");
     }
 }

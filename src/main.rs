@@ -463,7 +463,17 @@ pub fn run_discover_pipeline(
         .into_iter()
         .filter_entry(|e| {
             let name = e.file_name().to_string_lossy();
-            name != "target" && name != ".git" && name != "node_modules"
+            name != "target"
+                && name != ".git"
+                && name != "node_modules"
+                && name != ".venv"
+                && name != "venv"
+                && name != "__pycache__"
+                && name != ".mypy_cache"
+                && name != ".pytest_cache"
+                && name != "build"
+                && name != "dist"
+                && name != ".tox"
         })
         .filter_map(|e| e.ok())
     {
