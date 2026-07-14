@@ -128,6 +128,13 @@ fn main() -> miette::Result<()> {
             let engine = testaruda::Engine::new(&store);
             let selection = engine.select_with_context(ctx, ordering)?;
 
+            // Persist provenance for this selection run (TIA-PROV-005)
+            let run_id = store.generate_run_id()?;
+            let all_affected_ids = store.get_test_ids_for_content_units(&changed_ids, &unresolved_ids)?;
+            if let Err(e) = store.persist_provenance(&run_id, &selection, &all_affected_ids) {
+                eprintln!("⚠️  Provenance warning: {} (selection still complete)", e);
+            }
+
             // Determine CI exit code (TIA-CI-001..004)
             let mut outcome = CiOutcome::from_selection(&selection);
 
