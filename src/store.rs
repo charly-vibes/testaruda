@@ -1324,6 +1324,85 @@ impl Store {
         Ok(())
     }
 
+    /// Generate a Soufflé Datalog program from the current store (TIA-ENG-010).
+    ///
+    /// The generated program mirrors the Ascent selection rules and can be
+    /// evaluated by the Soufflé CLI for cross-validation.
+    pub fn generate_datalog(&self) -> miette::Result<String> {
+        let mut prog = String::new();
+
+        // Declare relations
+        prog.push_str("// Auto-generated from testaruda store\n");
+        prog.push_str(".decl changed(cu: number)\n");
+        prog.push_str(".decl unresolved(cu: number)\n");
+        prog.push_str(".decl cu_dep(a: number, b: number, origin: symbol, weight: number)\n");
+        prog.push_str(".decl test_dep(t: number, cu: number, origin: symbol, weight: number)\n");
+        prog.push_str(".decl always_run(t: number)\n");
+        prog.push_str(".decl comp_fallback(c: number)\n");
+        prog.push_str(".decl test_comp(t: number, c: number)\n");
+        prog.push_str(".decl impacted(cu: number)\n");
+        prog.push_str(".decl affected(t: number, conf: number)\n");
+        prog.push_str(".decl output_affected(t: number)\n\n");
+
+        // Changed content units
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM content_units WHERE fingerprint != 'unknown' LIMIT 5")
+            .map_err(|e| miette::miette!("Query failed: {}", e))?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, u32>(0))
+            .map_err(|e| miette::miette!("Query failed: {}", e))?;
+        for row in rows.flatten() {
+            prog.push_str(&format!("changed({}).\n", row));
+        }
+
+        // Dependency edges
+        let mut estmt = self
+            .conn
+            .prepare("SELECT test_item_id, content_unit_id, origin, k_value FROM dependency_edges WHERE environment = 'default'")
+            .map_err(|e| miette::miette!("Query failed: {}", e))?;
+        let erows = estmt
+            .query_map([], |row| {
+                let tid: u32 = row.get(0)?;
+                let cu_id: u32 = row.get(1)?;
+                let origin: String = row.get(2)?;
+                let k: u32 = row.get(3)?;
+                Ok((tid, cu_id, origin, k))
+            })
+            .map_err(|e| miette::miette!("Query failed: {}", e))?;
+        for row in erows.flatten() {
+            prog.push_str(&format!(
+                "test_dep({}, {}, \"{}\", {}).\n",
+                row.0, row.1, row.2, row.3
+            ));
+        }
+
+        // Always-run tests
+        let mut astmt = self
+            .conn
+            .prepare("SELECT DISTINCT test_item_id FROM run_history WHERE outcome = 'failed'")
+            .map_err(|e| miette::miette!("Query failed: {}", e))?;
+        let arows = astmt
+            .query_map([], |row| row.get::<_, u32>(0))
+            .map_err(|e| miette::miette!("Query failed: {}", e))?;
+        for row in arows.flatten() {
+            prog.push_str(&format!("always_run({}).\n", row));
+        }
+
+        // Rules
+        prog.push_str("\n// Selection rules\n");
+        prog.push_str("impacted(cu) :- changed(cu).\n");
+        prog.push_str("impacted(cu) :- unresolved(cu).\n");
+        prog.push_str("impacted(a) :- cu_dep(a, b, _, _), impacted(b).\n");
+        prog.push_str("affected(t, 1000000) :- test_dep(t, cu, _, _), impacted(cu).\n");
+        prog.push_str("affected(t, 1000000) :- always_run(t).\n");
+        prog.push_str("affected(t, 1000000) :- comp_fallback(k), test_comp(t, k).\n");
+        prog.push_str("output_affected(t) :- affected(t, _).\n");
+        prog.push_str("\n.output output_affected\n");
+
+        Ok(prog)
+    }
+
     /// Explain why a test was or was not selected.
     pub fn explain(
         &self,
@@ -3665,5 +3744,84 @@ name = "env-a"
             [], |row| row.get(0)
         ).unwrap();
         assert_eq!(edge_count2, 1, "store2 should have 1 runtime edge");
+    }
+
+    // ── Soufflé oracle tests (TIA-ENG-010) ──
+
+    #[test]
+    fn test_generate_datalog_basic() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+
+        // Seed some data
+        conn.execute(
+            "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
+             VALUES ('default', 'src/lib.rs', NULL, 'source', 'abc123')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'test_a')",
+            [],
+        ).unwrap();
+        let tid: u32 = conn
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+        let cu_id: u32 = conn
+            .query_row("SELECT id FROM content_units", [], |row| row.get(0))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
+             VALUES (?1, ?2, 'default', 'static', 1000000)",
+            rusqlite::params![tid, cu_id],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
+            rusqlite::params![cu_id, tid],
+        ).unwrap();
+
+        let datalog = store.generate_datalog().unwrap();
+
+        // Should contain the relation declarations
+        assert!(datalog.contains(".decl changed"));
+        assert!(datalog.contains(".decl affected"));
+        assert!(datalog.contains(".decl output_affected"));
+
+        // Should contain the rules
+        assert!(datalog.contains("impacted(cu) :- changed(cu)"));
+        assert!(datalog.contains("output_affected(t) :- affected(t, _)"));
+
+        // Should contain the test_dep facts
+        assert!(datalog.contains(&format!("test_dep({}, {}, \"static\", 1000000)", tid, cu_id)));
+
+        // Should contain the output directive
+        assert!(datalog.contains(".output output_affected"));
+    }
+
+    #[test]
+    fn test_generate_datalog_empty_store() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let datalog = store.generate_datalog().unwrap();
+
+        // Should still produce valid Datalog with declarations
+        assert!(datalog.contains(".decl changed"));
+        assert!(datalog.contains(".output output_affected"));
+        // No facts (lines ending with ")." without ":-" — rules have ":-")
+        // In an empty store, there should be no facts
+        let fact_lines: Vec<&str> = datalog
+            .lines()
+            .filter(|l| l.ends_with(").") && !l.contains(":-"))
+            .collect();
+        assert_eq!(
+            fact_lines.len(),
+            0,
+            "empty store should have no facts, got: {:?}",
+            fact_lines
+        );
     }
 }

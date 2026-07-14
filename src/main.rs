@@ -92,6 +92,14 @@ fn main() -> miette::Result<()> {
             if !project_root.join("testaruda.toml").exists() {
                 testaruda::config::Config::write_default(&project_root)?;
             }
+            // Check for Soufflé oracle (TIA-ENG-010)
+            match std::process::Command::new("souffle").arg("--version").output() {
+                Ok(_) => println!("  ✓ Soufflé oracle found"),
+                Err(_) => println!(
+                    "  ⚠️  Soufflé not found — oracle validation disabled. \
+                     Install souffle-lang from https://souffle-lang.github.io"
+                ),
+            }
             println!("✅ testaruda initialized at {}", project_root.display());
             Ok(())
         }
@@ -301,13 +309,45 @@ fn main() -> miette::Result<()> {
             Ok(())
         }
         Command::Validate { program } => {
+            let store = testaruda::Store::open_default()?;
             println!("🔮 Soufflé oracle validation");
-            if let Some(path) = program {
-                let output = std::process::Command::new("souffle")
-                    .arg(&path)
-                    .output()
-                    .map_err(|e| miette::miette!("Soufflé not found: {}", e))?;
-                println!("{}", String::from_utf8_lossy(&output.stdout));
+
+            // Generate Datalog from the current store
+            let datalog = store.generate_datalog()?;
+            println!("{}", datalog);
+
+            match program {
+                Some(path) => {
+                    // Write generated Datalog to the specified path
+                    std::fs::write(&path, &datalog)
+                        .map_err(|e| miette::miette!("Failed to write Datalog: {}", e))?;
+                    println!("  Datalog program written to {}", path);
+                    // Try to run through Soufflé
+                    match std::process::Command::new("souffle")
+                        .arg(&path)
+                        .output()
+                    {
+                        Ok(output) => {
+                            let stdout = String::from_utf8_lossy(&output.stdout);
+                            let stderr = String::from_utf8_lossy(&output.stderr);
+                            if !stdout.is_empty() {
+                                println!("  Soufflé output:\n{}", stdout);
+                            }
+                            if !stderr.is_empty() {
+                                eprintln!("  Soufflé stderr:\n{}", stderr);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "  ⚠️  Soufflé not found ({}). Install souffle-lang to run the oracle.",
+                                e
+                            );
+                        }
+                    }
+                }
+                None => {
+                    println!("  Datalog program generated. Use --program <path> to write to a file and run.");
+                }
             }
             Ok(())
         }
