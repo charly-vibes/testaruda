@@ -66,9 +66,6 @@ enum Command {
     },
     /// Discover tests via configured adapters
     Discover {
-        /// Optional comma-separated file list to scope discovery
-        #[arg(long)]
-        files: Option<String>,
     },
 }
 
@@ -351,22 +348,13 @@ fn main() -> miette::Result<()> {
             }
             Ok(())
         }
-        Command::Discover { files } => {
+        Command::Discover {} => {
             let store = testaruda::Store::open_default()?;
             store.initialize()?;
             let project_root = find_project_root()?;
             let config = testaruda::config::Config::load_or_default(&project_root);
             let registry = config.adapters.to_registry();
-            let delta = if let Some(f) = files {
-                testaruda::ChangeSet::from_diff(None, None, Some(&f))?
-            } else {
-                testaruda::ChangeSet {
-                    files: Vec::new(),
-                    base: None,
-                    head: None,
-                }
-            };
-            run_discover_pipeline(&store, &registry, &delta).map_err(|e| miette::miette!(e))?;
+            run_discover_pipeline(&store, &registry).map_err(|e| miette::miette!(e))?;
             let count = store.test_items_count().unwrap_or(0);
             println!("\n✅ Discovered {} test items", count);
             Ok(())
@@ -454,7 +442,6 @@ pub fn run_adapter_pipeline(
 pub fn run_discover_pipeline(
     store: &testaruda::Store,
     registry: &testaruda::adapter::AdapterRegistry,
-    _delta: &testaruda::ChangeSet,
 ) -> std::result::Result<(), String> {
     // Walk the project to find files matching registered extensions
     let mut seen_adapters = std::collections::HashSet::new();
