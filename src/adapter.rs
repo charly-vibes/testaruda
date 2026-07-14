@@ -234,6 +234,38 @@ impl AdapterIO {
         Ok(resp.fingerprints.unwrap_or_default())
     }
 
+    /// Send the run-args command (TIA-ADAPT-007).
+    ///
+    /// Returns native runner arguments and a collection path for the selected test set.
+    /// Does NOT execute the tests.
+    pub fn run_args(
+        &mut self,
+        selected: &[String],
+    ) -> Result<RunArgsResult, AdapterError> {
+        let cmd = CommandWithParams::new(
+            AdapterCommand::RUN_ARGS,
+            serde_json::json!({"selected": selected}),
+        );
+        let resp: RunArgsResponse = self.send_with_params(&cmd)?;
+        resp.result.ok_or_else(|| AdapterError::MalformedResponse("missing result in run-args response".to_string()))
+    }
+
+    /// Send the ingest command (TIA-ADAPT-008).
+    ///
+    /// Parses test runner output and returns runtime edges, per-test results,
+    /// and observed external inputs.
+    pub fn ingest(
+        &mut self,
+        run_output: &str,
+    ) -> Result<IngestResult, AdapterError> {
+        let cmd = CommandWithParams::new(
+            AdapterCommand::INGEST,
+            serde_json::json!({"run_output": run_output}),
+        );
+        let resp: IngestResponse = self.send_with_params(&cmd)?;
+        resp.result.ok_or_else(|| AdapterError::MalformedResponse("missing result in ingest response".to_string()))
+    }
+
     /// Read a single JSON response line from the adapter.
     fn read_response<T: serde::de::DeserializeOwned>(&mut self) -> Result<T, AdapterError> {
         let start = Instant::now();
@@ -442,6 +474,37 @@ struct StaticDepsResponse {
     error: Option<String>,
 }
 
+/// Run arguments result (TIA-ADAPT-007) — native runner argv, no test execution.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunArgsResult {
+    /// Native runner arguments (e.g. `["cargo", "test", "--test", "foo"]`)
+    pub runner_args: Vec<String>,
+    /// Path to the test results file/collection (e.g. JUnit XML path)
+    pub collection_path: String,
+}
+
+/// A single test run result (TIA-ADAPT-008).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestRunResult {
+    pub test_id: String,
+    pub outcome: String,
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+    #[serde(default)]
+    pub error_text: Option<String>,
+}
+
+/// Ingest result (TIA-ADAPT-008) — runtime edges, per-test results, external inputs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IngestResult {
+    #[serde(default)]
+    pub runtime_edges: Vec<DepEdge>,
+    #[serde(default)]
+    pub per_test_results: Vec<TestRunResult>,
+    #[serde(default)]
+    pub external_inputs: Vec<String>,
+}
+
 /// A content fingerprint at file or symbol granularity (TIA-ADAPT-006).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContentFingerprint {
@@ -454,6 +517,20 @@ pub struct ContentFingerprint {
 #[derive(Debug, Deserialize)]
 struct FingerprintResponse {
     fingerprints: Option<Vec<ContentFingerprint>>,
+    #[allow(dead_code)]
+    error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RunArgsResponse {
+    result: Option<RunArgsResult>,
+    #[allow(dead_code)]
+    error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct IngestResponse {
+    result: Option<IngestResult>,
     #[allow(dead_code)]
     error: Option<String>,
 }
@@ -681,5 +758,175 @@ mod tests {
         let json = r#"{"candidates": [], "edges": [], "unresolved": []}"#;
         let _result: StaticDepsResponse = serde_json::from_str(json).unwrap();
         // Should deserialize with empty defaults
+    }
+
+    #[test]
+    fn test_run_args_result_deserialization() {
+        let json = r#"{
+            "ok": true,
+            "result": {
+                "runner_args": ["cargo", "test", "--test", "foo"],
+                "collection_path": "target/test-results.xml"
+            }
+        }"#;
+        let resp: RunArgsResponse = serde_json::from_str(json).unwrap();
+        let result = resp.result.unwrap();
+        assert_eq!(result.runner_args, vec!["cargo", "test", "--test", "foo"]);
+        assert_eq!(result.collection_path, "target/test-results.xml");
+    }
+
+    #[test]
+    fn test_run_args_response_error() {
+        let json = r#"{"ok": false, "error": "no tests selected"}"#;
+        let resp: RunArgsResponse = serde_json::from_str(json).unwrap();
+        assert!(resp.result.is_none());
+        assert_eq!(resp.error, Some("no tests selected".to_string()));
+    }
+
+    #[test]
+    fn test_ingest_result_deserialization() {
+        let json = r#"{
+            "ok": true,
+            "result": {
+                "runtime_edges": [
+                    {"from": "test_foo", "to": "src/lib.rs", "weight": 1000000, "origin": "runtime"}
+                ],
+                "per_test_results": [
+                    {
+                        "test_id": "test_foo",
+                        "outcome": "passed",
+                        "duration_ms": 150,
+                        "error_text": null
+                    }
+                ],
+                "external_inputs": ["config.json"]
+            }
+        }"#;
+        let resp: IngestResponse = serde_json::from_str(json).unwrap();
+        let result = resp.result.unwrap();
+        assert_eq!(result.runtime_edges.len(), 1);
+        assert_eq!(result.runtime_edges[0].from, "test_foo");
+        assert_eq!(result.runtime_edges[0].origin, "runtime");
+        assert_eq!(result.per_test_results.len(), 1);
+        assert_eq!(result.per_test_results[0].test_id, "test_foo");
+        assert_eq!(result.per_test_results[0].outcome, "passed");
+        assert_eq!(result.per_test_results[0].duration_ms, Some(150));
+        assert!(result.per_test_results[0].error_text.is_none());
+        assert_eq!(result.external_inputs, vec!["config.json"]);
+    }
+
+    #[test]
+    fn test_ingest_result_empty_defaults() {
+        let json = r#"{
+            "ok": true,
+            "result": {}
+        }"#;
+        let resp: IngestResponse = serde_json::from_str(json).unwrap();
+        let result = resp.result.unwrap();
+        assert!(result.runtime_edges.is_empty());
+        assert!(result.per_test_results.is_empty());
+        assert!(result.external_inputs.is_empty());
+    }
+
+    #[test]
+    fn test_run_args_command_serialization() {
+        let cmd = serde_json::to_string(&AdapterCommand::run_args()).unwrap();
+        assert_eq!(cmd, r#"{"command":"run-args"}"#);
+    }
+
+    #[test]
+    fn test_ingest_command_serialization() {
+        let cmd = serde_json::to_string(&AdapterCommand::ingest()).unwrap();
+        assert_eq!(cmd, r#"{"command":"ingest"}"#);
+    }
+
+    #[test]
+    fn test_run_args_with_params_serialization() {
+        let cmd = CommandWithParams::new(
+            AdapterCommand::RUN_ARGS,
+            serde_json::json!({"selected": ["test_a"]}),
+        );
+        let json = serde_json::to_string(&cmd).unwrap();
+        assert!(json.contains("\"command\":\"run-args\""));
+        assert!(json.contains("\"selected\":[\"test_a\"]"));
+    }
+
+    #[test]
+    fn test_test_run_result_defaults() {
+        let json = r#"{"test_id":"t1","outcome":"failed"}"#;
+        let tr: TestRunResult = serde_json::from_str(json).unwrap();
+        assert_eq!(tr.test_id, "t1");
+        assert_eq!(tr.outcome, "failed");
+        assert!(tr.duration_ms.is_none());
+        assert!(tr.error_text.is_none());
+    }
+
+    #[test]
+    fn test_run_args_result_empty_selected() {
+        // Empty selected set should still produce valid struct
+        let result = RunArgsResult {
+            runner_args: Vec::new(),
+            collection_path: "-".to_string(),
+        };
+        assert!(result.runner_args.is_empty());
+        assert_eq!(result.collection_path, "-");
+    }
+
+    #[test]
+    fn test_ingest_result_full_data() {
+        let result = IngestResult {
+            runtime_edges: vec![DepEdge {
+                from: "t1".to_string(),
+                to: "mod.rs".to_string(),
+                weight: 500_000,
+                origin: "runtime".to_string(),
+            }],
+            per_test_results: vec![TestRunResult {
+                test_id: "t1".to_string(),
+                outcome: "flaky".to_string(),
+                duration_ms: Some(200),
+                error_text: Some("intermittent failure".to_string()),
+            }],
+            external_inputs: vec!["config.yaml".to_string(), "env.txt".to_string()],
+        };
+        assert_eq!(result.runtime_edges.len(), 1);
+        assert_eq!(result.external_inputs.len(), 2);
+        assert_eq!(result.per_test_results[0].outcome, "flaky");
+    }
+
+    #[test]
+    fn test_run_args_result_serialization_roundtrip() {
+        let orig = RunArgsResult {
+            runner_args: vec!["pytest".to_string(), "-x".to_string()],
+            collection_path: "results.xml".to_string(),
+        };
+        let json = serde_json::to_string(&orig).unwrap();
+        let restored: RunArgsResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(orig.runner_args, restored.runner_args);
+        assert_eq!(orig.collection_path, restored.collection_path);
+    }
+
+    #[test]
+    fn test_ingest_result_serialization_roundtrip() {
+        let orig = IngestResult {
+            runtime_edges: vec![DepEdge {
+                from: "ta".to_string(),
+                to: "tb".to_string(),
+                weight: 750_000,
+                origin: "runtime".to_string(),
+            }],
+            per_test_results: vec![TestRunResult {
+                test_id: "ta".to_string(),
+                outcome: "passed".to_string(),
+                duration_ms: None,
+                error_text: None,
+            }],
+            external_inputs: Vec::new(),
+        };
+        let json = serde_json::to_string(&orig).unwrap();
+        let restored: IngestResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(orig.runtime_edges[0].from, restored.runtime_edges[0].from);
+        assert_eq!(orig.per_test_results[0].outcome, restored.per_test_results[0].outcome);
+        assert!(restored.external_inputs.is_empty());
     }
 }

@@ -39,6 +39,8 @@ fn handle_command(input: &str) -> serde_json::Value {
         "discover" => cmd_discover(),
         "static-deps" => cmd_static_deps(&cmd),
         "fingerprint" => cmd_fingerprint(&cmd),
+        "run-args" => cmd_run_args(&cmd),
+        "ingest" => cmd_ingest(&cmd),
         _ => json_err(&format!("unknown command: {}", command)),
     }
 }
@@ -248,4 +250,109 @@ fn cmd_fingerprint(cmd: &serde_json::Value) -> serde_json::Value {
     }
 
     serde_json::json!({"ok": true, "fingerprints": fingerprints})
+}
+
+/// Run-args: return native runner arguments for the selected test set (TIA-ADAPT-007).
+/// Does NOT execute the tests.
+fn cmd_run_args(cmd: &serde_json::Value) -> serde_json::Value {
+    let params = &cmd["params"];
+    let selected: Vec<String> = match params["selected"].as_array() {
+        Some(arr) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect(),
+        None => return json_err("missing 'params.selected'"),
+    };
+
+    if selected.is_empty() {
+        return json_err("no tests selected");
+    }
+
+    // Build cargo test args: extract test names from node_ids like
+    // "crate::module::test_name(Test)"
+    let mut test_names: Vec<String> = Vec::new();
+    for node_id in &selected {
+        if let Some(name) = node_id.rsplit_once("::") {
+            let clean = name.1.strip_suffix("(Test)").unwrap_or(name.1);
+            test_names.push(clean.to_string());
+        } else {
+            test_names.push(node_id.clone());
+        }
+    }
+
+    let mut runner_args = vec!["cargo", "test", "--"];
+    runner_args.extend(test_names.iter().map(|s| s.as_str()));
+
+    // Collection path for JUnit-style results
+    let collection_path = "target/test-results.xml".to_string();
+
+    json_ok(serde_json::json!({
+        "runner_args": runner_args,
+        "collection_path": collection_path,
+    }))
+}
+
+/// Ingest: parse test runner output and return runtime edges and results (TIA-ADAPT-008).
+fn cmd_ingest(cmd: &serde_json::Value) -> serde_json::Value {
+    let params = &cmd["params"];
+    let run_output = match params["run_output"].as_str() {
+        Some(s) => s,
+        None => return json_err("missing 'params.run_output'"),
+    };
+
+    if run_output.is_empty() {
+        return json_err("empty run output");
+    }
+
+    let mut per_test_results: Vec<serde_json::Value> = Vec::new();
+    let runtime_edges: Vec<serde_json::Value> = Vec::new();
+
+    // Parse cargo test output for test results
+    // Lines look like: "test test_name ... ok" or "test test_name ... FAILED"
+    for line in run_output.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("test ") && trimmed.ends_with(" ok") {
+            let test_name = trimmed
+                .strip_prefix("test ")
+                .and_then(|s| s.strip_suffix(" ok"))
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default();
+            if !test_name.is_empty() {
+                per_test_results.push(serde_json::json!({
+                    "test_id": test_name,
+                    "outcome": "passed",
+                }));
+            }
+        } else if trimmed.starts_with("test ") && trimmed.ends_with(" FAILED") {
+            let test_name = trimmed
+                .strip_prefix("test ")
+                .and_then(|s| s.strip_suffix(" FAILED"))
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default();
+            if !test_name.is_empty() {
+                per_test_results.push(serde_json::json!({
+                    "test_id": test_name,
+                    "outcome": "failed",
+                }));
+            }
+        }
+    }
+
+    // If no standard test output found, try to parse as JSON-line format
+    if per_test_results.is_empty() {
+        for line in run_output.lines() {
+            let trimmed = line.trim();
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                if val.get("test_id").is_some() && val.get("outcome").is_some() {
+                    per_test_results.push(val);
+                }
+            }
+        }
+    }
+
+    json_ok(serde_json::json!({
+        "runtime_edges": runtime_edges,
+        "per_test_results": per_test_results,
+        "external_inputs": [],
+    }))
 }
