@@ -1,6 +1,7 @@
 //! CLI entry point for testaruda.
 
 use clap::{Parser, Subcommand};
+use std::io::IsTerminal;
 
 #[derive(Parser)]
 #[command(name = "testaruda", author, version, about)]
@@ -98,8 +99,12 @@ enum Command {
 fn main() -> miette::Result<()> {
     // Initialize tracing with optional JSON format
     let log_format = std::env::var("TESTARUDA_LOG_FORMAT").unwrap_or_default();
+    let use_color = std::env::var_os("NO_COLOR").is_none()
+        && std::env::var("CLICOLOR").map(|v| v != "0").unwrap_or(true)
+        && std::io::stderr().is_terminal();
     let builder = tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
+        .with_ansi(use_color)
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         );
