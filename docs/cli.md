@@ -1,5 +1,3 @@
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
-     Running `target/debug/testaruda gen-cli-docs`
 # Command-Line Help for `testaruda`
 
 This document contains the help content for the `testaruda` command-line program.
@@ -17,6 +15,7 @@ This document contains the help content for the `testaruda` command-line program
 * [`testaruda oracle`↴](#testaruda-oracle)
 * [`testaruda discover`↴](#testaruda-discover)
 * [`testaruda metrics`↴](#testaruda-metrics)
+* [`testaruda completions`↴](#testaruda-completions)
 
 ## `testaruda`
 
@@ -36,6 +35,7 @@ Language-agnostic test selection engine — compute the affected test set from a
 * `oracle` — Run the Soufflé oracle for cross-validation
 * `discover` — Discover tests via configured adapters
 * `metrics` — Show operational metrics
+* `completions` — Generate shell completions
 
 
 
@@ -172,6 +172,21 @@ Discover tests via configured adapters
 Show operational metrics
 
 **Usage:** `testaruda metrics`
+
+
+
+## `testaruda completions`
+
+Generate shell completions
+
+**Usage:** `testaruda completions <SHELL>`
+
+###### **Arguments:**
+
+* `<SHELL>` — Shell to generate completions for
+
+  Possible values: `bash`, `elvish`, `fish`, `powershell`, `zsh`
+
 
 
 
