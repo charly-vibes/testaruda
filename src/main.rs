@@ -39,6 +39,9 @@ enum Command {
         /// Conflicts with --json and --agent.
         #[arg(long, conflicts_with_all = ["json", "agent"])]
         pre_edit: bool,
+        /// CI mode: run selected tests and ingest results automatically (TIA-CI-008)
+        #[arg(long)]
+        ci: bool,
     },
     /// Ingest test run results to update the model
     Ingest {
@@ -133,6 +136,7 @@ fn main() -> miette::Result<()> {
             json,
             agent,
             pre_edit,
+            ci,
         } => {
             let store = testaruda::Store::open_default()?;
             let delta = testaruda::ChangeSet::from_diff(
@@ -294,6 +298,116 @@ fn main() -> miette::Result<()> {
                     std::process::exit(code);
                 }
             }
+
+            // CI mode (TIA-CI-008): run selected tests and ingest results
+            if ci && !selection.tests.is_empty() {
+                // Collect selected test file paths (node_ids from store)
+                let mut selected_files: Vec<String> = Vec::new();
+                for t in &selection.tests {
+                    if let Ok(node_id) = store.get_test_node_id(t.id) {
+                        selected_files.push(node_id);
+                    }
+                }
+
+                if !selected_files.is_empty() {
+                    // Find the adapter for the first test file
+                    let adapter_binary = registry
+                        .resolve(&selected_files[0])
+                        .or_else(|| registry.default_binary())
+                        .unwrap_or("testaruda-adapter-python");
+
+                    let mut adapter =
+                        match testaruda::adapter::AdapterIO::spawn(adapter_binary, &[], None) {
+                            Ok(a) => a,
+                            Err(e) => {
+                                eprintln!(
+                                    "⚠️  CI: failed to spawn adapter {}: {}",
+                                    adapter_binary, e
+                                );
+                                let code = outcome.exit_code();
+                                if code != 0 {
+                                    std::process::exit(code);
+                                }
+                                return Ok(());
+                            }
+                        };
+
+                    // Get runner args from the adapter
+                    match adapter.run_args(&selected_files) {
+                        Ok(run_args_result) => {
+                            eprintln!("  🏃 CI: running tests...");
+                            match std::process::Command::new(&run_args_result.runner_args[0])
+                                .args(&run_args_result.runner_args[1..])
+                                .output()
+                            {
+                                Ok(output) => {
+                                    let stdout = String::from_utf8_lossy(&output.stdout);
+                                    let stderr = String::from_utf8_lossy(&output.stderr);
+
+                                    // Combine stdout/stderr for ingest
+                                    let combined = if stderr.is_empty() {
+                                        stdout.to_string()
+                                    } else {
+                                        format!("{}\n{}", stdout, stderr)
+                                    };
+
+                                    eprintln!("  📥 CI: ingesting results...");
+                                    match adapter.ingest(&combined) {
+                                        Ok(ingest_result) => {
+                                            // Store runtime edges
+                                            if !ingest_result.runtime_edges.is_empty() {
+                                                let _ = store.store_static_deps(
+                                                    &adapter.name,
+                                                    &ingest_result.runtime_edges,
+                                                );
+                                            }
+
+                                            // Convert per-test results to store format
+                                            let mut store_tests = Vec::new();
+                                            for test in &ingest_result.per_test_results {
+                                                if let Ok(tid) =
+                                                    store.lookup_test_item_id(&test.test_id)
+                                                {
+                                                    store_tests.push(serde_json::json!({
+                                                        "id": tid,
+                                                        "outcome": test.outcome,
+                                                        "duration_ms": test.duration_ms,
+                                                    }));
+                                                }
+                                            }
+
+                                            let ci_run_id = store.generate_run_id()?;
+                                            let payload = serde_json::json!({
+                                                "run_id": ci_run_id,
+                                                "tests": store_tests,
+                                                "full_run": true,
+                                            });
+                                            if let Err(e) = store.ingest(&payload) {
+                                                eprintln!("  ⚠️  CI: ingest failed: {}", e);
+                                            } else {
+                                                eprintln!(
+                                                    "  ✅ CI: ingested {} test results",
+                                                    ingest_result.per_test_results.len()
+                                                );
+                                            }
+                                        }
+                                        Err(e) => {
+                                            eprintln!("  ⚠️  CI: adapter ingest failed: {}", e);
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("  ⚠️  CI: failed to run tests: {}", e);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("  ⚠️  CI: failed to get run args: {}", e);
+                        }
+                    }
+                }
+            }
+
             Ok(())
         }
         Command::Ingest { path, raw, adapter } => {
