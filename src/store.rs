@@ -1124,6 +1124,30 @@ impl Store {
             .query_row("SELECT version FROM schema_version", [], |row| row.get(0))
     }
 
+    /// Check that the store has been initialized, returning a human-readable error
+    /// suggesting `testaruda init` if not (TIA-LOCAL-006).
+    pub fn check_initialized(&self) -> miette::Result<()> {
+        let tables_exist: bool = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name=?1",
+                [SCHEMA_TABLE],
+                |row| row.get(0),
+            )
+            .map_err(|e| {
+                miette::miette!(
+                    "Failed to verify store state: {}. Try `testaruda init` to (re)initialize.",
+                    e
+                )
+            })?;
+        if !tables_exist || self.schema_version().is_err() {
+            return Err(miette::miette!(
+                "Store has not been initialized. Run `testaruda init` first to set up the local store."
+            ));
+        }
+        Ok(())
+    }
+
     /// Find the project root (git repo root or first ancestor with testaruda.toml).
     pub fn find_project_root() -> miette::Result<PathBuf> {
         find_project_root()

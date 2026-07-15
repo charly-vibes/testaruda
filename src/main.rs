@@ -571,6 +571,7 @@ fn main() -> miette::Result<()> {
         }
         Command::Import { path } => {
             let store = testaruda::Store::open_default()?;
+            store.check_initialized()?;
             let data = std::fs::read_to_string(&path)
                 .map_err(|e| miette::miette!("Failed to read {}: {}", path, e))?;
             let graph: serde_json::Value = serde_json::from_str(&data)
