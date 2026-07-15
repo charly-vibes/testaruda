@@ -27,6 +27,9 @@ pub struct Config {
     /// Environment configuration (TIA-CORE-008, TIA-RUN-006).
     #[serde(default)]
     pub environment: EnvironmentConfig,
+    /// Discover configuration (TIA-ADAPT-004).
+    #[serde(default)]
+    pub discover: DiscoverConfig,
 }
 
 /// Environment configuration (TIA-CORE-008).
@@ -45,6 +48,39 @@ impl Default for EnvironmentConfig {
     fn default() -> Self {
         Self {
             name: default_environment_name(),
+        }
+    }
+}
+
+/// Discover configuration: directory exclusion patterns (TIA-ADAPT-004).
+#[derive(Debug, Clone, Deserialize)]
+pub struct DiscoverConfig {
+    /// Directory/file names to exclude from discover walks.
+    /// Defaults to common patterns (target, .git, node_modules, .venv, etc.).
+    #[serde(default = "default_exclude_list")]
+    pub exclude: Vec<String>,
+}
+
+fn default_exclude_list() -> Vec<String> {
+    vec![
+        "target".to_string(),
+        ".git".to_string(),
+        "node_modules".to_string(),
+        ".venv".to_string(),
+        "venv".to_string(),
+        "__pycache__".to_string(),
+        ".mypy_cache".to_string(),
+        ".pytest_cache".to_string(),
+        "build".to_string(),
+        "dist".to_string(),
+        ".tox".to_string(),
+    ]
+}
+
+impl Default for DiscoverConfig {
+    fn default() -> Self {
+        Self {
+            exclude: default_exclude_list(),
         }
     }
 }
@@ -83,6 +119,7 @@ impl Default for Config {
             must_run: MustRunConfig::default(),
             periodic_full_run: PeriodicFullRunConfig::default(),
             environment: EnvironmentConfig::default(),
+            discover: DiscoverConfig::default(),
         }
     }
 }
@@ -115,6 +152,14 @@ impl Config {
 
 # Default adapter when no extension matches
 default = "testaruda-adapter-rust"
+
+[discover]
+# Directory/file names to exclude from discover walks.
+# Matches the end of the directory name (e.g., ".venv" matches any path
+# ending in ".venv"). The default list covers common tool/build artifacts.
+exclude = ["target", ".git", "node_modules", ".venv", "venv",
+          "__pycache__", ".mypy_cache", ".pytest_cache",
+          "build", "dist", ".tox"]
 "#;
         std::fs::write(&path, content)
             .map_err(|e| miette::miette!("Failed to write {}: {}", path.display(), e))?;
@@ -143,6 +188,16 @@ impl Default for AdapterConfig {
             extensions,
             default: Some("testaruda-adapter-rust".to_string()),
         }
+    }
+}
+
+/// Build a filter_entry closure from a list of directory names to exclude.
+/// Returns a function that returns `true` if the entry should be included,
+/// `false` if it should be skipped (matched by name).
+pub fn make_exclude_filter(exclude: &[String]) -> impl Fn(&walkdir::DirEntry) -> bool + '_ {
+    move |entry: &walkdir::DirEntry| {
+        let name = entry.file_name().to_string_lossy();
+        !exclude.iter().any(|pat| name == pat.as_str())
     }
 }
 

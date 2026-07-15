@@ -129,7 +129,9 @@ fn main() -> miette::Result<()> {
             let project_root = find_project_root()?;
             let config = testaruda::config::Config::load_or_default(&project_root);
             let registry = config.adapters.to_registry();
-            if let Err(e) = run_adapter_pipeline(&store, &registry, &delta) {
+            if let Err(e) =
+                run_adapter_pipeline(&store, &registry, &delta, &config.discover.exclude)
+            {
                 eprintln!("⚠️  Adapter warning: {} (using existing store data)", e);
             }
 
@@ -433,7 +435,8 @@ fn main() -> miette::Result<()> {
             let project_root = find_project_root()?;
             let config = testaruda::config::Config::load_or_default(&project_root);
             let registry = config.adapters.to_registry();
-            run_discover_pipeline(&store, &registry).map_err(|e| miette::miette!(e))?;
+            run_discover_pipeline(&store, &registry, &config.discover.exclude)
+                .map_err(|e| miette::miette!(e))?;
             let count = store.test_items_count().unwrap_or(0);
             println!("\n✅ Discovered {} test items", count);
             Ok(())
@@ -452,6 +455,7 @@ pub fn run_adapter_pipeline(
     store: &testaruda::Store,
     registry: &testaruda::adapter::AdapterRegistry,
     delta: &testaruda::ChangeSet,
+    exclude: &[String],
 ) -> std::result::Result<(), String> {
     // Step 1: Walk the project tree to find all files matching registered adapters
     let mut adapter_files: std::collections::HashMap<String, Vec<String>> =
@@ -459,20 +463,7 @@ pub fn run_adapter_pipeline(
 
     for entry in walkdir::WalkDir::new(".")
         .into_iter()
-        .filter_entry(|e| {
-            let name = e.file_name().to_string_lossy();
-            name != "target"
-                && name != ".git"
-                && name != "node_modules"
-                && name != ".venv"
-                && name != "venv"
-                && name != "__pycache__"
-                && name != ".mypy_cache"
-                && name != ".pytest_cache"
-                && name != "build"
-                && name != "dist"
-                && name != ".tox"
-        })
+        .filter_entry(testaruda::config::make_exclude_filter(exclude))
         .filter_map(|e| e.ok())
     {
         if !entry.file_type().is_file() {
@@ -572,26 +563,14 @@ pub fn run_adapter_pipeline(
 pub fn run_discover_pipeline(
     store: &testaruda::Store,
     registry: &testaruda::adapter::AdapterRegistry,
+    exclude: &[String],
 ) -> std::result::Result<(), String> {
     // Walk the project to find files matching registered extensions
     let mut seen_adapters = std::collections::HashSet::new();
 
     for entry in walkdir::WalkDir::new(".")
         .into_iter()
-        .filter_entry(|e| {
-            let name = e.file_name().to_string_lossy();
-            name != "target"
-                && name != ".git"
-                && name != "node_modules"
-                && name != ".venv"
-                && name != "venv"
-                && name != "__pycache__"
-                && name != ".mypy_cache"
-                && name != ".pytest_cache"
-                && name != "build"
-                && name != "dist"
-                && name != ".tox"
-        })
+        .filter_entry(testaruda::config::make_exclude_filter(exclude))
         .filter_map(|e| e.ok())
     {
         if !entry.file_type().is_file() {
