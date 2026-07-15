@@ -94,6 +94,11 @@ enum Command {
     /// Generate CLI documentation in markdown (internal use)
     #[command(hide = true)]
     GenCliDocs,
+    /// Generate shell completions
+    Completions {
+        /// Shell to generate completions for
+        shell: clap_complete::Shell,
+    },
 }
 
 fn main() -> miette::Result<()> {
@@ -686,6 +691,12 @@ fn main() -> miette::Result<()> {
         Command::GenCliDocs => {
             let markdown = clap_markdown::help_markdown::<Cli>();
             println!("{}", markdown);
+            Ok(())
+        }
+        Command::Completions { shell } => {
+            let mut cmd = <Cli as clap::CommandFactory>::command();
+            let name = cmd.get_name().to_string();
+            clap_complete::generate(shell, &mut cmd, name, &mut std::io::stdout());
             Ok(())
         }
     }
