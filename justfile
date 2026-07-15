@@ -9,8 +9,11 @@ build:
     cargo build
 
 # Build (release)
-release:
+build-release:
     cargo build --release
+
+# Alias for backward compatibility
+release: build-release
 
 # Run all tests (single-threaded — adapter tests use global cwd)
 test:

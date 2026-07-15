@@ -579,6 +579,21 @@ fn cmd_ingest(cmd: &serde_json::Value) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
+    use std::sync::{LazyLock, Mutex};
+
+    /// Global lock for CWD-manipulating tests to prevent parallel interference.
+    static CWD_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    /// Run `f` with the process CWD set to `dir`, then restore.
+    fn with_cwd<R>(dir: &Path, f: impl FnOnce() -> R) -> R {
+        let _guard = CWD_LOCK.lock().unwrap();
+        let orig = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir).unwrap();
+        let result = f();
+        std::env::set_current_dir(&orig).unwrap();
+        result
+    }
 
     #[test]
     fn test_parse_python_imports_absolute() {
@@ -716,18 +731,15 @@ mod tests {
         )
         .unwrap();
 
-        let orig_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(dir.path()).unwrap();
-
-        let cmd = serde_json::json!({
-            "command": "static-deps",
-            "params": {
-                "changed_files": ["src/model.py"]
-            }
+        let result = with_cwd(dir.path(), || {
+            let cmd = serde_json::json!({
+                "command": "static-deps",
+                "params": {
+                    "changed_files": ["src/model.py"]
+                }
+            });
+            cmd_static_deps(&cmd)
         });
-        let result = cmd_static_deps(&cmd);
-
-        std::env::set_current_dir(&orig_dir).unwrap();
 
         assert!(result["ok"].as_bool().unwrap());
         let edges = result["edges"].as_array().unwrap();
@@ -751,18 +763,15 @@ mod tests {
         )
         .unwrap();
 
-        let orig_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(dir.path()).unwrap();
-
-        let cmd = serde_json::json!({
-            "command": "static-deps",
-            "params": {
-                "changed_files": ["tests/test_model.py"]
-            }
+        let result = with_cwd(dir.path(), || {
+            let cmd = serde_json::json!({
+                "command": "static-deps",
+                "params": {
+                    "changed_files": ["tests/test_model.py"]
+                }
+            });
+            cmd_static_deps(&cmd)
         });
-        let result = cmd_static_deps(&cmd);
-
-        std::env::set_current_dir(&orig_dir).unwrap();
 
         assert!(result["ok"].as_bool().unwrap());
         let edges = result["edges"].as_array().unwrap();
@@ -780,18 +789,15 @@ mod tests {
 
         std::fs::write(src_dir.join("util.py"), "def helper(): pass\n").unwrap();
 
-        let orig_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(dir.path()).unwrap();
-
-        let cmd = serde_json::json!({
-            "command": "static-deps",
-            "params": {
-                "changed_files": ["src/util.py"]
-            }
+        let result = with_cwd(dir.path(), || {
+            let cmd = serde_json::json!({
+                "command": "static-deps",
+                "params": {
+                    "changed_files": ["src/util.py"]
+                }
+            });
+            cmd_static_deps(&cmd)
         });
-        let result = cmd_static_deps(&cmd);
-
-        std::env::set_current_dir(&orig_dir).unwrap();
 
         assert!(result["ok"].as_bool().unwrap());
         let edges = result["edges"].as_array().unwrap();
@@ -802,18 +808,15 @@ mod tests {
     fn test_cmd_static_deps_unresolved_file() {
         let dir = tempfile::tempdir().unwrap();
 
-        let orig_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(dir.path()).unwrap();
-
-        let cmd = serde_json::json!({
-            "command": "static-deps",
-            "params": {
-                "changed_files": ["nonexistent.py"]
-            }
+        let result = with_cwd(dir.path(), || {
+            let cmd = serde_json::json!({
+                "command": "static-deps",
+                "params": {
+                    "changed_files": ["nonexistent.py"]
+                }
+            });
+            cmd_static_deps(&cmd)
         });
-        let result = cmd_static_deps(&cmd);
-
-        std::env::set_current_dir(&orig_dir).unwrap();
 
         assert!(result["ok"].as_bool().unwrap());
         let unresolved = result["unresolved"].as_array().unwrap();
@@ -844,18 +847,15 @@ mod tests {
         )
         .unwrap();
 
-        let orig_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(dir.path()).unwrap();
-
-        let cmd = serde_json::json!({
-            "command": "static-deps",
-            "params": {
-                "changed_files": ["src/model.py", "src/view.py"]
-            }
+        let result = with_cwd(dir.path(), || {
+            let cmd = serde_json::json!({
+                "command": "static-deps",
+                "params": {
+                    "changed_files": ["src/model.py", "src/view.py"]
+                }
+            });
+            cmd_static_deps(&cmd)
         });
-        let result = cmd_static_deps(&cmd);
-
-        std::env::set_current_dir(&orig_dir).unwrap();
 
         assert!(result["ok"].as_bool().unwrap());
         let edges = result["edges"].as_array().unwrap();
@@ -892,12 +892,7 @@ mod tests {
         std::fs::create_dir_all(&tests_dir).unwrap();
         std::fs::write(tests_dir.join("test_real.py"), "def test_real(): pass\n").unwrap();
 
-        let orig_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(dir.path()).unwrap();
-
-        let result = cmd_discover();
-
-        std::env::set_current_dir(&orig_dir).unwrap();
+        let result = with_cwd(dir.path(), cmd_discover);
 
         assert!(result["ok"].as_bool().unwrap());
         let items = result["result"].as_array().unwrap();
@@ -1195,12 +1190,7 @@ traceback line 2
         std::fs::create_dir_all(&tests_dir).unwrap();
         std::fs::write(tests_dir.join("test_real.py"), "def test_real(): pass\n").unwrap();
 
-        let orig_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(dir.path()).unwrap();
-
-        let result = cmd_discover();
-
-        std::env::set_current_dir(&orig_dir).unwrap();
+        let result = with_cwd(dir.path(), cmd_discover);
 
         assert!(result["ok"].as_bool().unwrap());
         let items = result["result"].as_array().unwrap();
