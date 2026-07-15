@@ -41,41 +41,19 @@ cargo build --release
 ## Quick Start
 
 ```bash
+# Install
+cargo install testaruda
+
 # Initialize the store and config
 testaruda init
 
-# Discover tests via language adapters
-testaruda discover
-
 # Select tests affected by uncommitted changes
 testaruda select
-
-# Select tests between two revisions
-testaruda select --base main --head feature
-
-# Machine-readable JSON plan (for CI)
-testaruda select --json
-
-# Shadow mode: compute but signal "run all tests"
-testaruda select --shadow
-
-# Ingest run results
-testaruda ingest results.json
-
-# Explain why a test was selected
-testaruda explain <test-id>
 ```
 
-## Exit Codes
-
-When used in CI pipelines:
-
-| Code | Meaning |
-|------|---------|
-| 0 | Selection computed — run the selected tests |
-| 10 | Low confidence or shadow mode — run all tests |
-| 20 | Empty selection — safe to skip |
-| 1+ | Error (distinct from 10 and 20) |
+See [**Getting Started →**](docs/getting-started.md) for a full walkthrough
+with all commands, or [**CLI Reference →**](docs/cli.md) for detailed
+option descriptions.
 
 ## Architecture
 
@@ -95,14 +73,7 @@ testaruda discovers tests by spawning language-specific adapter processes:
 | `testaruda-adapter-rust` | Rust | Scans `#[test]` attributes |
 | `testaruda-adapter-python` | Python | Scans `test_*.py` / `*_test.py` files |
 
-Configure adapters in `testaruda.toml`:
-
-```toml
-[adapters]
-".rs" = "testaruda-adapter-rust"
-".py" = "testaruda-adapter-python"
-default = "testaruda-adapter-rust"
-```
+See [`docs/configuration.md`](docs/configuration.md) for adapter configuration.
 
 ## Requirements
 

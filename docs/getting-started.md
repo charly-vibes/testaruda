@@ -46,31 +46,14 @@ testaruda select --shadow
 testaruda select --files "src/lib.rs,src/main.rs"
 ```
 
-## Exit Codes
+## Next Steps
 
-When used in CI pipelines:
-
-| Code | Meaning |
-|------|---------|
-| 0 | Selection computed — run the selected set |
-| 10 | Full run required (low confidence or shadow mode) |
-| 20 | No tests affected — safe to skip |
-| 1+ | Error (unrelated to 10 or 20) |
-
-## Adapters
-
-testaruda discovers tests by spawning language-specific adapter binaries:
-
-```
-testaruda (core) ←─── JSON over stdin/stdout ───→ testaruda-adapter-rust
-                                              ───→ testaruda-adapter-python
-```
-
-Configure adapters in `testaruda.toml`:
-
-```toml
-[adapters]
-".rs" = "testaruda-adapter-rust"
-".py" = "testaruda-adapter-python"
-default = "testaruda-adapter-rust"
-```
+- See the [**CLI Reference**](cli.md) for all commands and options (including
+  `calibrate`, `ingest`, `graph`, `import`, `explain`, `oracle`, `discover`,
+  `metrics`, `completions`, and their flags).
+- See the [**Configuration Guide**](configuration.md) for adapter setup and
+  `testaruda.toml` reference.
+- See the [**Agent Mode Guide**](agent-mode.md) for structured JSON output
+  intended for LLM coding agents.
+- See the [**Architecture Overview**](architecture.md) for the high-level
+  system design.
