@@ -11,7 +11,9 @@ use crate::store::Store;
 /// Selection ordering mode.
 ///
 /// Controls how the selected test set is ordered before being returned.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Selection ordering strategy (TIA-SEL-005..007).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
+#[clap(rename_all = "kebab_case")]
 pub enum TestOrdering {
     /// No specific ordering — results in Ascent's internal iteration order.
     #[default]
@@ -23,12 +25,24 @@ pub enum TestOrdering {
     /// Order by descending recorded mean duration (TIA-SEL-006).
     ///
     /// Tests with no recorded history are placed at the end.
+    #[clap(name = "duration")]
     ByDuration,
     /// Order by descending historical failure rate (TIA-SEL-007).
     ///
     /// Tests with the highest failure rate are placed first.
     /// Tests with no recorded history are placed at the end.
     Predictive,
+}
+
+impl std::fmt::Display for TestOrdering {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TestOrdering::Default => write!(f, "default"),
+            TestOrdering::Deterministic => write!(f, "deterministic"),
+            TestOrdering::ByDuration => write!(f, "duration"),
+            TestOrdering::Predictive => write!(f, "predictive"),
+        }
+    }
 }
 
 /// Origin of a dependency edge.

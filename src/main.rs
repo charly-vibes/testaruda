@@ -42,9 +42,9 @@ enum Command {
         /// CI mode: run selected tests and ingest results automatically (TIA-CI-008)
         #[arg(long)]
         ci: bool,
-        /// Selection ordering mode (default|deterministic|duration|predictive)
-        #[arg(long, default_value = "default")]
-        ordering: String,
+        /// Selection ordering mode
+        #[arg(long, default_value_t)]
+        ordering: testaruda::TestOrdering,
     },
     /// Evaluate the predictive ranking calibration gate (TIA-VER-005)
     Calibrate {
@@ -204,12 +204,7 @@ fn main() -> miette::Result<()> {
             let ordering = if agent {
                 testaruda::TestOrdering::Deterministic
             } else {
-                match ordering.as_str() {
-                    "deterministic" => testaruda::TestOrdering::Deterministic,
-                    "duration" => testaruda::TestOrdering::ByDuration,
-                    "predictive" => testaruda::TestOrdering::Predictive,
-                    _ => testaruda::TestOrdering::Default,
-                }
+                ordering
             };
 
             // Load selection context once, reuse for both engine and agent output
