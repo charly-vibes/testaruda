@@ -95,15 +95,18 @@ impl Store {
     /// If the store has a newer schema version than the core, refuses with a diagnostic.
     pub fn initialize(&self) -> miette::Result<()> {
         // Step 1: Create the schema version tracking table if it doesn't exist
-        self.conn.execute_batch(&format!(
-            "CREATE TABLE IF NOT EXISTS {} (
+        self.conn
+            .execute_batch(&format!(
+                "CREATE TABLE IF NOT EXISTS {} (
                 version INTEGER NOT NULL
             );",
-            SCHEMA_TABLE
-        )).map_err(|e| miette::miette!("Failed to create schema version table: {}", e))?;
+                SCHEMA_TABLE
+            ))
+            .map_err(|e| miette::miette!("Failed to create schema version table: {}", e))?;
 
         // Step 2: Determine current schema version
-        let current_version: Option<u32> = self.conn
+        let current_version: Option<u32> = self
+            .conn
             .query_row(
                 &format!("SELECT MAX(version) FROM {}", SCHEMA_TABLE),
                 [],
@@ -236,10 +239,12 @@ impl Store {
 
     /// Record the schema version in the version table.
     fn set_schema_version(&self, version: u32) -> miette::Result<()> {
-        self.conn.execute(
-            &format!("INSERT INTO {} (version) VALUES (?1)", SCHEMA_TABLE),
-            rusqlite::params![version],
-        ).map_err(|e| miette::miette!("Failed to record schema version: {}", e))?;
+        self.conn
+            .execute(
+                &format!("INSERT INTO {} (version) VALUES (?1)", SCHEMA_TABLE),
+                rusqlite::params![version],
+            )
+            .map_err(|e| miette::miette!("Failed to record schema version: {}", e))?;
         Ok(())
     }
 
@@ -321,7 +326,8 @@ impl Store {
         selection: &crate::engine::Selection,
         candidate_test_ids: &[u32],
     ) -> miette::Result<()> {
-        let tx = self.conn
+        let tx = self
+            .conn
             .unchecked_transaction()
             .map_err(|e| miette::miette!("Failed to start provenance transaction: {}", e))?;
 
@@ -351,7 +357,9 @@ impl Store {
                 test.distance,
                 witness_json,
             ])
-            .map_err(|e| miette::miette!("Failed to persist provenance for test {}: {}", test.id, e))?;
+            .map_err(|e| {
+                miette::miette!("Failed to persist provenance for test {}: {}", test.id, e)
+            })?;
         }
 
         // Persist non-selected candidates with exclusion marker
@@ -365,7 +373,9 @@ impl Store {
                     None::<u32>,
                     r#"{"reason":"no change reaches test"}"#,
                 ])
-                .map_err(|e| miette::miette!("Failed to persist exclusion for test {}: {}", tid, e))?;
+                .map_err(|e| {
+                    miette::miette!("Failed to persist exclusion for test {}: {}", tid, e)
+                })?;
             }
         }
 
@@ -395,8 +405,8 @@ impl Store {
             let distance: Option<u32> = row.get(2)?;
             let witness_json: Option<String> = row.get(3)?;
             let created_at: String = row.get(4)?;
-            let witness = witness_json
-                .and_then(|w| serde_json::from_str::<serde_json::Value>(&w).ok());
+            let witness =
+                witness_json.and_then(|w| serde_json::from_str::<serde_json::Value>(&w).ok());
             Ok(serde_json::json!({
                 "selected": selected != 0,
                 "confidence": confidence,
@@ -445,9 +455,7 @@ impl Store {
         // Build a set of what the last selection would have skipped
         let mut skip_stmt = self
             .conn
-            .prepare(
-                "SELECT test_item_id FROM provenance WHERE run_id = ?1 AND selected = 0",
-            )
+            .prepare("SELECT test_item_id FROM provenance WHERE run_id = ?1 AND selected = 0")
             .map_err(|e| miette::miette!("Query prep failed: {}", e))?;
         let skipped_ids: std::collections::HashSet<u32> = skip_stmt
             .query_map(rusqlite::params![prev_run_id], |row| row.get::<_, u32>(0))
@@ -476,9 +484,7 @@ impl Store {
             .filter_map(|r| r.ok())
             .map(|(tid, wjson)| {
                 let cus = wjson
-                    .and_then(|w| {
-                        serde_json::from_str::<Vec<crate::engine::WitnessEdge>>(&w).ok()
-                    })
+                    .and_then(|w| serde_json::from_str::<Vec<crate::engine::WitnessEdge>>(&w).ok())
                     .unwrap_or_default()
                     .iter()
                     .map(|e| e.content_unit)
@@ -719,7 +725,9 @@ impl Store {
             .map_err(|e| miette::miette!("Always-run query failed: {}", e))?;
 
         let rows = ar_stmt
-            .query_map(rusqlite::params![ctx.current_environment], |row| row.get::<_, u32>(0))
+            .query_map(rusqlite::params![ctx.current_environment], |row| {
+                row.get::<_, u32>(0)
+            })
             .map_err(|e| miette::miette!("Always-run exec failed: {}", e))?;
         for row in rows.flatten() {
             ctx.always_run.push(row);
@@ -740,7 +748,9 @@ impl Store {
             .map_err(|e| miette::miette!("No-history query failed: {}", e))?;
 
         let nh_rows = nh_stmt
-            .query_map(rusqlite::params![ctx.current_environment], |row| row.get::<_, u32>(0))
+            .query_map(rusqlite::params![ctx.current_environment], |row| {
+                row.get::<_, u32>(0)
+            })
             .map_err(|e| miette::miette!("No-history exec failed: {}", e))?;
         for row in nh_rows.flatten() {
             ctx.always_run.push(row);
@@ -749,9 +759,7 @@ impl Store {
         // Quarantined tests (TIA-SAFE-010: always-run category 4)
         let mut q_stmt = self
             .conn
-            .prepare(
-                "SELECT id FROM test_items WHERE quarantined = 1",
-            )
+            .prepare("SELECT id FROM test_items WHERE quarantined = 1")
             .map_err(|e| miette::miette!("Quarantine query failed: {}", e))?;
 
         let q_rows = q_stmt
@@ -789,11 +797,10 @@ impl Store {
         // 2. Adapter resolution ratio — fraction of content units with
         //    real fingerprints vs 'unknown' (unresolved).
         if let (Ok(total), Ok(unknown)) = (
-            self.conn.query_row(
-                "SELECT COUNT(*) FROM content_units",
-                [],
-                |row| row.get::<_, u32>(0),
-            ),
+            self.conn
+                .query_row("SELECT COUNT(*) FROM content_units", [], |row| {
+                    row.get::<_, u32>(0)
+                }),
             self.conn.query_row(
                 "SELECT COUNT(*) FROM content_units WHERE fingerprint = 'unknown'",
                 [],
@@ -809,16 +816,14 @@ impl Store {
         // 3. History depth — average number of runs per test item.
         //    Saturates at 5 runs (score = 1.0). Minimum 0.5 at 0 runs.
         if let (Ok(test_count), Ok(run_count)) = (
-            self.conn.query_row(
-                "SELECT COUNT(*) FROM test_items",
-                [],
-                |row| row.get::<_, u32>(0),
-            ),
-            self.conn.query_row(
-                "SELECT COUNT(*) FROM run_history",
-                [],
-                |row| row.get::<_, u32>(0),
-            ),
+            self.conn
+                .query_row("SELECT COUNT(*) FROM test_items", [], |row| {
+                    row.get::<_, u32>(0)
+                }),
+            self.conn
+                .query_row("SELECT COUNT(*) FROM run_history", [], |row| {
+                    row.get::<_, u32>(0)
+                }),
         ) {
             if test_count > 0 {
                 let avg = run_count as f64 / test_count as f64;
@@ -841,7 +846,7 @@ impl Store {
         }
 
         // Clamp to [0.1, 1.0] and convert to ppm
-        quality_score = quality_score.max(0.1).min(1.0);
+        quality_score = quality_score.clamp(0.1, 1.0);
         ctx.invocation_quality = (quality_score * ONE as f64) as u32;
 
         // Threshold and must-run rules (config already loaded above for env)
@@ -956,7 +961,9 @@ impl Store {
 
             // Resolve environment fingerprint from payload metadata (TIA-RUN-006)
             let env = results["environment"].as_object();
-            let toolchain = env.and_then(|e| e.get("toolchain")).and_then(|v| v.as_str());
+            let toolchain = env
+                .and_then(|e| e.get("toolchain"))
+                .and_then(|v| v.as_str());
             let os = env.and_then(|e| e.get("os")).and_then(|v| v.as_str());
             let environment = self.resolve_environment(toolchain, os)?;
 
@@ -1261,21 +1268,29 @@ impl Store {
 
                 // Resolve test_item_id by node_id
                 let from = match from_node_id {
-                    Some(nid) => self.conn.query_row::<u32, _, _>(
-                        "SELECT id FROM test_items WHERE node_id = ?1 LIMIT 1",
-                        rusqlite::params![nid],
-                        |row| row.get(0),
-                    ).map_err(|e| miette::miette!("Failed to resolve test '{}': {}", nid, e))?,
+                    Some(nid) => self
+                        .conn
+                        .query_row::<u32, _, _>(
+                            "SELECT id FROM test_items WHERE node_id = ?1 LIMIT 1",
+                            rusqlite::params![nid],
+                            |row| row.get(0),
+                        )
+                        .map_err(|e| miette::miette!("Failed to resolve test '{}': {}", nid, e))?,
                     None => return Err(miette::miette!("Edge missing 'from_node_id'")),
                 };
 
                 // Resolve content_unit_id by path
                 let to = match to_path {
-                    Some(p) => self.conn.query_row::<u32, _, _>(
-                        "SELECT id FROM content_units WHERE path = ?1 LIMIT 1",
-                        rusqlite::params![p],
-                        |row| row.get(0),
-                    ).map_err(|e| miette::miette!("Failed to resolve content unit '{}': {}", p, e))?,
+                    Some(p) => self
+                        .conn
+                        .query_row::<u32, _, _>(
+                            "SELECT id FROM content_units WHERE path = ?1 LIMIT 1",
+                            rusqlite::params![p],
+                            |row| row.get(0),
+                        )
+                        .map_err(|e| {
+                            miette::miette!("Failed to resolve content unit '{}': {}", p, e)
+                        })?,
                     None => return Err(miette::miette!("Edge missing 'to_path'")),
                 };
 
@@ -1303,13 +1318,20 @@ impl Store {
 
                 // Resolve test_item_id by node_id
                 let test_item_id = match node_id {
-                    Some(nid) => self.conn.query_row::<u32, _, _>(
-                        "SELECT id FROM test_items WHERE node_id = ?1 LIMIT 1",
-                        rusqlite::params![nid],
-                        |row| row.get(0),
-                    ).map_err(|e| miette::miette!(
-                        "Failed to resolve test '{}' for run history: {}", nid, e
-                    ))?,
+                    Some(nid) => self
+                        .conn
+                        .query_row::<u32, _, _>(
+                            "SELECT id FROM test_items WHERE node_id = ?1 LIMIT 1",
+                            rusqlite::params![nid],
+                            |row| row.get(0),
+                        )
+                        .map_err(|e| {
+                            miette::miette!(
+                                "Failed to resolve test '{}' for run history: {}",
+                                nid,
+                                e
+                            )
+                        })?,
                     None => continue,
                 };
 
@@ -1503,11 +1525,13 @@ impl Store {
         fingerprint: &str,
         selection_json: &str,
     ) -> miette::Result<()> {
-        self.conn.execute(
-            "INSERT OR REPLACE INTO selection_cache (fingerprint, selection_json, cached_at)
+        self.conn
+            .execute(
+                "INSERT OR REPLACE INTO selection_cache (fingerprint, selection_json, cached_at)
              VALUES (?1, ?2, datetime('now'))",
-            rusqlite::params![fingerprint, selection_json],
-        ).map_err(|e| miette::miette!("Failed to cache selection: {}", e))?;
+                rusqlite::params![fingerprint, selection_json],
+            )
+            .map_err(|e| miette::miette!("Failed to cache selection: {}", e))?;
         Ok(())
     }
 
@@ -1547,7 +1571,10 @@ impl Store {
     }
 
     /// Get the content unit info (path, symbol, kind) for a given ID.
-    pub fn get_content_unit_info(&self, id: u32) -> miette::Result<(String, Option<String>, String)> {
+    pub fn get_content_unit_info(
+        &self,
+        id: u32,
+    ) -> miette::Result<(String, Option<String>, String)> {
         self.conn
             .query_row(
                 "SELECT path, symbol, kind FROM content_units WHERE id = ?1",
@@ -1574,7 +1601,11 @@ impl Store {
     }
 
     /// Look up a content unit ID by component and path.
-    pub fn lookup_content_unit(&self, component: &str, path: &str) -> miette::Result<(u32, String)> {
+    pub fn lookup_content_unit(
+        &self,
+        component: &str,
+        path: &str,
+    ) -> miette::Result<(u32, String)> {
         self.conn
             .query_row(
                 "SELECT id, fingerprint FROM content_units WHERE component = ?1 AND path = ?2",
@@ -1609,8 +1640,10 @@ impl Store {
             placeholders.join(",")
         );
 
-        let params: Vec<&dyn rusqlite::types::ToSql> =
-            all_cus.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+        let params: Vec<&dyn rusqlite::types::ToSql> = all_cus
+            .iter()
+            .map(|id| id as &dyn rusqlite::types::ToSql)
+            .collect();
 
         let mut stmt = self
             .conn
@@ -1837,7 +1870,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, SCHEMA_VERSION, "fresh store should have current version");
+        assert_eq!(
+            version, SCHEMA_VERSION,
+            "fresh store should have current version"
+        );
     }
 
     #[test]
@@ -1901,7 +1937,10 @@ mod tests {
                     |row| row.get(0),
                 )
                 .unwrap();
-            assert_eq!(version, SCHEMA_VERSION, "older schema should be migrated to current");
+            assert_eq!(
+                version, SCHEMA_VERSION,
+                "older schema should be migrated to current"
+            );
         }
     }
 
@@ -1918,10 +1957,7 @@ mod tests {
             // Overwrite to simulate a future version
             store
                 .conn
-                .execute(
-                    &format!("DELETE FROM {}", SCHEMA_TABLE),
-                    [],
-                )
+                .execute(&format!("DELETE FROM {}", SCHEMA_TABLE), [])
                 .unwrap();
             store
                 .conn
@@ -1943,6 +1979,7 @@ mod tests {
         }
     }
 
+    #[allow(clippy::assertions_on_constants)]
     #[test]
     fn test_schema_constant_is_positive() {
         assert!(SCHEMA_VERSION > 0, "schema version must be positive");
@@ -1989,12 +2026,8 @@ mod tests {
         let store = Store::open(dir.path().join(".testaruda")).unwrap();
         store.initialize().unwrap();
 
-        store
-            .set_cached_selection("fp1", r#"{"sel":1}"#)
-            .unwrap();
-        store
-            .set_cached_selection("fp2", r#"{"sel":2}"#)
-            .unwrap();
+        store.set_cached_selection("fp1", r#"{"sel":1}"#).unwrap();
+        store.set_cached_selection("fp2", r#"{"sel":2}"#).unwrap();
 
         // Each fingerprint retrieves its own
         assert_eq!(
@@ -2007,9 +2040,7 @@ mod tests {
         );
 
         // Overwrite fp1
-        store
-            .set_cached_selection("fp1", r#"{"sel":99}"#)
-            .unwrap();
+        store.set_cached_selection("fp1", r#"{"sel":99}"#).unwrap();
         assert_eq!(
             store.get_cached_selection("fp1").unwrap().as_deref(),
             Some(r#"{"sel":99}"#)
@@ -2025,12 +2056,8 @@ mod tests {
         let store = Store::open(dir.path().join(".testaruda")).unwrap();
         store.initialize().unwrap();
 
-        store
-            .set_cached_selection("fp_a", r#"{}"#)
-            .unwrap();
-        store
-            .set_cached_selection("fp_b", r#"{}"#)
-            .unwrap();
+        store.set_cached_selection("fp_a", r#"{}"#).unwrap();
+        store.set_cached_selection("fp_b", r#"{}"#).unwrap();
 
         // Invalidate (clears all, since cache key is global)
         store.invalidate_component_cache("default").unwrap();
@@ -2089,7 +2116,10 @@ mod tests {
         });
 
         // First ingest should succeed
-        assert!(store.ingest(&payload).is_ok(), "first ingest should succeed");
+        assert!(
+            store.ingest(&payload).is_ok(),
+            "first ingest should succeed"
+        );
 
         // Second ingest with same run_id should skip (not error)
         assert!(store.ingest(&payload).is_ok(), "duplicate should not error");
@@ -2174,7 +2204,8 @@ mod tests {
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (?1, 'r1', 'failed', 10, 'default')",
             rusqlite::params![tid],
-        ).unwrap();
+        )
+        .unwrap();
 
         let ctx = store
             .load_selection_context(&crate::change::ChangeSet {
@@ -2183,7 +2214,10 @@ mod tests {
                 head: None,
             })
             .unwrap();
-        assert!(ctx.always_run.contains(&tid), "previously-failed test should be always-run");
+        assert!(
+            ctx.always_run.contains(&tid),
+            "previously-failed test should be always-run"
+        );
     }
 
     #[test]
@@ -2225,7 +2259,8 @@ mod tests {
             "INSERT INTO test_items (component, adapter, node_id, quarantined)
              VALUES ('default', 'test', 'quarantined_test', 1)",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         let tid: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
             .unwrap();
@@ -2264,7 +2299,8 @@ mod tests {
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', ?1, NULL, 'source', ?2)",
             rusqlite::params![file_path.to_string_lossy().to_string(), fp],
-        ).unwrap();
+        )
+        .unwrap();
         let cu_id: u32 = conn
             .query_row("SELECT id FROM content_units", [], |row| row.get(0))
             .unwrap();
@@ -2276,13 +2312,18 @@ mod tests {
             [],
         ).unwrap();
         let tid_failed: u32 = conn
-            .query_row("SELECT id FROM test_items WHERE node_id='failed'", [], |row| row.get(0))
+            .query_row(
+                "SELECT id FROM test_items WHERE node_id='failed'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         conn.execute(
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (?1, 'fail-run', 'failed', 10, 'default')",
             rusqlite::params![tid_failed],
-        ).unwrap();
+        )
+        .unwrap();
 
         // cat 2: newly-added / no-history
         conn.execute(
@@ -2290,7 +2331,11 @@ mod tests {
             [],
         ).unwrap();
         let tid_nohist: u32 = conn
-            .query_row("SELECT id FROM test_items WHERE node_id='no_history'", [], |row| row.get(0))
+            .query_row(
+                "SELECT id FROM test_items WHERE node_id='no_history'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
 
         // cat 3: quarantined
@@ -2298,9 +2343,14 @@ mod tests {
             "INSERT INTO test_items (component, adapter, node_id, quarantined)
              VALUES ('default', 'test', 'quarantined', 1)",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         let tid_quar: u32 = conn
-            .query_row("SELECT id FROM test_items WHERE node_id='quarantined'", [], |row| row.get(0))
+            .query_row(
+                "SELECT id FROM test_items WHERE node_id='quarantined'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
 
         // cat 4: passed-with-history (should NOT be always-run)
@@ -2309,19 +2359,25 @@ mod tests {
             [],
         ).unwrap();
         let tid_passed: u32 = conn
-            .query_row("SELECT id FROM test_items WHERE node_id='passed'", [], |row| row.get(0))
+            .query_row(
+                "SELECT id FROM test_items WHERE node_id='passed'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         conn.execute(
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (?1, 'pass-run', 'passed', 10, 'default')",
             rusqlite::params![tid_passed],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Wire a small dep graph so selection can run through Engine
         conn.execute(
             "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
             rusqlite::params![cu_id, tid_failed],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
              VALUES (?1, ?2, 'default', 'static', 1000000)",
@@ -2340,13 +2396,19 @@ mod tests {
         let sel = engine.select(&delta).unwrap();
         let ids: std::collections::HashSet<u32> = sel.tests.iter().map(|t| t.id).collect();
 
-        assert!(ids.contains(&tid_failed), "previously-failed should be selected");
+        assert!(
+            ids.contains(&tid_failed),
+            "previously-failed should be selected"
+        );
         assert!(ids.contains(&tid_nohist), "no-history should be selected");
         assert!(ids.contains(&tid_quar), "quarantined should be selected");
         // passed-with-history test is NOT in always-run — only included if
         // it's in the transitive closure of the change. Since it has no
         // dependency edges, it should NOT be selected.
-        assert!(!ids.contains(&tid_passed), "passed-with-history should NOT be selected");
+        assert!(
+            !ids.contains(&tid_passed),
+            "passed-with-history should NOT be selected"
+        );
     }
 
     #[test]
@@ -2366,7 +2428,8 @@ mod tests {
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', ?1, NULL, 'source', ?2)",
             rusqlite::params![file_path.to_string_lossy().to_string(), fp],
-        ).unwrap();
+        )
+        .unwrap();
         let cu_id: u32 = conn
             .query_row("SELECT id FROM content_units", [], |row| row.get(0))
             .unwrap();
@@ -2376,7 +2439,8 @@ mod tests {
             "INSERT INTO test_items (component, adapter, node_id, quarantined)
              VALUES ('default', 'test', 'quarantined_test', 1)",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         let tid_quar: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
             .unwrap();
@@ -2387,19 +2451,25 @@ mod tests {
             [],
         ).unwrap();
         let tid_fail: u32 = conn
-            .query_row("SELECT id FROM test_items WHERE node_id='failed_test'", [], |row| row.get(0))
+            .query_row(
+                "SELECT id FROM test_items WHERE node_id='failed_test'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         conn.execute(
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (?1, 'fail-r', 'failed', 10, 'default')",
             rusqlite::params![tid_fail],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Wire both to the content unit (so they'd be selected even without always_run)
         conn.execute(
             "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
             rusqlite::params![cu_id, tid_quar],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
              VALUES (?1, ?2, 'default', 'static', 1000000)",
@@ -2408,7 +2478,8 @@ mod tests {
         conn.execute(
             "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
             rusqlite::params![cu_id, tid_fail],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
              VALUES (?1, ?2, 'default', 'static', 1000000)",
@@ -2462,7 +2533,10 @@ mod tests {
                 head: None,
             })
             .unwrap();
-        assert!(ctx.always_run.contains(&tid), "no-history should be always-run");
+        assert!(
+            ctx.always_run.contains(&tid),
+            "no-history should be always-run"
+        );
         assert!(
             !ctx.quarantined.contains(&tid),
             "no-history test should NOT be quarantined"
@@ -2534,8 +2608,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(
-            ctx.invocation_quality,
-            ONE,
+            ctx.invocation_quality, ONE,
             "empty store should have max invocation quality"
         );
     }
@@ -2581,25 +2654,29 @@ mod tests {
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', 'resolved.rs', NULL, 'source', ?1)",
             rusqlite::params![fp],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Insert an unresolved content unit
         conn.execute(
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', 'unknown.rs', NULL, 'source', 'unknown')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Insert a test item and run history (to avoid freshness penalty)
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 't1')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (1, 'r1', 'passed', 10, 'default')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
 
         let ctx = store
             .load_selection_context(&crate::change::ChangeSet {
@@ -2625,7 +2702,11 @@ mod tests {
         // Set up a graph with very low edge weights, triggering fallback
         let dir = tempfile::tempdir().unwrap();
         let store_path = dir.path().join(".testaruda");
-        std::fs::write(dir.path().join("testaruda.toml"), r#"confidence_threshold = 0.9"#).unwrap();
+        std::fs::write(
+            dir.path().join("testaruda.toml"),
+            r#"confidence_threshold = 0.9"#,
+        )
+        .unwrap();
 
         let store = Store::open(store_path).unwrap();
         store.initialize().unwrap();
@@ -2641,7 +2722,8 @@ mod tests {
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', 'src/lib.rs', NULL, 'source', ?1)",
             rusqlite::params![fp],
-        ).unwrap();
+        )
+        .unwrap();
         let cu_id: u32 = conn
             .query_row("SELECT id FROM content_units", [], |row| row.get(0))
             .unwrap();
@@ -2664,14 +2746,16 @@ mod tests {
         conn.execute(
             "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
             rusqlite::params![cu_id, tid],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Give test a run history so it's not always-run
         conn.execute(
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (?1, 'seed', 'passed', 10, 'default')",
             rusqlite::params![tid],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Change the file to trigger selection
         std::fs::write(&file_path, b"fn bar() {}").unwrap();
@@ -2718,7 +2802,8 @@ mod tests {
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', 'src/lib.rs', NULL, 'source', ?1)",
             rusqlite::params![fp],
-        ).unwrap();
+        )
+        .unwrap();
         let cu_id: u32 = conn
             .query_row("SELECT id FROM content_units", [], |row| row.get(0))
             .unwrap();
@@ -2739,14 +2824,16 @@ mod tests {
         conn.execute(
             "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
             rusqlite::params![cu_id, tid],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Give test a run history
         conn.execute(
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (?1, 'seed', 'passed', 10, 'default')",
             rusqlite::params![tid],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Change the file
         std::fs::write(&file_path, b"fn bar() {}").unwrap();
@@ -2788,7 +2875,8 @@ mod tests {
                 "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
                  VALUES ('default', ?1, NULL, 'source', 'unknown')",
                 rusqlite::params![format!("unknown_{}.rs", i)],
-            ).unwrap();
+            )
+            .unwrap();
         }
 
         // A test item (no history → always-run)
@@ -2828,7 +2916,9 @@ mod tests {
             "full_run": true,
             "tests": [{"id": 1, "outcome": "failed", "duration_ms": 10}]
         });
-        let incidents = store.detect_missed_selections("full-run-1", &results).unwrap();
+        let incidents = store
+            .detect_missed_selections("full-run-1", &results)
+            .unwrap();
         assert_eq!(incidents, 0, "no previous provenance → no incidents");
     }
 
@@ -2845,7 +2935,8 @@ mod tests {
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', 'src/lib.rs', NULL, 'source', 'abc123')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         let cu_id: u32 = conn
             .query_row("SELECT id FROM content_units", [], |row| row.get(0))
             .unwrap();
@@ -2866,7 +2957,8 @@ mod tests {
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (?1, 'seed', 'passed', 10, 'default')",
             rusqlite::params![test_id],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Simulate a prior selection run:
         // - test_a was NOT selected (selected=0) — so it was skipped
@@ -2876,22 +2968,29 @@ mod tests {
             [],
         ).unwrap();
         let other_id: u32 = conn
-            .query_row("SELECT id FROM test_items WHERE node_id='other_test'", [], |row| row.get(0))
+            .query_row(
+                "SELECT id FROM test_items WHERE node_id='other_test'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
 
         assert_eq!(cu_id, 1, "cu_id should be 1 since it's the first insert");
 
-        let witness_json = serde_json::json!([{"content_unit": cu_id, "origin": "Static"}]).to_string();
+        let witness_json =
+            serde_json::json!([{"content_unit": cu_id, "origin": "Static"}]).to_string();
         conn.execute(
             "INSERT INTO provenance (run_id, test_item_id, selected, confidence, witness_json)
              VALUES ('prev-sel', ?1, 0, 0.0, '[]')",
             rusqlite::params![test_id],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO provenance (run_id, test_item_id, selected, confidence, witness_json)
              VALUES ('prev-sel', ?1, 1, 1.0, ?2)",
             rusqlite::params![other_id, witness_json],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Ingest a full run where the test failed
         let results = serde_json::json!({
@@ -2899,7 +2998,9 @@ mod tests {
             "full_run": true,
             "tests": [{"id": test_id, "outcome": "failed", "duration_ms": 10}]
         });
-        let incidents = store.detect_missed_selections("full-run-2", &results).unwrap();
+        let incidents = store
+            .detect_missed_selections("full-run-2", &results)
+            .unwrap();
         assert_eq!(incidents, 1, "should detect one missed-selection incident");
 
         // Verify incident was recorded
@@ -2938,7 +3039,8 @@ mod tests {
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', 'src/lib.rs', NULL, 'source', 'abc123')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         let cu_id: u32 = conn
             .query_row("SELECT id FROM content_units", [], |row| row.get(0))
             .unwrap();
@@ -2953,7 +3055,9 @@ mod tests {
             .unwrap();
 
         // Call record_missed_selection directly
-        store.record_missed_selection("run-x", test_id, cu_id).unwrap();
+        store
+            .record_missed_selection("run-x", test_id, cu_id)
+            .unwrap();
 
         // Verify incident was recorded
         let count: u32 = conn
@@ -2999,7 +3103,8 @@ mod tests {
             "INSERT INTO provenance (run_id, test_item_id, selected, confidence, witness_json)
              VALUES ('prev-sel', ?1, 0, 0.0, '[]')",
             rusqlite::params![test_id],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Full run: test PASSED
         let results = serde_json::json!({
@@ -3007,7 +3112,9 @@ mod tests {
             "full_run": true,
             "tests": [{"id": test_id, "outcome": "passed", "duration_ms": 10}]
         });
-        let incidents = store.detect_missed_selections("full-run-3", &results).unwrap();
+        let incidents = store
+            .detect_missed_selections("full-run-3", &results)
+            .unwrap();
         assert_eq!(incidents, 0, "passed test should not trigger incident");
     }
 
@@ -3033,7 +3140,8 @@ mod tests {
             "INSERT INTO provenance (run_id, test_item_id, selected, confidence, witness_json)
              VALUES ('prev-sel', ?1, 0, 0.0, '[]')",
             rusqlite::params![test_id],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Ingest without full_run flag — should NOT trigger detection
         let results = serde_json::json!({
@@ -3071,7 +3179,8 @@ mod tests {
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', 'src/lib.rs', NULL, 'source', ?1)",
             rusqlite::params![fp],
-        ).unwrap();
+        )
+        .unwrap();
         let cu_id: u32 = conn
             .query_row("SELECT id FROM content_units", [], |row| row.get(0))
             .unwrap();
@@ -3090,7 +3199,8 @@ mod tests {
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (?1, 'seed', 'passed', 10, 'default')",
             rusqlite::params![test_id],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Create a manual edge (simulating what record_missed_selection does)
         conn.execute(
@@ -3101,7 +3211,8 @@ mod tests {
         conn.execute(
             "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
             rusqlite::params![cu_id, test_id],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Change the file
         std::fs::write(&file_path, b"fn bar() {}").unwrap();
@@ -3116,7 +3227,10 @@ mod tests {
 
         // Test should be selected via the manual edge
         let ids: Vec<u32> = sel.tests.iter().map(|t| t.id).collect();
-        assert!(ids.contains(&test_id), "test should be selected via manual edge");
+        assert!(
+            ids.contains(&test_id),
+            "test should be selected via manual edge"
+        );
 
         // Verify the witness includes the manual origin
         let test = sel.tests.iter().find(|t| t.id == test_id).unwrap();
@@ -3154,7 +3268,8 @@ mod tests {
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', 'app.config', NULL, 'source', 'abc123')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Insert test item with matching node_id
         conn.execute(
@@ -3170,7 +3285,8 @@ mod tests {
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (?1, 'seed', 'passed', 10, 'default')",
             rusqlite::params![tid],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Selection with app.config changed should add the test via must-run
         let ctx = store
@@ -3215,7 +3331,8 @@ mod tests {
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (?1, 'seed', 'passed', 10, 'default')",
             rusqlite::params![tid],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Change a .rs file, not .secret — must-run should NOT trigger
         let ctx = store
@@ -3255,7 +3372,8 @@ interval_hours = 0
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 't1')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         let tid: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
             .unwrap();
@@ -3263,7 +3381,8 @@ interval_hours = 0
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (?1, 'seed', 'passed', 10, 'default')",
             rusqlite::params![tid],
-        ).unwrap();
+        )
+        .unwrap();
 
         // With interval=0, periodic full-run is disabled; test should NOT
         // be always-run (it has history and no other reason). Only selected
@@ -3299,12 +3418,19 @@ interval_hours = 0
         let store = Store::open(dir.path().join(".testaruda")).unwrap();
         store.initialize().unwrap();
 
-        let fp1 = store.resolve_environment(Some("rustc-1.80"), Some("linux")).unwrap();
+        let fp1 = store
+            .resolve_environment(Some("rustc-1.80"), Some("linux"))
+            .unwrap();
         assert_ne!(fp1, "default", "should return a non-default fingerprint");
-        assert!(fp1.starts_with("env-"), "fingerprint should start with 'env-'");
+        assert!(
+            fp1.starts_with("env-"),
+            "fingerprint should start with 'env-'"
+        );
 
         // Same metadata should return the same fingerprint
-        let fp2 = store.resolve_environment(Some("rustc-1.80"), Some("linux")).unwrap();
+        let fp2 = store
+            .resolve_environment(Some("rustc-1.80"), Some("linux"))
+            .unwrap();
         assert_eq!(fp1, fp2, "same metadata should return same fingerprint");
     }
 
@@ -3339,7 +3465,11 @@ interval_hours = 0
                 |row| row.get(0),
             )
             .unwrap();
-        assert!(env.starts_with("env-"), "environment should be a fingerprint, got: {}", env);
+        assert!(
+            env.starts_with("env-"),
+            "environment should be a fingerprint, got: {}",
+            env
+        );
         assert_ne!(env, "default", "environment should not be 'default'");
     }
 
@@ -3356,7 +3486,8 @@ interval_hours = 0
 [environment]
 name = "env-a"
 "#,
-        ).unwrap();
+        )
+        .unwrap();
 
         let store = Store::open(store_path).unwrap();
         store.initialize().unwrap();
@@ -3373,7 +3504,8 @@ name = "env-a"
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', 'src/lib.rs', NULL, 'source', 'seed-fp')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         let cu_id: u32 = conn
             .query_row("SELECT id FROM content_units", [], |row| row.get(0))
             .unwrap();
@@ -3396,14 +3528,16 @@ name = "env-a"
         conn.execute(
             "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
             rusqlite::params![cu_id, tid],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Give test a run history so it's not always-run
         conn.execute(
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (?1, 'seed', 'passed', 10, 'default')",
             rusqlite::params![tid],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Verify the config environment name is picked up
         let ctx = store
@@ -3426,15 +3560,18 @@ name = "env-a"
             base: None,
             head: None,
         };
-        let ctx = store
-            .load_selection_context(&delta)
-            .unwrap();
+        let ctx = store.load_selection_context(&delta).unwrap();
         assert!(!ctx.changed.is_empty(), "no changed CUs");
         assert!(!ctx.test_deps.is_empty(), "env-a should have dep edges");
-        assert_eq!(ctx.current_environment, "env-a", "env should be env-a from config");
+        assert_eq!(
+            ctx.current_environment, "env-a",
+            "env should be env-a from config"
+        );
 
         let engine = crate::engine::Engine::new(&store);
-        let sel = engine.select_with_context(ctx, crate::engine::TestOrdering::Default).unwrap();
+        let sel = engine
+            .select_with_context(ctx, crate::engine::TestOrdering::Default)
+            .unwrap();
 
         // The test should be selected via the env-a edge
         let ids: Vec<u32> = sel.tests.iter().map(|t| t.id).collect();
@@ -3467,7 +3604,8 @@ name = "env-a"
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', 'src/lib.rs', NULL, 'source', ?1)",
             rusqlite::params![fp],
-        ).unwrap();
+        )
+        .unwrap();
         let cu_id: u32 = conn
             .query_row("SELECT id FROM content_units", [], |row| row.get(0))
             .unwrap();
@@ -3476,16 +3614,22 @@ name = "env-a"
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 't1')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         let tid1: u32 = conn
-            .query_row("SELECT id FROM test_items WHERE node_id='t1'", [], |row| row.get(0))
+            .query_row("SELECT id FROM test_items WHERE node_id='t1'", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 't2')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         let tid2: u32 = conn
-            .query_row("SELECT id FROM test_items WHERE node_id='t2'", [], |row| row.get(0))
+            .query_row("SELECT id FROM test_items WHERE node_id='t2'", [], |row| {
+                row.get(0)
+            })
             .unwrap();
 
         // Edge for t1 in 'env-a' environment
@@ -3497,7 +3641,8 @@ name = "env-a"
         conn.execute(
             "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
             rusqlite::params![cu_id, tid1],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Edge for t2 in 'default' environment
         conn.execute(
@@ -3508,19 +3653,22 @@ name = "env-a"
         conn.execute(
             "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
             rusqlite::params![cu_id, tid2],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Give both tests run history so they're not always-run
         conn.execute(
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (?1, 'seed', 'passed', 10, 'default')",
             rusqlite::params![tid1],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (?1, 'seed', 'passed', 10, 'default')",
             rusqlite::params![tid2],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Change the file
         std::fs::write(&file_path, b"fn bar() {}").unwrap();
@@ -3562,7 +3710,8 @@ name = "env-a"
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', 'src/lib.rs', NULL, 'source', 'abc123')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'test_a')",
             [],
@@ -3581,12 +3730,14 @@ name = "env-a"
         conn.execute(
             "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
             rusqlite::params![cu_id, tid],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (?1, 'r1', 'passed', 10, 'default')",
             rusqlite::params![tid],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Export
         let graph = store.export_graph().unwrap();
@@ -3646,33 +3797,40 @@ name = "env-a"
         store.import_graph(&graph).unwrap();
 
         // Verify content unit was created
-        let cu_count: u32 = store.conn().query_row(
-            "SELECT COUNT(*) FROM content_units", [], |row| row.get(0)
-        ).unwrap();
+        let cu_count: u32 = store
+            .conn()
+            .query_row("SELECT COUNT(*) FROM content_units", [], |row| row.get(0))
+            .unwrap();
         assert_eq!(cu_count, 1, "should import 1 content unit");
 
         // Verify test item was created
-        let ti_count: u32 = store.conn().query_row(
-            "SELECT COUNT(*) FROM test_items", [], |row| row.get(0)
-        ).unwrap();
+        let ti_count: u32 = store
+            .conn()
+            .query_row("SELECT COUNT(*) FROM test_items", [], |row| row.get(0))
+            .unwrap();
         assert_eq!(ti_count, 1, "should import 1 test item");
 
         // Verify edge was created
-        let edge_count: u32 = store.conn().query_row(
-            "SELECT COUNT(*) FROM dependency_edges", [], |row| row.get(0)
-        ).unwrap();
+        let edge_count: u32 = store
+            .conn()
+            .query_row("SELECT COUNT(*) FROM dependency_edges", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
         assert_eq!(edge_count, 1, "should import 1 edge");
 
         // Verify reverse index was created
-        let ri_count: u32 = store.conn().query_row(
-            "SELECT COUNT(*) FROM reverse_index", [], |row| row.get(0)
-        ).unwrap();
+        let ri_count: u32 = store
+            .conn()
+            .query_row("SELECT COUNT(*) FROM reverse_index", [], |row| row.get(0))
+            .unwrap();
         assert_eq!(ri_count, 1, "should import 1 reverse index entry");
 
         // Verify run history was created
-        let rh_count: u32 = store.conn().query_row(
-            "SELECT COUNT(*) FROM run_history", [], |row| row.get(0)
-        ).unwrap();
+        let rh_count: u32 = store
+            .conn()
+            .query_row("SELECT COUNT(*) FROM run_history", [], |row| row.get(0))
+            .unwrap();
         assert_eq!(rh_count, 1, "should import 1 run history entry");
     }
 
@@ -3686,7 +3844,10 @@ name = "env-a"
         let result = store.import_graph(&graph);
         assert!(result.is_err(), "unknown format should be rejected");
         assert!(
-            result.unwrap_err().to_string().contains("Unknown graph format"),
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Unknown graph format"),
             "error should mention unknown format"
         );
     }
@@ -3700,11 +3861,13 @@ name = "env-a"
         store1.initialize().unwrap();
         let conn1 = store1.conn();
 
-        conn1.execute(
-            "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
+        conn1
+            .execute(
+                "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', 'src/app.rs', NULL, 'source', 'def456')",
-            [],
-        ).unwrap();
+                [],
+            )
+            .unwrap();
         let cu_id: u32 = conn1
             .query_row("SELECT id FROM content_units", [], |row| row.get(0))
             .unwrap();
@@ -3720,10 +3883,12 @@ name = "env-a"
              VALUES (?1, ?2, 'default', 'runtime', 500000)",
             rusqlite::params![tid, cu_id],
         ).unwrap();
-        conn1.execute(
-            "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
-            rusqlite::params![cu_id, tid],
-        ).unwrap();
+        conn1
+            .execute(
+                "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
+                rusqlite::params![cu_id, tid],
+            )
+            .unwrap();
 
         // Export
         let graph = store1.export_graph().unwrap();
@@ -3734,15 +3899,20 @@ name = "env-a"
         store2.import_graph(&graph).unwrap();
 
         // Verify both stores have the same data
-        let cu_count2: u32 = store2.conn().query_row(
-            "SELECT COUNT(*) FROM content_units", [], |row| row.get(0)
-        ).unwrap();
+        let cu_count2: u32 = store2
+            .conn()
+            .query_row("SELECT COUNT(*) FROM content_units", [], |row| row.get(0))
+            .unwrap();
         assert_eq!(cu_count2, 1, "store2 should have 1 content unit");
 
-        let edge_count2: u32 = store2.conn().query_row(
-            "SELECT COUNT(*) FROM dependency_edges WHERE origin='runtime'",
-            [], |row| row.get(0)
-        ).unwrap();
+        let edge_count2: u32 = store2
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM dependency_edges WHERE origin='runtime'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_eq!(edge_count2, 1, "store2 should have 1 runtime edge");
     }
 
@@ -3761,7 +3931,8 @@ name = "env-a"
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', 'src/lib.rs', NULL, 'source', 'abc123')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'test_a')",
             [],
@@ -3780,7 +3951,8 @@ name = "env-a"
         conn.execute(
             "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
             rusqlite::params![cu_id, tid],
-        ).unwrap();
+        )
+        .unwrap();
 
         let datalog = store.generate_datalog().unwrap();
 
@@ -3794,7 +3966,10 @@ name = "env-a"
         assert!(datalog.contains("output_affected(t) :- affected(t, _)"));
 
         // Should contain the test_dep facts
-        assert!(datalog.contains(&format!("test_dep({}, {}, \"static\", 1000000)", tid, cu_id)));
+        assert!(datalog.contains(&format!(
+            "test_dep({}, {}, \"static\", 1000000)",
+            tid, cu_id
+        )));
 
         // Should contain the output directive
         assert!(datalog.contains(".output output_affected"));

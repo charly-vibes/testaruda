@@ -251,32 +251,30 @@ impl AdapterIO {
     ///
     /// Returns native runner arguments and a collection path for the selected test set.
     /// Does NOT execute the tests.
-    pub fn run_args(
-        &mut self,
-        selected: &[String],
-    ) -> Result<RunArgsResult, AdapterError> {
+    pub fn run_args(&mut self, selected: &[String]) -> Result<RunArgsResult, AdapterError> {
         let cmd = CommandWithParams::new(
             AdapterCommand::RUN_ARGS,
             serde_json::json!({"selected": selected}),
         );
         let resp: RunArgsResponse = self.send_with_params(&cmd)?;
-        resp.result.ok_or_else(|| AdapterError::MalformedResponse("missing result in run-args response".to_string()))
+        resp.result.ok_or_else(|| {
+            AdapterError::MalformedResponse("missing result in run-args response".to_string())
+        })
     }
 
     /// Send the ingest command (TIA-ADAPT-008).
     ///
     /// Parses test runner output and returns runtime edges, per-test results,
     /// and observed external inputs.
-    pub fn ingest(
-        &mut self,
-        run_output: &str,
-    ) -> Result<IngestResult, AdapterError> {
+    pub fn ingest(&mut self, run_output: &str) -> Result<IngestResult, AdapterError> {
         let cmd = CommandWithParams::new(
             AdapterCommand::INGEST,
             serde_json::json!({"run_output": run_output}),
         );
         let resp: IngestResponse = self.send_with_params(&cmd)?;
-        resp.result.ok_or_else(|| AdapterError::MalformedResponse("missing result in ingest response".to_string()))
+        resp.result.ok_or_else(|| {
+            AdapterError::MalformedResponse("missing result in ingest response".to_string())
+        })
     }
 
     /// Read a single JSON response line from the adapter.
@@ -961,7 +959,10 @@ mod tests {
         let json = serde_json::to_string(&orig).unwrap();
         let restored: IngestResult = serde_json::from_str(&json).unwrap();
         assert_eq!(orig.runtime_edges[0].from, restored.runtime_edges[0].from);
-        assert_eq!(orig.per_test_results[0].outcome, restored.per_test_results[0].outcome);
+        assert_eq!(
+            orig.per_test_results[0].outcome,
+            restored.per_test_results[0].outcome
+        );
         assert!(restored.external_inputs.is_empty());
     }
 }

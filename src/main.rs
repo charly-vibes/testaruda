@@ -65,8 +65,7 @@ enum Command {
         program: Option<String>,
     },
     /// Discover tests via configured adapters
-    Discover {
-    },
+    Discover {},
 }
 
 fn main() -> miette::Result<()> {
@@ -90,7 +89,10 @@ fn main() -> miette::Result<()> {
                 testaruda::config::Config::write_default(&project_root)?;
             }
             // Check for Soufflé oracle (TIA-ENG-010)
-            match std::process::Command::new("souffle").arg("--version").output() {
+            match std::process::Command::new("souffle")
+                .arg("--version")
+                .output()
+            {
                 Ok(_) => println!("  ✓ Soufflé oracle found"),
                 Err(_) => println!(
                     "  ⚠️  Soufflé not found — oracle validation disabled. \
@@ -140,7 +142,8 @@ fn main() -> miette::Result<()> {
 
             // Persist provenance for this selection run (TIA-PROV-005)
             let run_id = store.generate_run_id()?;
-            let all_affected_ids = store.get_test_ids_for_content_units(&changed_ids, &unresolved_ids)?;
+            let all_affected_ids =
+                store.get_test_ids_for_content_units(&changed_ids, &unresolved_ids)?;
             if let Err(e) = store.persist_provenance(&run_id, &selection, &all_affected_ids) {
                 eprintln!("⚠️  Provenance warning: {} (selection still complete)", e);
             }
@@ -201,7 +204,8 @@ fn main() -> miette::Result<()> {
                 }
 
                 // Get candidate test IDs (all tests that have deps on changed units)
-                let candidate_ids = store.get_test_ids_for_content_units(&changed_ids, &unresolved_ids)?;
+                let candidate_ids =
+                    store.get_test_ids_for_content_units(&changed_ids, &unresolved_ids)?;
 
                 let output = testaruda::agent::AgentOutput::from_selection(
                     &store,
@@ -231,10 +235,7 @@ fn main() -> miette::Result<()> {
             } else if pre_edit {
                 // Pre-edit blast radius (TIA-AGENT-005): report affected tests
                 println!("📡 Blast radius — pre-edit analysis");
-                println!(
-                    "  Changed units: {}",
-                    selection.changed_count
-                );
+                println!("  Changed units: {}", selection.changed_count);
                 println!(
                     "  Affected tests: {} ({})",
                     selection.selected_count,
@@ -245,7 +246,8 @@ fn main() -> miette::Result<()> {
                     }
                 );
                 if !selection.tests.is_empty() {
-                    println!("  Affected test IDs: {:?}", 
+                    println!(
+                        "  Affected test IDs: {:?}",
                         selection.tests.iter().map(|t| t.id).collect::<Vec<_>>()
                     );
                 }
@@ -320,10 +322,7 @@ fn main() -> miette::Result<()> {
                         .map_err(|e| miette::miette!("Failed to write Datalog: {}", e))?;
                     println!("  Datalog program written to {}", path);
                     // Try to run through Soufflé
-                    match std::process::Command::new("souffle")
-                        .arg(&path)
-                        .output()
-                    {
+                    match std::process::Command::new("souffle").arg(&path).output() {
                         Ok(output) => {
                             let stdout = String::from_utf8_lossy(&output.stdout);
                             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -478,7 +477,7 @@ pub fn run_adapter_pipeline(
                     .store_test_items(&adapter.name, &items)
                     .map_err(|e| format!("store error: {}", e))?;
             }
-            if let Ok(result) = adapter.static_deps(&[path.clone()]) {
+            if let Ok(result) = adapter.static_deps(std::slice::from_ref(path)) {
                 store
                     .store_static_deps(&adapter.name, &result.edges)
                     .map_err(|e| format!("store error: {}", e))?;

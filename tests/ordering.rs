@@ -12,10 +12,10 @@ use std::path::PathBuf;
 
 use testaruda::adapter::DepEdge;
 use testaruda::ChangeSet;
-use testaruda::ONE;
 use testaruda::Selector;
 use testaruda::Store;
 use testaruda::TestOrdering;
+use testaruda::ONE;
 
 /// Cwd guard: changes to a temp directory, restores on drop.
 struct CwdGuard {
@@ -38,10 +38,7 @@ impl Drop for CwdGuard {
 
 /// Setup a seeded graph matching the seeded_fault pattern.
 /// All four content units have known fingerprints stored.
-fn setup_graph(
-    store: &Store,
-    dir: &tempfile::TempDir,
-) -> [u32; 4] {
+fn setup_graph(store: &Store, dir: &tempfile::TempDir) -> [u32; 4] {
     store.initialize().unwrap();
 
     let src = dir.path().join("src");
@@ -98,12 +95,42 @@ fn setup_graph(
     }
 
     let edges = vec![
-        DepEdge { from: nodes[0].into(), to: paths[0].into(), weight: ONE, origin: "static".into() },
-        DepEdge { from: nodes[0].into(), to: paths[3].into(), weight: ONE, origin: "static".into() },
-        DepEdge { from: nodes[1].into(), to: paths[1].into(), weight: ONE, origin: "static".into() },
-        DepEdge { from: nodes[1].into(), to: paths[3].into(), weight: ONE, origin: "static".into() },
-        DepEdge { from: nodes[2].into(), to: paths[0].into(), weight: ONE, origin: "runtime".into() },
-        DepEdge { from: nodes[3].into(), to: paths[3].into(), weight: ONE, origin: "static".into() },
+        DepEdge {
+            from: nodes[0].into(),
+            to: paths[0].into(),
+            weight: ONE,
+            origin: "static".into(),
+        },
+        DepEdge {
+            from: nodes[0].into(),
+            to: paths[3].into(),
+            weight: ONE,
+            origin: "static".into(),
+        },
+        DepEdge {
+            from: nodes[1].into(),
+            to: paths[1].into(),
+            weight: ONE,
+            origin: "static".into(),
+        },
+        DepEdge {
+            from: nodes[1].into(),
+            to: paths[3].into(),
+            weight: ONE,
+            origin: "static".into(),
+        },
+        DepEdge {
+            from: nodes[2].into(),
+            to: paths[0].into(),
+            weight: ONE,
+            origin: "runtime".into(),
+        },
+        DepEdge {
+            from: nodes[3].into(),
+            to: paths[3].into(),
+            weight: ONE,
+            origin: "static".into(),
+        },
     ];
     store.store_static_deps("rust-adapter", &edges).unwrap();
 
@@ -156,8 +183,8 @@ fn test_ordering_scenarios() {
                 head: None,
             };
 
-            let sel1 = Selector::select_with_ordering(store, &delta, TestOrdering::Deterministic)
-                .unwrap();
+            let sel1 =
+                Selector::select_with_ordering(store, &delta, TestOrdering::Deterministic).unwrap();
             // Second call: different content on helpers.py so a new change is detected
             std::fs::write(
                 dir.path().join("src/helpers.py"),
@@ -178,7 +205,10 @@ fn test_ordering_scenarios() {
             );
             let ids1: Vec<u32> = sel1.tests.iter().map(|t| t.id).collect();
             let ids2: Vec<u32> = sel2.tests.iter().map(|t| t.id).collect();
-            assert_eq!(ids1, ids2, "deterministic order must be stable across calls");
+            assert_eq!(
+                ids1, ids2,
+                "deterministic order must be stable across calls"
+            );
             for i in 1..ids1.len() {
                 assert!(ids1[i - 1] < ids1[i], "must be strictly ascending by ID");
             }
@@ -187,18 +217,14 @@ fn test_ordering_scenarios() {
         // === Scenario 2: Deterministic sorts output (TIA-SEL-005) ===
         // session.py → affects tids[0,2] (session, totp)
         {
-            std::fs::write(
-                dir.path().join("src/session.py"),
-                b"def login(): return 42",
-            )
-            .unwrap();
+            std::fs::write(dir.path().join("src/session.py"), b"def login(): return 42").unwrap();
             let delta = ChangeSet {
                 files: vec!["src/session.py".to_string()],
                 base: None,
                 head: None,
             };
-            let sel = Selector::select_with_ordering(store, &delta, TestOrdering::Deterministic)
-                .unwrap();
+            let sel =
+                Selector::select_with_ordering(store, &delta, TestOrdering::Deterministic).unwrap();
             assert_eq!(sel.selected_count, 2);
             let ids: Vec<u32> = sel.tests.iter().map(|t| t.id).collect();
             assert!(ids[0] < ids[1], "must be sorted by ID: {:?}", ids);
@@ -234,8 +260,8 @@ fn test_ordering_scenarios() {
                 base: None,
                 head: None,
             };
-            let sel = Selector::select_with_ordering(store, &delta, TestOrdering::ByDuration)
-                .unwrap();
+            let sel =
+                Selector::select_with_ordering(store, &delta, TestOrdering::ByDuration).unwrap();
             // invoice.py → test_invoice (tid[1]) only
             assert_eq!(sel.selected_count, 1);
             assert_eq!(sel.tests[0].id, tids[1]);
@@ -255,8 +281,8 @@ fn test_ordering_scenarios() {
                 base: None,
                 head: None,
             };
-            let sel = Selector::select_with_ordering(store, &delta, TestOrdering::ByDuration)
-                .unwrap();
+            let sel =
+                Selector::select_with_ordering(store, &delta, TestOrdering::ByDuration).unwrap();
             // 3 tests affected: session, invoice, helpers (tids[0,1,3])
             assert_eq!(sel.selected_count, 3);
             let ids: Vec<u32> = sel.tests.iter().map(|t| t.id).collect();
@@ -292,8 +318,7 @@ fn test_ordering_scenarios() {
 
             // Default ordering
             let sel = Selector::select_with_ordering(store, &delta, TestOrdering::Default).unwrap();
-            let ids: std::collections::HashSet<u32> =
-                sel.tests.iter().map(|t| t.id).collect();
+            let ids: std::collections::HashSet<u32> = sel.tests.iter().map(|t| t.id).collect();
             assert!(ids.contains(&tids[0]), "test_session (dep on session.py)");
             assert!(ids.contains(&tids[2]), "test_totp (always-run from failed)");
             assert_eq!(sel.selected_count, 2);

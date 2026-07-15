@@ -36,7 +36,7 @@ mod store;
 pub mod agent;
 
 pub use change::ChangeSet;
-pub use engine::{Engine, ONE, Origin, SelectedTest, Selection, TestOrdering, WitnessEdge};
+pub use engine::{Engine, Origin, SelectedTest, Selection, TestOrdering, WitnessEdge, ONE};
 pub use provenance::{
     BooleanSemiring, ProvenanceSemiring, SemiringValue, TropicalSemiring, ViterbiSemiring,
 };

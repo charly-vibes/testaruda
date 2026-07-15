@@ -63,18 +63,12 @@ pub struct MustRunConfig {
 }
 
 /// Periodic full-run configuration (TIA-SAFE-006).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct PeriodicFullRunConfig {
     /// How often (in hours) to run a full test suite, regardless of
     /// change-based selection. 0 or missing means disabled.
     #[serde(default)]
     pub interval_hours: u64,
-}
-
-impl Default for PeriodicFullRunConfig {
-    fn default() -> Self {
-        Self { interval_hours: 0 }
-    }
 }
 
 fn default_confidence_threshold() -> f64 {

@@ -11,10 +11,10 @@ use std::path::PathBuf;
 
 use testaruda::adapter::DepEdge;
 use testaruda::ChangeSet;
-use testaruda::ONE;
 use testaruda::Origin;
 use testaruda::Selector;
 use testaruda::Store;
+use testaruda::ONE;
 
 /// Cwd guard: changes to a temp directory, restores on drop.
 struct CwdGuard {
@@ -45,10 +45,7 @@ impl Drop for CwdGuard {
 ///   test_invoice  (101) — static deps: invoice.py, helpers.py
 ///   test_totp     (102) — runtime  dep: session.py (TIA-RUN-002)
 ///   test_helpers  (103) — static deps: helpers.py
-fn setup_graph(
-    store: &Store,
-    dir: &tempfile::TempDir,
-) -> (Vec<u32>, [u32; 4]) {
+fn setup_graph(store: &Store, dir: &tempfile::TempDir) -> (Vec<u32>, [u32; 4]) {
     store.initialize().unwrap();
 
     // Create files on disk for fingerprint computation
@@ -64,7 +61,12 @@ fn setup_graph(
         f.write_all(text.as_bytes()).unwrap();
     }
 
-    let paths = ["src/session.py", "src/invoice.py", "src/totp.py", "src/helpers.py"];
+    let paths = [
+        "src/session.py",
+        "src/invoice.py",
+        "src/totp.py",
+        "src/helpers.py",
+    ];
     let nodes = [
         "src::session::test_login(Test)",
         "src::invoice::test_create(Test)",
@@ -82,12 +84,15 @@ fn setup_graph(
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', ?1, NULL, 'source', ?2)",
             rusqlite::params![p, fp],
-        ).unwrap();
-        let id: u32 = conn.query_row(
-            "SELECT id FROM content_units WHERE component='default' AND path=?1",
-            rusqlite::params![p],
-            |row| row.get(0),
-        ).unwrap();
+        )
+        .unwrap();
+        let id: u32 = conn
+            .query_row(
+                "SELECT id FROM content_units WHERE component='default' AND path=?1",
+                rusqlite::params![p],
+                |row| row.get(0),
+            )
+            .unwrap();
         cids.push(id);
     }
 
@@ -98,21 +103,53 @@ fn setup_graph(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'rust-adapter', ?1)",
             rusqlite::params![n],
         ).unwrap();
-        tids[i] = conn.query_row(
-            "SELECT id FROM test_items WHERE component='default' AND node_id=?1",
-            rusqlite::params![n],
-            |row| row.get(0),
-        ).unwrap();
+        tids[i] = conn
+            .query_row(
+                "SELECT id FROM test_items WHERE component='default' AND node_id=?1",
+                rusqlite::params![n],
+                |row| row.get(0),
+            )
+            .unwrap();
     }
 
     // Insert edges
     let edges = vec![
-        DepEdge { from: nodes[0].into(), to: paths[0].into(), weight: ONE, origin: "static".into() },
-        DepEdge { from: nodes[0].into(), to: paths[3].into(), weight: ONE, origin: "static".into() },
-        DepEdge { from: nodes[1].into(), to: paths[1].into(), weight: ONE, origin: "static".into() },
-        DepEdge { from: nodes[1].into(), to: paths[3].into(), weight: ONE, origin: "static".into() },
-        DepEdge { from: nodes[2].into(), to: paths[0].into(), weight: ONE, origin: "runtime".into() },
-        DepEdge { from: nodes[3].into(), to: paths[3].into(), weight: ONE, origin: "static".into() },
+        DepEdge {
+            from: nodes[0].into(),
+            to: paths[0].into(),
+            weight: ONE,
+            origin: "static".into(),
+        },
+        DepEdge {
+            from: nodes[0].into(),
+            to: paths[3].into(),
+            weight: ONE,
+            origin: "static".into(),
+        },
+        DepEdge {
+            from: nodes[1].into(),
+            to: paths[1].into(),
+            weight: ONE,
+            origin: "static".into(),
+        },
+        DepEdge {
+            from: nodes[1].into(),
+            to: paths[3].into(),
+            weight: ONE,
+            origin: "static".into(),
+        },
+        DepEdge {
+            from: nodes[2].into(),
+            to: paths[0].into(),
+            weight: ONE,
+            origin: "runtime".into(),
+        },
+        DepEdge {
+            from: nodes[3].into(),
+            to: paths[3].into(),
+            weight: ONE,
+            origin: "static".into(),
+        },
     ];
     store.store_static_deps("rust-adapter", &edges).unwrap();
 
@@ -163,8 +200,14 @@ fn test_seeded_fault_soundness_and_precision() {
             let sel = Selector::select(store, &delta).unwrap();
             let ids: Vec<u32> = sel.tests.iter().map(|t| t.id).collect();
 
-            assert!(ids.contains(&tids[0]), "test_session — static dep on session.py");
-            assert!(ids.contains(&tids[2]), "test_totp — runtime dep on session.py");
+            assert!(
+                ids.contains(&tids[0]),
+                "test_session — static dep on session.py"
+            );
+            assert!(
+                ids.contains(&tids[2]),
+                "test_totp — runtime dep on session.py"
+            );
             assert!(!ids.contains(&tids[1]), "test_invoice — not affected");
             assert!(!ids.contains(&tids[3]), "test_helpers — not affected");
             assert_eq!(sel.selected_count, 2);
@@ -195,11 +238,7 @@ fn test_seeded_fault_soundness_and_precision() {
 
         // Scenario 3: change session.py + invoice.py → 3 tests
         {
-            std::fs::write(
-                dir.path().join("src/session.py"),
-                b"def login(): return 42",
-            )
-            .unwrap();
+            std::fs::write(dir.path().join("src/session.py"), b"def login(): return 42").unwrap();
             std::fs::write(
                 dir.path().join("src/invoice.py"),
                 b"def create(x): return x",

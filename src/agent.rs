@@ -339,7 +339,7 @@ mod tests {
         assert_eq!(result["selected"], true);
         assert_eq!(result["test_id"], 42);
         assert_eq!(result["confidence"], 0.95);
-        assert!(result["reason_chain"].as_array().unwrap().len() > 0);
+        assert!(!result["reason_chain"].as_array().unwrap().is_empty());
     }
 
     #[test]

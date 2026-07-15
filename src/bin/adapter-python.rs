@@ -135,7 +135,8 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
 
     // Discover all test files
     let discover_all = cmd_discover();
-    let test_files: Vec<(String, String)> = if let Some(results) = discover_all["result"].as_array() {
+    let test_files: Vec<(String, String)> = if let Some(results) = discover_all["result"].as_array()
+    {
         results
             .iter()
             .filter_map(|t| {
@@ -173,22 +174,19 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
 
         // Check if any test file imports this module
         // Try exact match first, then try matching just the file stem
-        let matching_tests = import_to_tests
-            .get(&module_name)
-            .cloned()
-            .or_else(|| {
-                // Fallback: match by just the file stem (without package path)
-                // to handle imports like 'from model import X' where 'model'
-                // is imported directly without a package prefix.
-                // This is a heuristic; the full solution (complete import
-                // graph at discover time) is tracked in testaruda-16f.
-                let stem = module_name
-                    .rsplit('.')
-                    .next()
-                    .unwrap_or(&module_name)
-                    .to_string();
-                import_to_tests.get(&stem).cloned()
-            });
+        let matching_tests = import_to_tests.get(&module_name).cloned().or_else(|| {
+            // Fallback: match by just the file stem (without package path)
+            // to handle imports like 'from model import X' where 'model'
+            // is imported directly without a package prefix.
+            // This is a heuristic; the full solution (complete import
+            // graph at discover time) is tracked in testaruda-16f.
+            let stem = module_name
+                .rsplit('.')
+                .next()
+                .unwrap_or(&module_name)
+                .to_string();
+            import_to_tests.get(&stem).cloned()
+        });
 
         if let Some(tests) = matching_tests {
             for (test_node_id, _test_file) in &tests {
@@ -222,7 +220,10 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
     }
 
     // Collect all discovered test node IDs as candidates
-    let candidates: Vec<String> = test_files.iter().map(|(node_id, _)| node_id.clone()).collect();
+    let candidates: Vec<String> = test_files
+        .iter()
+        .map(|(node_id, _)| node_id.clone())
+        .collect();
 
     serde_json::json!({
         "ok": true,
@@ -318,7 +319,9 @@ fn cmd_run_args(cmd: &serde_json::Value) -> serde_json::Value {
     let runner_args: Vec<String> = std::iter::once("pytest".to_string())
         .chain(selected.iter().cloned())
         .chain(std::iter::once("-v".to_string()))
-        .chain(std::iter::once("--junitxml=target/test-results.xml".to_string()))
+        .chain(std::iter::once(
+            "--junitxml=target/test-results.xml".to_string(),
+        ))
         .collect();
 
     let collection_path = "target/test-results.xml".to_string();
@@ -425,9 +428,15 @@ mod tests {
     #[test]
     fn test_file_path_to_module() {
         assert_eq!(file_path_to_module("src/model.py"), "src.model");
-        assert_eq!(file_path_to_module("src/cositos/model.py"), "src.cositos.model");
+        assert_eq!(
+            file_path_to_module("src/cositos/model.py"),
+            "src.cositos.model"
+        );
         assert_eq!(file_path_to_module("model.py"), "model");
-        assert_eq!(file_path_to_module("tests/test_model.py"), "tests.test_model");
+        assert_eq!(
+            file_path_to_module("tests/test_model.py"),
+            "tests.test_model"
+        );
     }
 
     #[test]
@@ -474,7 +483,11 @@ mod tests {
         let tests_dir = dir.path().join("tests");
         std::fs::create_dir_all(&tests_dir).unwrap();
 
-        std::fs::write(tests_dir.join("test_model.py"), "def test_model():\n    pass\n").unwrap();
+        std::fs::write(
+            tests_dir.join("test_model.py"),
+            "def test_model():\n    pass\n",
+        )
+        .unwrap();
 
         let orig_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(dir.path()).unwrap();
@@ -543,7 +556,9 @@ mod tests {
         assert!(result["ok"].as_bool().unwrap());
         let unresolved = result["unresolved"].as_array().unwrap();
         assert!(!unresolved.is_empty());
-        assert!(unresolved.iter().any(|v| v.as_str() == Some("nonexistent.py")));
+        assert!(unresolved
+            .iter()
+            .any(|v| v.as_str() == Some("nonexistent.py")));
     }
 
     #[test]
@@ -595,11 +610,20 @@ mod tests {
     #[test]
     fn test_cmd_discover_excludes_venv() {
         let dir = tempfile::tempdir().unwrap();
-        let venv_dir = dir.path().join(".venv").join("lib").join("python3.12").join("site-packages");
+        let venv_dir = dir
+            .path()
+            .join(".venv")
+            .join("lib")
+            .join("python3.12")
+            .join("site-packages");
         std::fs::create_dir_all(&venv_dir).unwrap();
 
         // Write a vendored test file inside .venv
-        std::fs::write(venv_dir.join("test_vendored.py"), "def test_vendored(): pass\n").unwrap();
+        std::fs::write(
+            venv_dir.join("test_vendored.py"),
+            "def test_vendored(): pass\n",
+        )
+        .unwrap();
 
         // Write a real project test file
         let tests_dir = dir.path().join("tests");

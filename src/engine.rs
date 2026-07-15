@@ -137,8 +137,8 @@ impl<'a> Engine<'a> {
         ctx: crate::store::SelectionContext,
         ordering: TestOrdering,
     ) -> miette::Result<Selection> {
-
-        let mut comp_fallback_start: Vec<(u32,)> = ctx.comp_fallback.iter().map(|&k| (k,)).collect();
+        let mut comp_fallback_start: Vec<(u32,)> =
+            ctx.comp_fallback.iter().map(|&k| (k,)).collect();
 
         // Build the initial Ascent program. `comp_fallback` may be extended
         // by the confidence floor loop below (TIA-SAFE-002, TIA-SAFE-003).
@@ -176,11 +176,7 @@ impl<'a> Engine<'a> {
                 continue; // always-run-only component skip (SAFE-002 second clause)
             }
             // Only consider reachability-selected tests (those with a dep path)
-            if !prog
-                .test_pred
-                .iter()
-                .any(|&(tid, _, _)| tid == t)
-            {
+            if !prog.test_pred.iter().any(|&(tid, _, _)| tid == t) {
                 continue; // no witness path → not reachability-selected
             }
             if let Some(&(k, _)) = prog.test_comp.iter().find(|&&(tid, _)| tid == t) {
