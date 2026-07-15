@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/charly-vibes/testaruda/schemas/agent-output-v1.json",
+  "title": "testaruda Agent Output v1",
+  "description": "JSON Schema for testaruda --agent output format. See TIA-AGENT-001 through TIA-AGENT-007.",
+  "type": "object",
+  "properties": {
+    "format": {
+      "type": "string",
+      "description": "Protocol version identifier. Always 'testaruda-agent-v1'.",
+      "enum": ["testaruda-agent-v1"]
+    },
+    "summary": {
+      "$ref": "#/$defs/SummaryStats",
+      "description": "Summary statistics for the selection"
+    },
+    "changed_units": {
+      "type": "array",
+      "description": "Content units that changed in the code change set",
+      "items": { "$ref": "#/$defs/ChangedUnit" }
+    },
+    "selected": {
+      "type": "array",
+      "description": "Selected tests with reason chains explaining why each was selected",
+      "items": { "$ref": "#/$defs/SelectedTestInfo" }
+    },
+    "skipped": {
+      "type": "array",
+      "description": "Tests that were candidates but not selected, with exclusion reasons (TIA-AGENT-003)",
+      "items": { "$ref": "#/$defs/SkippedTestInfo" }
+    },
+    "coverage_gaps": {
+      "type": "array",
+      "description": "Symbols that changed but have no covering test (TIA-AGENT-006)",
+      "items": { "$ref": "#/$defs/CoverageGap" }
+    }
+  },
+  "required": ["format", "summary", "changed_units", "selected"],
+  "$defs": {
+    "SummaryStats": {
+      "type": "object",
+      "description": "Summary statistics for the agent output",
+      "properties": {
+        "changed_count": {
+          "type": "integer",
+          "description": "Number of changed content units"
+        },
+        "selected_count": {
+          "type": "integer",
+          "description": "Number of selected tests"
+        },
+        "candidate_count": {
+          "type": "integer",
+          "description": "Number of candidate tests (all tests that could be affected)"
+        },
+        "has_coverage_gaps": {
+          "type": "boolean",
+          "description": "Whether any coverage gaps were detected"
+        }
+      },
+      "required": ["changed_count", "selected_count", "candidate_count", "has_coverage_gaps"]
+    },
+    "ChangedUnit": {
+      "type": "object",
+      "description": "A content unit that changed in the selection",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "Store ID of the content unit"
+        },
+        "path": {
+          "type": "string",
+          "description": "File path relative to project root"
+        },
+        "symbol": {
+          "type": ["string", "null"],
+          "description": "Symbol name (if applicable)"
+        },
+        "kind": {
+          "type": "string",
+          "description": "Content unit kind (source, config, etc.)"
+        },
+        "unresolved": {
+          "type": "boolean",
+          "description": "Whether the unit was unresolved (cold-start or missing file)"
+        }
+      },
+      "required": ["id", "path", "symbol", "kind", "unresolved"]
+    },
+    "SelectedTestInfo": {
+      "type": "object",
+      "description": "A selected test with its reason chain",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "Store ID of the test item"
+        },
+        "node_id": {
+          "type": ["string", "null"],
+          "description": "Adapter-assigned node ID (human-readable)"
+        },
+        "confidence": {
+          "type": "number",
+          "description": "Confidence in the selection decision (0.0–1.0)"
+        },
+        "distance": {
+          "type": ["integer", "null"],
+          "description": "Minimum distance from a changed unit (hops)"
+        },
+        "always_run": {
+          "type": "boolean",
+          "description": "Whether this test is in the always-run set"
+        },
+        "fallback_reason": {
+          "type": ["string", "null"],
+          "description": "Human-readable explanation of why this test is in the always-run state. Present when always_run is true."
+        },
+        "reason_chain": {
+          "type": "array",
+          "description": "Reason chain: witness edges explaining why this test was selected",
+          "items": { "$ref": "#/$defs/ReasonEdge" }
+        }
+      },
+      "required": ["id", "node_id", "confidence", "distance", "always_run", "reason_chain"]
+    },
+    "ReasonEdge": {
+      "type": "object",
+      "description": "A step in the reason chain for a test selection",
+      "properties": {
+        "content_unit_id": {
+          "type": "integer",
+          "description": "Content unit ID this edge points to"
+        },
+        "origin": {
+          "type": "string",
+          "description": "Origin of the dependency edge (static, runtime, manual)"
+        },
+        "path": {
+          "type": ["string", "null"],
+          "description": "Path of the content unit (resolved from store)"
+        }
+      },
+      "required": ["content_unit_id", "origin"]
+    },
+    "SkippedTestInfo": {
+      "type": "object",
+      "description": "A test that was a candidate but not selected",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "Store ID of the test item"
+        },
+        "node_id": {
+          "type": ["string", "null"],
+          "description": "Adapter-assigned node ID"
+        },
+        "exclusion_reason": {
+          "type": "string",
+          "description": "Human-readable reason for exclusion"
+        }
+      },
+      "required": ["id", "node_id", "exclusion_reason"]
+    },
+    "CoverageGap": {
+      "type": "object",
+      "description": "A coverage gap: a changed symbol with no covering test",
+      "properties": {
+        "symbol": {
+          "type": "string",
+          "description": "Symbol name that changed"
+        },
+        "file": {
+          "type": "string",
+          "description": "File path where the symbol is defined"
+        },
+        "changed_unit_id": {
+          "type": "integer",
+          "description": "Content unit ID"
+        }
+      },
+      "required": ["symbol", "file", "changed_unit_id"]
+    }
+  }
+}
