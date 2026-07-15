@@ -234,6 +234,103 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
     })
 }
 
+// ===== JUnit XML parsing (TIA-RUN-001) =====
+
+/// Parse a JUnit XML `<testcase>` tag and extract its attributes.
+fn parse_junit_testcase(line: &str) -> Option<(&str, &str, &str, f64)> {
+    let tag_start = line.find("<testcase")?;
+    let tag_end = line[tag_start..].find('>')? + tag_start + 1;
+    let tag = &line[tag_start..tag_end];
+
+    let name = extract_xml_attr(tag, "name")?;
+    let classname = extract_xml_attr(tag, "classname")?;
+    let file = extract_xml_attr(tag, "file")?;
+    let time_str = extract_xml_attr(tag, "time").unwrap_or("0");
+    let time_secs: f64 = time_str.parse().unwrap_or(0.0);
+
+    Some((name, classname, file, time_secs))
+}
+
+/// Extract the value of an XML attribute from a tag string.
+fn extract_xml_attr<'a>(tag: &'a str, attr: &str) -> Option<&'a str> {
+    // Try double-quoted first: attr="value"
+    // Use a leading space or start-of-string to avoid partial matches (e.g.,
+    // "name=" matching inside "classname=" in the same tag).
+    let pattern_dq = format!(r#" {}=""#, attr);
+    let alt_pattern_dq = format!(r#"{}=""#, attr);
+    // Find best match: prefer prefixed with space, but fall back to any match
+    let start = tag.find(&pattern_dq).or_else(|| tag.find(&alt_pattern_dq));
+    if let Some(start) = start {
+        let value_start = start + pattern_dq.len();
+        if let Some(end) = tag[value_start..].find('"') {
+            let val = &tag[value_start..value_start + end];
+            if !val.is_empty() {
+                return Some(val);
+            }
+        }
+    }
+    // Try single-quoted: attr='value'
+    let pattern_sq = format!("{}='", attr);
+    if let Some(start) = tag.find(&pattern_sq) {
+        let value_start = start + pattern_sq.len();
+        if let Some(end) = tag[value_start..].find("\'") {
+            let val = &tag[value_start..value_start + end];
+            if !val.is_empty() {
+                return Some(val);
+            }
+        }
+    }
+    None
+}
+
+/// Check if a block of text contains a `<failure` or `<error` element.
+fn has_failure_element(text: &str) -> bool {
+    text.contains("<failure") || text.contains("<error")
+}
+
+/// Parse JUnit XML output from pytest and return per-test results.
+fn parse_junit_xml(content: &str) -> Vec<serde_json::Value> {
+    let mut results = Vec::new();
+    let lines: Vec<&str> = content.lines().collect();
+
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        if let Some((name, _classname, file, time_secs)) = parse_junit_testcase(line) {
+            let test_id = format!("{}::{}", file, name);
+
+            // Collect content until </testcase> (may span multiple lines)
+            let mut block = line.to_string();
+            if !line.trim().ends_with("</testcase>") {
+                for (j, next_line) in lines.iter().enumerate().skip(i + 1) {
+                    block.push_str(next_line);
+                    if next_line.contains("</testcase>") {
+                        i = j;
+                        break;
+                    }
+                }
+            }
+
+            let outcome = if has_failure_element(&block) {
+                "failed"
+            } else {
+                "passed"
+            };
+
+            let duration_ms = (time_secs * 1000.0).round() as u64;
+
+            results.push(serde_json::json!({
+                "test_id": test_id,
+                "outcome": outcome,
+                "duration_ms": duration_ms,
+            }));
+        }
+        i += 1;
+    }
+
+    results
+}
+
 /// Parse `import` and `from ... import` statements from Python source.
 /// Returns full module paths (e.g., `from src.model import X` → `"src.model"`).
 /// Relative imports (`from .module import X`) are resolved to absolute module
@@ -400,32 +497,43 @@ fn cmd_ingest(cmd: &serde_json::Value) -> serde_json::Value {
 
     let mut per_test_results: Vec<serde_json::Value> = Vec::new();
 
-    // Parse pytest output for test results
-    // Lines look like: "test_file.py::test_name PASSED" or "FAILED"
-    for line in run_output.lines() {
-        let trimmed = line.trim();
+    // Detect JUnit XML format (starts with XML declaration or <testsuite)
+    let trimmed_input = run_output.trim();
+    if trimmed_input.starts_with("<?xml")
+        || trimmed_input.starts_with("<testsuites")
+        || trimmed_input.starts_with("<testsuite")
+    {
+        per_test_results = parse_junit_xml(run_output);
+    }
 
-        if trimmed.ends_with(" PASSED") {
-            let test_id = trimmed
-                .strip_suffix(" PASSED")
-                .map(|s| s.trim().to_string())
-                .unwrap_or_default();
-            if !test_id.is_empty() {
-                per_test_results.push(serde_json::json!({
-                    "test_id": test_id,
-                    "outcome": "passed",
-                }));
-            }
-        } else if trimmed.ends_with(" FAILED") {
-            let test_id = trimmed
-                .strip_suffix(" FAILED")
-                .map(|s| s.trim().to_string())
-                .unwrap_or_default();
-            if !test_id.is_empty() {
-                per_test_results.push(serde_json::json!({
-                    "test_id": test_id,
-                    "outcome": "failed",
-                }));
+    // If no JUnit results, try parsing as pytest verbose output
+    // Lines look like: "test_file.py::test_name PASSED" or "FAILED"
+    if per_test_results.is_empty() {
+        for line in run_output.lines() {
+            let trimmed = line.trim();
+
+            if trimmed.ends_with(" PASSED") {
+                let test_id = trimmed
+                    .strip_suffix(" PASSED")
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_default();
+                if !test_id.is_empty() {
+                    per_test_results.push(serde_json::json!({
+                        "test_id": test_id,
+                        "outcome": "passed",
+                    }));
+                }
+            } else if trimmed.ends_with(" FAILED") {
+                let test_id = trimmed
+                    .strip_suffix(" FAILED")
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_default();
+                if !test_id.is_empty() {
+                    per_test_results.push(serde_json::json!({
+                        "test_id": test_id,
+                        "outcome": "failed",
+                    }));
+                }
             }
         }
     }
@@ -924,6 +1032,155 @@ mod tests {
         let result = cmd_ingest(&cmd);
         assert!(result["ok"].as_bool().unwrap());
         assert!(result["result"]["external_inputs"].is_array());
+    }
+
+    // ===== JUnit XML parsing tests (TIA-RUN-001) =====
+
+    #[test]
+    fn test_cmd_ingest_junit_xml_parses_testcases() {
+        let xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+    <testsuite name="pytest" tests="2">
+        <testcase classname="tests.test_model" name="test_something" file="tests/test_model.py" line="10" time="0.001">
+        </testcase>
+        <testcase classname="tests.test_model" name="test_other" file="tests/test_model.py" line="20" time="0.002">
+        </testcase>
+    </testsuite>
+</testsuites>"#;
+        let cmd = serde_json::json!({
+            "command": "ingest",
+            "params": {
+                "run_output": xml
+            }
+        });
+        let result = cmd_ingest(&cmd);
+        assert!(
+            result["ok"].as_bool().unwrap(),
+            "JUnit XML should parse: {:?}",
+            result["error"]
+        );
+
+        let per_test = result["result"]["per_test_results"].as_array().unwrap();
+        assert_eq!(per_test.len(), 2, "should find 2 test cases");
+
+        let runtime_edges = result["result"]["runtime_edges"].as_array().unwrap();
+        assert!(
+            !runtime_edges.is_empty(),
+            "JUnit XML should produce runtime edges"
+        );
+    }
+
+    #[test]
+    fn test_cmd_ingest_junit_xml_failure_outcome() {
+        let xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+    <testsuite name="pytest" tests="2">
+        <testcase classname="tests.test_model" name="test_passes" file="tests/test_model.py" line="10" time="0.001">
+        </testcase>
+        <testcase classname="tests.test_model" name="test_fails" file="tests/test_model.py" line="20" time="0.002">
+            <failure message="AssertionError: expected 1, got 2">
+                traceback line 1
+traceback line 2
+            </failure>
+        </testcase>
+    </testsuite>
+</testsuites>"#;
+        let cmd = serde_json::json!({
+            "command": "ingest",
+            "params": {
+                "run_output": xml
+            }
+        });
+        let result = cmd_ingest(&cmd);
+        assert!(result["ok"].as_bool().unwrap());
+
+        let per_test = result["result"]["per_test_results"].as_array().unwrap();
+        assert_eq!(per_test.len(), 2);
+
+        // First test passed, second failed
+        assert_eq!(per_test[0]["outcome"].as_str().unwrap(), "passed");
+        assert_eq!(per_test[1]["outcome"].as_str().unwrap(), "failed");
+    }
+
+    #[test]
+    fn test_cmd_ingest_junit_xml_runtime_edges_from_file_attr() {
+        let xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+    <testsuite name="pytest" tests="2">
+        <testcase classname="tests.test_a" name="test_a" file="tests/test_a.py" line="5" time="0.001">
+        </testcase>
+        <testcase classname="tests.test_b" name="test_b" file="tests/test_b.py" line="10" time="0.002">
+        </testcase>
+    </testsuite>
+</testsuites>"#;
+        let cmd = serde_json::json!({
+            "command": "ingest",
+            "params": {
+                "run_output": xml
+            }
+        });
+        let result = cmd_ingest(&cmd);
+        assert!(result["ok"].as_bool().unwrap());
+
+        let runtime_edges = result["result"]["runtime_edges"].as_array().unwrap();
+        assert_eq!(runtime_edges.len(), 2, "should have one edge per test");
+
+        // Edge from tests/test_a.py::test_a → tests/test_a.py
+        assert_eq!(
+            runtime_edges[0]["from"].as_str().unwrap(),
+            "tests/test_a.py::test_a"
+        );
+        assert_eq!(runtime_edges[0]["to"].as_str().unwrap(), "tests/test_a.py");
+        assert_eq!(runtime_edges[0]["origin"].as_str().unwrap(), "runtime");
+
+        // Edge from tests/test_b.py::test_b → tests/test_b.py
+        assert_eq!(
+            runtime_edges[1]["from"].as_str().unwrap(),
+            "tests/test_b.py::test_b"
+        );
+        assert_eq!(runtime_edges[1]["to"].as_str().unwrap(), "tests/test_b.py");
+    }
+
+    #[test]
+    fn test_cmd_ingest_junit_xml_duration_ms() {
+        let xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+    <testsuite name="pytest" tests="1">
+        <testcase classname="tests.test_model" name="test_slow" file="tests/test_model.py" line="5" time="1.234">
+        </testcase>
+    </testsuite>
+</testsuites>"#;
+        let cmd = serde_json::json!({
+            "command": "ingest",
+            "params": {
+                "run_output": xml
+            }
+        });
+        let result = cmd_ingest(&cmd);
+        assert!(result["ok"].as_bool().unwrap());
+
+        let per_test = result["result"]["per_test_results"].as_array().unwrap();
+        assert_eq!(per_test.len(), 1);
+        assert_eq!(per_test[0]["duration_ms"].as_u64(), Some(1234));
+    }
+
+    #[test]
+    fn test_cmd_ingest_junit_xml_preserves_verbose_fallback() {
+        // Verbose output should still work (not mistaken for XML)
+        let cmd = serde_json::json!({
+            "command": "ingest",
+            "params": {
+                "run_output": "tests/test_model.py::test_something PASSED\n"
+            }
+        });
+        let result = cmd_ingest(&cmd);
+        assert!(result["ok"].as_bool().unwrap());
+        let per_test = result["result"]["per_test_results"].as_array().unwrap();
+        assert_eq!(per_test.len(), 1);
+        assert_eq!(
+            per_test[0]["test_id"].as_str().unwrap(),
+            "tests/test_model.py::test_something"
+        );
     }
 
     #[test]
