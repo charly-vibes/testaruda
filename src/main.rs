@@ -28,13 +28,16 @@ enum Command {
         #[arg(long)]
         shadow: bool,
         /// Emit machine-readable JSON plan (TIA-CI-006)
-        #[arg(long)]
+        /// Conflicts with --pre-edit and --agent.
+        #[arg(long, conflicts_with_all = ["pre_edit", "agent"])]
         json: bool,
         /// Agent output format: structured JSON for LLM agent consumption (TIA-AGENT-001)
-        #[arg(long)]
+        /// Conflicts with --json and --pre-edit.
+        #[arg(long, conflicts_with_all = ["json", "pre_edit"])]
         agent: bool,
         /// Pre-edit blast radius: report affected tests for proposed changes (TIA-AGENT-005)
-        #[arg(long)]
+        /// Conflicts with --json and --agent.
+        #[arg(long, conflicts_with_all = ["json", "agent"])]
         pre_edit: bool,
     },
     /// Ingest test run results to update the model
