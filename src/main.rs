@@ -42,6 +42,15 @@ enum Command {
         /// CI mode: run selected tests and ingest results automatically (TIA-CI-008)
         #[arg(long)]
         ci: bool,
+        /// Selection ordering mode (default|deterministic|duration|predictive)
+        #[arg(long, default_value = "default")]
+        ordering: String,
+    },
+    /// Evaluate the predictive ranking calibration gate (TIA-VER-005)
+    Calibrate {
+        /// Recall threshold (0.0–1.0) for promotion (default: 0.8)
+        #[arg(long, default_value = "0.8")]
+        threshold: f64,
     },
     /// Ingest test run results to update the model
     Ingest {
@@ -134,6 +143,32 @@ fn main() -> miette::Result<()> {
             println!("✅ testaruda initialized at {}", project_root.display());
             Ok(())
         }
+        Command::Calibrate { threshold } => {
+            let store = testaruda::Store::open_default()?;
+            let metrics = store.evaluate_ranking_calibration()?;
+            println!("=== Predictive Ranking Calibration Gate ===");
+            println!("Hold-out tests: {}", metrics.total_test_items);
+            println!("Actual failures: {}", metrics.total_failures);
+            println!(
+                "Captured failures (recall@k): {} (k={})",
+                metrics.captured_failures, metrics.k
+            );
+            println!("Recall@k: {:.3}", metrics.recall_at_k);
+            println!("Threshold: {:.3}", threshold);
+            if metrics.total_test_items == 0 {
+                println!(
+                    "⚠️  Insufficient run history for calibration — need at least 2 distinct runs"
+                );
+            } else if metrics.recall_at_k >= threshold {
+                println!("✓ CALIBRATED — ranking model meets recall threshold");
+            } else {
+                println!(
+                    "✗ NOT CALIBRATED — recall {:.3} below threshold {:.3}",
+                    metrics.recall_at_k, threshold
+                );
+            }
+            Ok(())
+        }
         Command::Select {
             base,
             head,
@@ -143,6 +178,7 @@ fn main() -> miette::Result<()> {
             agent,
             pre_edit,
             ci,
+            ordering,
         } => {
             let store = testaruda::Store::open_default()?;
             let delta = testaruda::ChangeSet::from_diff(
@@ -162,10 +198,16 @@ fn main() -> miette::Result<()> {
             }
 
             // Agent mode implies deterministic ordering (TIA-AGENT-007)
+            // and overrides any explicit --ordering flag
             let ordering = if agent {
                 testaruda::TestOrdering::Deterministic
             } else {
-                testaruda::TestOrdering::Default
+                match ordering.as_str() {
+                    "deterministic" => testaruda::TestOrdering::Deterministic,
+                    "duration" => testaruda::TestOrdering::ByDuration,
+                    "predictive" => testaruda::TestOrdering::Predictive,
+                    _ => testaruda::TestOrdering::Default,
+                }
             };
 
             // Load selection context once, reuse for both engine and agent output

@@ -25,6 +25,21 @@ pub struct Store {
     project_root: PathBuf,
 }
 
+/// Metrics from evaluating the predictive ranking model against held-out data.
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub struct CalibrationMetrics {
+    /// Number of distinct test items in the hold-out set.
+    pub total_test_items: usize,
+    /// Number of tests that failed in the hold-out set.
+    pub total_failures: usize,
+    /// Number of failures captured in the top-k of the ranked prediction.
+    pub captured_failures: usize,
+    /// recall@k = captured_failures / total_failures (0.0 if no failures).
+    pub recall_at_k: f64,
+    /// k value: number of tests in the hold-out set.
+    pub k: usize,
+}
+
 /// Context loaded from the store for a single selection query.
 pub struct SelectionContext {
     pub changed: Vec<u32>,
@@ -1806,6 +1821,144 @@ impl Store {
             map.insert(row.0, row.1);
         }
         Ok(map)
+    }
+
+    /// Evaluate the predictive ranking model against held-out run history.
+    ///
+    /// Uses the most recent run as the hold-out test set, and all previous runs
+    /// as training data. Computes recall@k where k = number of tests in the
+    /// hold-out set.
+    ///
+    /// Returns zeroed metrics if there is insufficient history for a hold-out
+    /// split (fewer than 2 distinct runs or no test items in hold-out).
+    ///
+    /// Used by predictive ranking calibration gate (TIA-VER-005).
+    pub fn evaluate_ranking_calibration(&self) -> miette::Result<CalibrationMetrics> {
+        // Get all distinct run_ids in chronological order
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT DISTINCT run_id FROM run_history
+                 WHERE environment = 'default'
+                 ORDER BY id ASC",
+            )
+            .map_err(|e| miette::miette!("Run ID query prep failed: {}", e))?;
+        let run_ids: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| miette::miette!("Run ID query failed: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        // Need at least 2 runs for a train/test split
+        if run_ids.len() < 2 {
+            return Ok(CalibrationMetrics {
+                total_test_items: 0,
+                total_failures: 0,
+                captured_failures: 0,
+                recall_at_k: 0.0,
+                k: 0,
+            });
+        }
+
+        let test_run_id = &run_ids[run_ids.len() - 1];
+
+        // Compute failure rates from training data (all runs except the last)
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT test_item_id,
+                        CAST(SUM(CASE WHEN outcome = 'failed' THEN 1 ELSE 0 END) AS REAL) /
+                        CAST(COUNT(*) AS REAL) AS failure_rate
+                 FROM run_history
+                 WHERE environment = 'default' AND run_id != ?1
+                 GROUP BY test_item_id",
+            )
+            .map_err(|e| miette::miette!("Training query prep failed: {}", e))?;
+        let training_rows: Vec<(u32, f64)> = stmt
+            .query_map(rusqlite::params![test_run_id], |row| {
+                let id: u32 = row.get(0)?;
+                let rate: f64 = row.get(1)?;
+                Ok((id, rate))
+            })
+            .map_err(|e| miette::miette!("Training query failed: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        // Build predicted ranking: sort by descending failure rate, ID tiebreaker
+        let mut predicted: Vec<(u32, f64)> = training_rows;
+        predicted.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
+
+        // Get hold-out test outcomes
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT test_item_id, outcome FROM run_history
+                 WHERE environment = 'default' AND run_id = ?1",
+            )
+            .map_err(|e| miette::miette!("Test query prep failed: {}", e))?;
+        let test_rows: Vec<(u32, String)> = stmt
+            .query_map(rusqlite::params![test_run_id], |row| {
+                let id: u32 = row.get(0)?;
+                let outcome: String = row.get(1)?;
+                Ok((id, outcome))
+            })
+            .map_err(|e| miette::miette!("Test query failed: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let total_test_items = test_rows.len();
+        let total_failures = test_rows
+            .iter()
+            .filter(|(_, outcome)| outcome == "failed")
+            .count();
+
+        if total_test_items == 0 || total_failures == 0 {
+            return Ok(CalibrationMetrics {
+                total_test_items,
+                total_failures,
+                captured_failures: 0,
+                recall_at_k: 0.0,
+                k: total_test_items,
+            });
+        }
+
+        // Build predicted rank map: test_item_id → rank position (0-indexed)
+        let rank_map: std::collections::HashMap<u32, usize> = predicted
+            .iter()
+            .enumerate()
+            .map(|(i, (id, _))| (*id, i))
+            .collect();
+
+        // Tests not in training data get rank = predicted.len() (after all trained)
+        let k = total_test_items;
+        let captured_failures = test_rows
+            .iter()
+            .filter(|(id, outcome)| {
+                if outcome != "failed" {
+                    return false;
+                }
+                let rank = rank_map.get(id).copied().unwrap_or(predicted.len());
+                rank < k
+            })
+            .count();
+
+        let recall_at_k = if total_failures > 0 {
+            captured_failures as f64 / total_failures as f64
+        } else {
+            0.0
+        };
+
+        Ok(CalibrationMetrics {
+            total_test_items,
+            total_failures,
+            captured_failures,
+            recall_at_k,
+            k,
+        })
     }
 
     /// Resolve or create an environment fingerprint (TIA-RUN-006, TIA-CORE-008).
@@ -4194,5 +4347,109 @@ name = "env-a"
             "empty store should have no facts, got: {:?}",
             fact_lines
         );
+    }
+
+    // ── Predictive ranking calibration gate (TIA-VER-005) ──
+
+    #[test]
+    fn test_ranking_calibration_recall_computed() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+
+        // Insert 3 test items
+        let mut tids = Vec::new();
+        for name in ["test_a", "test_b", "test_c"] {
+            conn.execute(
+                "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', ?1)",
+                rusqlite::params![name],
+            ).unwrap();
+            let tid: u32 = conn
+                .query_row(
+                    "SELECT id FROM test_items WHERE node_id = ?1",
+                    rusqlite::params![name],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            tids.push(tid);
+        }
+
+        // Training runs: test_a failed 3/3, test_b failed 0/3, test_c failed 2/3
+        // So predicted order: test_a (100%) > test_c (67%) > test_b (0%)
+        for i in 0..3 {
+            for &tid in &tids {
+                let is_failed = tid == tids[0] || (tid == tids[2] && i < 2);
+                let outcome = if is_failed { "failed" } else { "passed" };
+                let run_id = format!("train-{}", i);
+                conn.execute(
+                    "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+                     VALUES (?1, ?2, ?3, 10, 'default')",
+                    rusqlite::params![tid, run_id, outcome],
+                ).unwrap();
+            }
+        }
+
+        // Test runs (hold-out): test_a fails again, test_b passes, test_c fails
+        // top-k should capture test_a and test_c (the failures)
+        for &tid in &tids {
+            let outcome = if tid == tids[1] { "passed" } else { "failed" };
+            conn.execute(
+                "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+                 VALUES (?1, 'test-run', ?2, 10, 'default')",
+                rusqlite::params![tid, outcome],
+            )
+            .unwrap();
+        }
+
+        let metrics = store.evaluate_ranking_calibration().unwrap();
+
+        assert_eq!(metrics.total_test_items, 3);
+        assert_eq!(metrics.total_failures, 2);
+        assert_eq!(metrics.captured_failures, 2);
+        assert_eq!(metrics.recall_at_k, 1.0);
+        assert_eq!(metrics.k, 3);
+    }
+
+    #[test]
+    fn test_ranking_calibration_empty_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let metrics = store.evaluate_ranking_calibration().unwrap();
+        assert_eq!(metrics.total_test_items, 0);
+        assert_eq!(metrics.total_failures, 0);
+        assert_eq!(metrics.recall_at_k, 0.0);
+    }
+
+    #[test]
+    fn test_ranking_calibration_no_hold_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'only_test')",
+            [],
+        ).unwrap();
+        let tid: u32 = conn
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+
+        // Only one run — no separate hold-out possible
+        conn.execute(
+            "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+             VALUES (?1, 'only-run', 'passed', 10, 'default')",
+            rusqlite::params![tid],
+        )
+        .unwrap();
+
+        let metrics = store.evaluate_ranking_calibration().unwrap();
+        assert_eq!(metrics.total_test_items, 0, "no hold-out set available");
+        assert_eq!(metrics.total_failures, 0);
+        assert_eq!(metrics.recall_at_k, 0.0);
     }
 }
