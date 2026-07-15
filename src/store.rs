@@ -1600,6 +1600,17 @@ impl Store {
             .map_err(|e| miette::miette!("Failed to get test node ID: {}", e))
     }
 
+    /// Look up a test item ID by its node_id string.
+    pub fn lookup_test_item_id(&self, node_id: &str) -> miette::Result<u32> {
+        self.conn
+            .query_row(
+                "SELECT id FROM test_items WHERE node_id = ?1",
+                rusqlite::params![node_id],
+                |row| row.get::<_, u32>(0),
+            )
+            .map_err(|e| miette::miette!("Failed to look up test item '{}': {}", node_id, e))
+    }
+
     /// Look up a content unit ID by component and path.
     pub fn lookup_content_unit(
         &self,

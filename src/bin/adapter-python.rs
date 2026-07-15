@@ -399,7 +399,6 @@ fn cmd_ingest(cmd: &serde_json::Value) -> serde_json::Value {
     }
 
     let mut per_test_results: Vec<serde_json::Value> = Vec::new();
-    let runtime_edges: Vec<serde_json::Value> = Vec::new();
 
     // Parse pytest output for test results
     // Lines look like: "test_file.py::test_name PASSED" or "FAILED"
@@ -438,6 +437,25 @@ fn cmd_ingest(cmd: &serde_json::Value) -> serde_json::Value {
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
                 if val.get("test_id").is_some() && val.get("outcome").is_some() {
                     per_test_results.push(val);
+                }
+            }
+        }
+    }
+
+    // Build runtime edges: for each test result, create a self-edge from the
+    // test_id to its file path (e.g., "tests/test_model.py::test_something" →
+    // "tests/test_model.py"). The file path is the part before "::".
+    let mut runtime_edges: Vec<serde_json::Value> = Vec::new();
+    for test in &per_test_results {
+        if let Some(test_id) = test["test_id"].as_str() {
+            if let Some(file_path) = test_id.split("::").next() {
+                if !file_path.is_empty() {
+                    runtime_edges.push(serde_json::json!({
+                        "from": test_id,
+                        "to": file_path,
+                        "weight": 1_000_000,
+                        "origin": "runtime",
+                    }));
                 }
             }
         }
@@ -787,6 +805,125 @@ mod tests {
             node_ids
         );
         assert_eq!(node_ids.len(), 1, "only one test should be discovered");
+    }
+
+    // ===== cmd_ingest tests =====
+
+    #[test]
+    fn test_cmd_ingest_pytest_output_returns_runtime_edges() {
+        let cmd = serde_json::json!({
+            "command": "ingest",
+            "params": {
+                "run_output": "tests/test_model.py::test_something PASSED\ntests/test_model.py::test_other FAILED\nsrc/test_util.py::test_helper PASSED\n"
+            }
+        });
+        let result = cmd_ingest(&cmd);
+        assert!(result["ok"].as_bool().unwrap());
+
+        let per_test = result["result"]["per_test_results"].as_array().unwrap();
+        assert_eq!(per_test.len(), 3);
+
+        let runtime_edges = result["result"]["runtime_edges"].as_array().unwrap();
+        assert!(!runtime_edges.is_empty(), "should have runtime edges");
+
+        // Each test should have a self-edge (test_id → its file path)
+        for edge in runtime_edges {
+            assert_eq!(edge["origin"].as_str().unwrap(), "runtime");
+            let from = edge["from"].as_str().unwrap();
+            let to = edge["to"].as_str().unwrap();
+            // The 'to' path should be the file part of the test_id
+            assert!(to.contains('/'), "to should be a file path, got: {}", to);
+            assert!(
+                from.contains("::"),
+                "from should be a test_id with ::, got: {}",
+                from
+            );
+        }
+    }
+
+    #[test]
+    fn test_cmd_ingest_runtime_edges_self_edge_per_test() {
+        let cmd = serde_json::json!({
+            "command": "ingest",
+            "params": {
+                "run_output": "tests/a_test.py::test_a PASSED\ntests/b_test.py::test_b PASSED\n"
+            }
+        });
+        let result = cmd_ingest(&cmd);
+        assert!(result["ok"].as_bool().unwrap());
+
+        let runtime_edges = result["result"]["runtime_edges"].as_array().unwrap();
+        assert_eq!(runtime_edges.len(), 2, "should have one edge per test");
+
+        // Check first edge: from tests/a_test.py::test_a → tests/a_test.py
+        let edge = &runtime_edges[0];
+        assert_eq!(edge["from"].as_str().unwrap(), "tests/a_test.py::test_a");
+        assert_eq!(edge["to"].as_str().unwrap(), "tests/a_test.py");
+        assert_eq!(edge["origin"].as_str().unwrap(), "runtime");
+
+        // Check second edge: from tests/b_test.py::test_b → tests/b_test.py
+        let edge = &runtime_edges[1];
+        assert_eq!(edge["from"].as_str().unwrap(), "tests/b_test.py::test_b");
+        assert_eq!(edge["to"].as_str().unwrap(), "tests/b_test.py");
+        assert_eq!(edge["origin"].as_str().unwrap(), "runtime");
+    }
+
+    #[test]
+    fn test_cmd_ingest_empty_output_returns_error() {
+        let cmd = serde_json::json!({
+            "command": "ingest",
+            "params": {
+                "run_output": ""
+            }
+        });
+        let result = cmd_ingest(&cmd);
+        assert!(!result["ok"].as_bool().unwrap());
+        assert!(result["error"].as_str().unwrap().contains("empty"));
+    }
+
+    #[test]
+    fn test_cmd_ingest_missing_run_output_returns_error() {
+        let cmd = serde_json::json!({
+            "command": "ingest",
+            "params": {}
+        });
+        let result = cmd_ingest(&cmd);
+        assert!(!result["ok"].as_bool().unwrap());
+        assert!(result["error"].as_str().unwrap().contains("missing"));
+    }
+
+    #[test]
+    fn test_cmd_ingest_json_line_format() {
+        let cmd = serde_json::json!({
+            "command": "ingest",
+            "params": {
+                "run_output": "{\"test_id\":\"tests/test_x.py::test_x\",\"outcome\":\"passed\"}\n{\"test_id\":\"tests/test_y.py::test_y\",\"outcome\":\"failed\"}\n"
+            }
+        });
+        let result = cmd_ingest(&cmd);
+        assert!(result["ok"].as_bool().unwrap());
+
+        let per_test = result["result"]["per_test_results"].as_array().unwrap();
+        assert_eq!(per_test.len(), 2);
+
+        let runtime_edges = result["result"]["runtime_edges"].as_array().unwrap();
+        assert!(
+            !runtime_edges.is_empty(),
+            "JSON line format should also produce runtime edges"
+        );
+    }
+
+    #[test]
+    fn test_cmd_ingest_external_inputs_included() {
+        let cmd = serde_json::json!({
+            "command": "ingest",
+            "params": {
+                "run_output": "tests/test_model.py::test_something PASSED\n"
+            }
+        });
+        let result = cmd_ingest(&cmd);
+        assert!(result["ok"].as_bool().unwrap());
+        assert!(result["result"]["external_inputs"].is_array());
     }
 
     #[test]

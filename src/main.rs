@@ -41,6 +41,13 @@ enum Command {
     Ingest {
         /// Path to run output file
         path: String,
+        /// Raw test output — delegate to the project's configured adapter for
+        /// parsing and store runtime edges from the execution
+        #[arg(long)]
+        raw: bool,
+        /// Adapter binary to use for raw output parsing (default: auto-detect)
+        #[arg(long)]
+        adapter: Option<String>,
     },
     /// Show the current dependency graph
     Graph,
@@ -271,14 +278,87 @@ fn main() -> miette::Result<()> {
             }
             Ok(())
         }
-        Command::Ingest { path } => {
+        Command::Ingest { path, raw, adapter } => {
             let store = testaruda::Store::open_default()?;
-            let data = std::fs::read_to_string(&path)
-                .map_err(|e| miette::miette!("Failed to read {}: {}", path, e))?;
-            let results: serde_json::Value = serde_json::from_str(&data)
-                .map_err(|e| miette::miette!("Failed to parse JSON: {}", e))?;
-            store.ingest(&results)?;
-            println!("✅ Run ingested");
+
+            if raw {
+                // Raw mode: treat file as test runner output, delegate to adapter
+                let raw_output = std::fs::read_to_string(&path)
+                    .map_err(|e| miette::miette!("Failed to read {}: {}", path, e))?;
+
+                // Resolve adapter binary: explicit --adapter flag, or auto-detect
+                // from the project's config, or fall back to the Python adapter
+                let adapter_binary: String = if let Some(explicit) = adapter {
+                    explicit
+                } else {
+                    let project_root = find_project_root()?;
+                    let config = testaruda::config::Config::load_or_default(&project_root);
+                    let registry = config.adapters.to_registry();
+                    // Collect into owned String to avoid borrow issues with registry
+                    let first_ext = registry.extensions().next().map(|(_, b)| b.to_string());
+                    first_ext
+                        .or_else(|| registry.default_binary().map(String::from))
+                        .unwrap_or_else(|| "testaruda-adapter-python".to_string())
+                };
+
+                let mut adapter = testaruda::adapter::AdapterIO::spawn(&adapter_binary, &[], None)
+                    .map_err(|e| {
+                        miette::miette!("Failed to spawn adapter {}: {}", adapter_binary, e)
+                    })?;
+
+                let ingest_result = adapter
+                    .ingest(&raw_output)
+                    .map_err(|e| miette::miette!("Adapter ingest failed: {}", e))?;
+
+                // Store runtime edges
+                if !ingest_result.runtime_edges.is_empty() {
+                    store
+                        .store_static_deps(&adapter.name, &ingest_result.runtime_edges)
+                        .map_err(|e| miette::miette!("Failed to store runtime edges: {}", e))?;
+                    eprintln!(
+                        "  🔗 Stored {} runtime edges",
+                        ingest_result.runtime_edges.len()
+                    );
+                }
+
+                // Convert per-test results to store ingest format
+                // Adapter returns test_id strings (e.g., "tests/test_model.py::test_something")
+                // Store expects integer test_item_ids — look up from node_id
+                let mut store_tests = Vec::new();
+                for test in &ingest_result.per_test_results {
+                    if let Ok(test_item_id) = store.lookup_test_item_id(&test.test_id) {
+                        store_tests.push(serde_json::json!({
+                            "id": test_item_id,
+                            "outcome": test.outcome,
+                            "duration_ms": test.duration_ms,
+                        }));
+                    } else {
+                        eprintln!("  ⚠️  Unknown test node_id: {} (skipped)", test.test_id);
+                    }
+                }
+
+                let run_id = store.generate_run_id()?;
+                let ingest_payload = serde_json::json!({
+                    "run_id": run_id,
+                    "tests": store_tests,
+                    "full_run": true,
+                });
+
+                store.ingest(&ingest_payload)?;
+                println!(
+                    "✅ Run ingested ({} tests, {} runtime edges)",
+                    ingest_result.per_test_results.len(),
+                    ingest_result.runtime_edges.len()
+                );
+            } else {
+                // JSON mode: existing path — parse JSON and pass to store directly
+                let data = std::fs::read_to_string(&path)
+                    .map_err(|e| miette::miette!("Failed to read {}: {}", path, e))?;
+                let results: serde_json::Value = serde_json::from_str(&data)
+                    .map_err(|e| miette::miette!("Failed to parse JSON: {}", e))?;
+                store.ingest(&results)?;
+                println!("✅ Run ingested");
+            }
             Ok(())
         }
         Command::Graph => {

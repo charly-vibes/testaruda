@@ -593,6 +593,18 @@ impl AdapterRegistry {
         }
         self.default.as_deref()
     }
+
+    /// Returns an iterator over registered extension-to-binary mappings.
+    pub fn extensions(&self) -> impl Iterator<Item = (&str, &str)> + '_ {
+        self.extensions
+            .iter()
+            .map(|(e, b)| (e.as_str(), b.as_str()))
+    }
+
+    /// Returns the default adapter binary name, if set.
+    pub fn default_binary(&self) -> Option<&str> {
+        self.default.as_deref()
+    }
 }
 
 // ===== Errors =====
