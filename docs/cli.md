@@ -1,92 +1,184 @@
-# CLI Reference
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/testaruda gen-cli-docs`
+# Command-Line Help for `testaruda`
 
-## Usage
+This document contains the help content for the `testaruda` command-line program.
 
-```
-testaruda <COMMAND>
-```
+**Command Overview:**
 
-## Commands
+* [`testaruda`↴](#testaruda)
+* [`testaruda init`↴](#testaruda-init)
+* [`testaruda select`↴](#testaruda-select)
+* [`testaruda calibrate`↴](#testaruda-calibrate)
+* [`testaruda ingest`↴](#testaruda-ingest)
+* [`testaruda graph`↴](#testaruda-graph)
+* [`testaruda import`↴](#testaruda-import)
+* [`testaruda explain`↴](#testaruda-explain)
+* [`testaruda oracle`↴](#testaruda-oracle)
+* [`testaruda discover`↴](#testaruda-discover)
+* [`testaruda metrics`↴](#testaruda-metrics)
 
-### `init`
+## `testaruda`
 
-Initialize the store and configuration in the current project.
+Language-agnostic test selection engine — compute the affected test set from a code change via provenance-semiring dependency analysis
 
-```
-testaruda init
-```
+**Usage:** `testaruda <COMMAND>`
 
-Creates `.testaruda/store.db` (SQLite schema) and `testaruda.toml` (default adapter config).
+###### **Subcommands:**
 
-### `select`
+* `init` — Initialize store and config in the current project
+* `select` — Select affected tests from a code change
+* `calibrate` — Evaluate the predictive ranking calibration gate (TIA-VER-005)
+* `ingest` — Ingest test run results to update the model
+* `graph` — Show the current dependency graph
+* `import` — Import a dependency graph from a JSON export
+* `explain` — Explain why a test was or was not selected
+* `oracle` — Run the Soufflé oracle for cross-validation
+* `discover` — Discover tests via configured adapters
+* `metrics` — Show operational metrics
 
-Select affected tests from a code change. Runs the **adapter pipeline** (discovers tests, computes static dependencies) before running the engine query.
 
-```
-testaruda select [OPTIONS]
-```
 
-| Option | Description |
-|--------|-------------|
-| `--base <REF>` | Base revision (git ref) |
-| `--head <REF>` | Head revision (git ref) |
-| `--files <LIST>` | Explicit changed-file list (comma-separated) |
-| `--shadow` | Shadow mode (TIA-CI-007): compute but signal full run |
-| `--json` | Emit machine-readable `CiPlan` JSON (TIA-CI-006) |
+## `testaruda init`
 
-If no options are provided, uses uncommitted working tree changes.
+Initialize store and config in the current project
 
-**Exit codes:**
+**Usage:** `testaruda init`
 
-| Code | Meaning |
-|------|---------|
-| 0 | Selection complete — run the selected tests |
-| 10 | Low confidence or shadow mode — run all tests |
-| 20 | Empty selection — safe to skip |
-| 1+ | Error (distinct from 10 and 20) |
 
-### `discover`
 
-Discover tests via configured adapters. Scans the project for test files and stores them in the database.
+## `testaruda select`
 
-```
-testaruda discover [--files <LIST>]
-```
+Select affected tests from a code change
 
-| Option | Description |
-|--------|-------------|
-| `--files <LIST>` | Scope discovery to specific files (comma-separated) |
+**Usage:** `testaruda select [OPTIONS]`
 
-### `ingest`
+###### **Options:**
 
-Ingest test run results to update the dependency model.
+* `--base <BASE>` — Base revision (git ref)
+* `--head <HEAD>` — Head revision (git ref)
+* `--files <FILES>` — Explicit changed-file list (comma-separated)
+* `--shadow` — Shadow mode: compute but report all tests should run (TIA-CI-007)
+* `--json` — Emit machine-readable JSON plan (TIA-CI-006) Conflicts with --pre-edit and --agent
+* `--agent` — Agent output format: structured JSON for LLM agent consumption (TIA-AGENT-001) Conflicts with --json and --pre-edit
+* `--pre-edit` — Pre-edit blast radius: report affected tests for proposed changes (TIA-AGENT-005) Conflicts with --json and --agent
+* `--ci` — CI mode: run selected tests and ingest results automatically (TIA-CI-008)
+* `--ordering <ORDERING>` — Selection ordering mode
 
-```
-testaruda ingest <PATH>
-```
+  Default value: `default`
 
-Where `<PATH>` is a JSON file with run results (`{"run_id": "...", "tests": [...]}`).
+  Possible values:
+  - `default`:
+    No specific ordering — results in Ascent's internal iteration order
+  - `deterministic`:
+    Byte-stable ordering: sort by test ID (TIA-SEL-005)
+  - `duration`:
+    Order by descending recorded mean duration (TIA-SEL-006)
+  - `predictive`:
+    Order by descending historical failure rate (TIA-SEL-007)
 
-### `graph`
 
-Export the current dependency graph as JSON.
 
-```
-testaruda graph
-```
 
-### `explain`
+## `testaruda calibrate`
 
-Explain why a test was or was not selected.
+Evaluate the predictive ranking calibration gate (TIA-VER-005)
 
-```
-testaruda explain <TEST_ID> [--change <REF>]
-```
+**Usage:** `testaruda calibrate [OPTIONS]`
 
-### `oracle`
+###### **Options:**
 
-Run Soufflé Datalog oracle for cross-validation.
+* `--threshold <THRESHOLD>` — Recall threshold (0.0–1.0) for promotion (default: 0.8)
 
-```
-testaruda oracle --program <PATH>
-```
+  Default value: `0.8`
+
+
+
+## `testaruda ingest`
+
+Ingest test run results to update the model
+
+**Usage:** `testaruda ingest [OPTIONS] <PATH>`
+
+###### **Arguments:**
+
+* `<PATH>` — Path to run output file
+
+###### **Options:**
+
+* `--raw` — Raw test output — delegate to the project's configured adapter for parsing and store runtime edges from the execution
+* `--adapter <ADAPTER>` — Adapter binary to use for raw output parsing (default: auto-detect)
+
+
+
+## `testaruda graph`
+
+Show the current dependency graph
+
+**Usage:** `testaruda graph`
+
+
+
+## `testaruda import`
+
+Import a dependency graph from a JSON export
+
+**Usage:** `testaruda import <PATH>`
+
+###### **Arguments:**
+
+* `<PATH>` — Path to graph JSON file
+
+
+
+## `testaruda explain`
+
+Explain why a test was or was not selected
+
+**Usage:** `testaruda explain [OPTIONS] <TEST_ID>`
+
+###### **Arguments:**
+
+* `<TEST_ID>` — Test node ID
+
+###### **Options:**
+
+* `--change <CHANGE>` — Change set reference
+
+
+
+## `testaruda oracle`
+
+Run the Soufflé oracle for cross-validation
+
+**Usage:** `testaruda oracle [OPTIONS]`
+
+###### **Options:**
+
+* `--program <PROGRAM>` — Path to Soufflé Datalog program
+
+
+
+## `testaruda discover`
+
+Discover tests via configured adapters
+
+**Usage:** `testaruda discover`
+
+
+
+## `testaruda metrics`
+
+Show operational metrics
+
+**Usage:** `testaruda metrics`
+
+
+
+<hr/>
+
+<small><i>
+    This document was generated automatically by
+    <a href="https://crates.io/crates/clap-markdown"><code>clap-markdown</code></a>.
+</i></small>
+

@@ -90,6 +90,9 @@ enum Command {
     Discover {},
     /// Show operational metrics
     Metrics {},
+    /// Generate CLI documentation in markdown (internal use)
+    #[command(hide = true)]
+    GenCliDocs,
 }
 
 fn main() -> miette::Result<()> {
@@ -673,6 +676,11 @@ fn main() -> miette::Result<()> {
                 schema_version = schema_version,
             );
 
+            Ok(())
+        }
+        Command::GenCliDocs => {
+            let markdown = clap_markdown::help_markdown::<Cli>();
+            println!("{}", markdown);
             Ok(())
         }
     }
