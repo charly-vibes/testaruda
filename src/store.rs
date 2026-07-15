@@ -1547,7 +1547,29 @@ impl Store {
         test_id: &str,
         _change: Option<&str>,
     ) -> miette::Result<serde_json::Value> {
-        let tid: u32 = test_id.parse().unwrap_or(0);
+        let tid: u32 = test_id.parse().map_err(|_| {
+            miette::miette!(
+                "Invalid test ID '{}' — expected a numeric identifier",
+                test_id
+            )
+        })?;
+
+        // Verify the test item exists
+        let exists: bool = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM test_items WHERE id = ?1",
+                [tid],
+                |row| row.get(0),
+            )
+            .map_err(|e| miette::miette!("Explain query failed: {}", e))?;
+
+        if !exists {
+            return Err(miette::miette!(
+                "Test ID '{}' not found in the store. Use 'testaruda metrics' to list known test IDs.",
+                tid
+            ));
+        }
         let mut stmt = self
             .conn
             .prepare(
