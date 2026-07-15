@@ -95,9 +95,11 @@ enum Command {
 fn main() -> miette::Result<()> {
     // Initialize tracing with optional JSON format
     let log_format = std::env::var("TESTARUDA_LOG_FORMAT").unwrap_or_default();
-    let builder = tracing_subscriber::fmt().with_env_filter(
-        tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-    );
+    let builder = tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
+        );
     if log_format == "json" {
         builder.json().init();
     } else {
