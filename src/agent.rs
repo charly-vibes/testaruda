@@ -73,6 +73,11 @@ pub struct SelectedTestInfo {
     /// Quarantined tests are selected-and-run but their
     /// outcome is excluded from pass/fail trust calculations.
     pub quarantined: bool,
+    /// Human-readable explanation of why this test is in always_run state.
+    /// Present when always_run is true; explains the reason (e.g., no
+    /// dependency data, confidence floor, quarantined).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_reason: Option<String>,
     /// Reason chain: witness edges explaining why this test was selected.
     pub reason_chain: Vec<ReasonEdge>,
 }
@@ -127,7 +132,7 @@ impl AgentOutput {
             .tests
             .iter()
             .map(|t| {
-                let reason_chain = t
+                let reason_chain: Vec<ReasonEdge> = t
                     .witness
                     .as_deref()
                     .unwrap_or_default()
@@ -139,13 +144,33 @@ impl AgentOutput {
                     })
                     .collect();
 
+                let always_run = t.confidence >= 1.0 && t.distance.is_none();
+                let fallback_reason = if always_run {
+                    if t.quarantined {
+                        Some("quarantined — test was flaky, always run for monitoring".to_string())
+                    } else if reason_chain.is_empty() {
+                        Some(
+                            "no dependency data available — test selected as safety fallback"
+                                .to_string(),
+                        )
+                    } else {
+                        Some(
+                            "confidence floor triggered — dependency edges below threshold"
+                                .to_string(),
+                        )
+                    }
+                } else {
+                    None
+                };
+
                 SelectedTestInfo {
                     id: t.id,
                     node_id: test_node_ids.get(&t.id).cloned(),
                     confidence: t.confidence,
                     distance: t.distance,
-                    always_run: t.confidence >= 1.0 && t.distance.is_none(),
+                    always_run,
                     quarantined: t.quarantined,
+                    fallback_reason,
                     reason_chain,
                 }
             })
@@ -294,6 +319,7 @@ mod tests {
                 distance: Some(0),
                 always_run: false,
                 quarantined: false,
+                fallback_reason: None,
                 reason_chain: vec![ReasonEdge {
                     content_unit_id: 1,
                     origin: "static".to_string(),
@@ -367,6 +393,132 @@ mod tests {
         let json = serde_json::to_string(&gap).unwrap();
         assert!(json.contains("\"symbol\":\"uncovered_fn\""));
         assert!(json.contains("\"changed_unit_id\":7"));
+    }
+
+    #[test]
+    fn test_agent_output_fallback_reason_no_deps() {
+        let output = AgentOutput {
+            format: "testaruda-agent-v1".to_string(),
+            summary: SummaryStats {
+                changed_count: 1,
+                selected_count: 1,
+                candidate_count: 1,
+                has_coverage_gaps: false,
+            },
+            changed_units: vec![ChangedUnit {
+                id: 1,
+                path: "src/lib.rs".to_string(),
+                symbol: None,
+                kind: "source".to_string(),
+                unresolved: false,
+            }],
+            selected: vec![SelectedTestInfo {
+                id: 10,
+                node_id: Some("tests/test_model.py::test_something".to_string()),
+                confidence: 1.0,
+                distance: None,
+                always_run: true,
+                quarantined: false,
+                fallback_reason: Some(
+                    "no dependency data available — test selected as safety fallback".to_string(),
+                ),
+                reason_chain: vec![],
+            }],
+            skipped: Vec::new(),
+            coverage_gaps: Vec::new(),
+        };
+
+        let json = serde_json::to_string_pretty(&output).unwrap();
+        assert!(
+            json.contains("\"fallback_reason\""),
+            "should include fallback_reason"
+        );
+        assert!(
+            json.contains("no dependency data available"),
+            "should explain the fallback reason"
+        );
+    }
+
+    #[test]
+    fn test_agent_output_fallback_reason_quarantined() {
+        let output = AgentOutput {
+            format: "testaruda-agent-v1".to_string(),
+            summary: SummaryStats {
+                changed_count: 1,
+                selected_count: 1,
+                candidate_count: 1,
+                has_coverage_gaps: false,
+            },
+            changed_units: vec![ChangedUnit {
+                id: 1,
+                path: "src/lib.rs".to_string(),
+                symbol: None,
+                kind: "source".to_string(),
+                unresolved: false,
+            }],
+            selected: vec![SelectedTestInfo {
+                id: 10,
+                node_id: Some("tests/test_model.py::test_something".to_string()),
+                confidence: 1.0,
+                distance: None,
+                always_run: true,
+                quarantined: true,
+                fallback_reason: Some(
+                    "quarantined — test was flaky, always run for monitoring".to_string(),
+                ),
+                reason_chain: vec![],
+            }],
+            skipped: Vec::new(),
+            coverage_gaps: Vec::new(),
+        };
+
+        let json = serde_json::to_string_pretty(&output).unwrap();
+        assert!(
+            json.contains("\"quarantined\""),
+            "quarantined flag should be present"
+        );
+        assert!(
+            json.contains("test was flaky"),
+            "should explain quarantined reason"
+        );
+    }
+
+    #[test]
+    fn test_agent_output_node_id_included() {
+        let output = AgentOutput {
+            format: "testaruda-agent-v1".to_string(),
+            summary: SummaryStats {
+                changed_count: 1,
+                selected_count: 1,
+                candidate_count: 1,
+                has_coverage_gaps: false,
+            },
+            changed_units: vec![ChangedUnit {
+                id: 1,
+                path: "src/lib.rs".to_string(),
+                symbol: None,
+                kind: "source".to_string(),
+                unresolved: false,
+            }],
+            selected: vec![SelectedTestInfo {
+                id: 10,
+                node_id: Some("tests/test_model.py::test_something".to_string()),
+                confidence: 1.0,
+                distance: Some(0),
+                always_run: false,
+                quarantined: false,
+                fallback_reason: None,
+                reason_chain: vec![],
+            }],
+            skipped: Vec::new(),
+            coverage_gaps: Vec::new(),
+        };
+
+        let json = serde_json::to_string_pretty(&output).unwrap();
+        assert!(
+            json.contains("\"node_id\": \"tests/test_model.py::test_something\""),
+            "node_id should be present in the output"
+        );
     }
 
     #[test]
