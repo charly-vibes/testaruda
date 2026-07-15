@@ -94,6 +94,19 @@ fn main() -> miette::Result<()> {
             // Write default config if it doesn't exist
             if !project_root.join("testaruda.toml").exists() {
                 testaruda::config::Config::write_default(&project_root)?;
+                // Report detected language for user feedback
+                let detected = testaruda::config::detect_project_language(&project_root);
+                match detected {
+                    Some(ref adapter) if adapter.contains("python") => {
+                        println!("  🐍 Python project detected — default adapter set to testaruda-adapter-python");
+                    }
+                    Some(ref adapter) if adapter.contains("rust") => {
+                        println!("  🦀 Rust project detected — default adapter set to testaruda-adapter-rust");
+                    }
+                    _ => {
+                        println!("  📁 Project language not detected — default adapter set to testaruda-adapter-rust");
+                    }
+                }
             }
             // Check for Soufflé oracle (TIA-ENG-010)
             match std::process::Command::new("souffle")

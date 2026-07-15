@@ -139,10 +139,14 @@ impl Config {
         Self::load(project_root).unwrap_or_default()
     }
 
-    /// Write a default config file.
+    /// Write a default config file, auto-detecting the project language.
     pub fn write_default(project_root: &Path) -> miette::Result<()> {
+        let default_adapter = detect_project_language(project_root)
+            .unwrap_or_else(|| "testaruda-adapter-rust".to_string());
+
         let path = project_root.join("testaruda.toml");
-        let content = r#"# testaruda configuration
+        let content = format!(
+            r#"# testaruda configuration
 
 [adapters]
 # Map file extensions to adapter binaries.
@@ -151,7 +155,7 @@ impl Config {
 ".py" = "testaruda-adapter-python"
 
 # Default adapter when no extension matches
-default = "testaruda-adapter-rust"
+default = "{}"
 
 [discover]
 # Directory/file names to exclude from discover walks.
@@ -160,7 +164,9 @@ default = "testaruda-adapter-rust"
 exclude = ["target", ".git", "node_modules", ".venv", "venv",
           "__pycache__", ".mypy_cache", ".pytest_cache",
           "build", "dist", ".tox"]
-"#;
+"#,
+            default_adapter
+        );
         std::fs::write(&path, content)
             .map_err(|e| miette::miette!("Failed to write {}: {}", path.display(), e))?;
         println!("✅ Created testaruda.toml");
@@ -189,6 +195,25 @@ impl Default for AdapterConfig {
             default: Some("testaruda-adapter-rust".to_string()),
         }
     }
+}
+
+/// Detect the primary project language by probing for common marker files.
+/// Returns the adapter name for the detected language, or None if unknown.
+pub fn detect_project_language(project_root: &Path) -> Option<String> {
+    // Check Rust first (most specific marker)
+    if project_root.join("Cargo.toml").exists() {
+        return Some("testaruda-adapter-rust".to_string());
+    }
+    // Check Python (multiple possible markers)
+    if project_root.join("pyproject.toml").exists()
+        || project_root.join("setup.py").exists()
+        || project_root.join("setup.cfg").exists()
+        || project_root.join("requirements.txt").exists()
+        || project_root.join("Pipfile").exists()
+    {
+        return Some("testaruda-adapter-python".to_string());
+    }
+    None
 }
 
 /// Build a filter_entry closure from a list of directory names to exclude.
