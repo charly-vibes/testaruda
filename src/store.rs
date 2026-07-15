@@ -1088,6 +1088,27 @@ impl Store {
             .query_row("SELECT COUNT(*) FROM test_items", [], |row| row.get(0))
     }
 
+    /// Count how many runs have been ingested.
+    pub fn run_count(&self) -> rusqlite::Result<usize> {
+        self.conn
+            .query_row("SELECT COUNT(*) FROM ingested_runs", [], |row| row.get(0))
+    }
+
+    /// Count how many tests are quarantined (flaky).
+    pub fn quarantined_count(&self) -> rusqlite::Result<usize> {
+        self.conn.query_row(
+            "SELECT COUNT(*) FROM test_items WHERE quarantined = 1",
+            [],
+            |row| row.get(0),
+        )
+    }
+
+    /// Get the current schema version.
+    pub fn schema_version(&self) -> rusqlite::Result<u32> {
+        self.conn
+            .query_row("SELECT version FROM schema_version", [], |row| row.get(0))
+    }
+
     /// Find the project root (git repo root or first ancestor with testaruda.toml).
     pub fn find_project_root() -> miette::Result<PathBuf> {
         find_project_root()

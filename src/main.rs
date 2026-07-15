@@ -79,15 +79,21 @@ enum Command {
     },
     /// Discover tests via configured adapters
     Discover {},
+    /// Show operational metrics
+    Metrics {},
 }
 
 fn main() -> miette::Result<()> {
-    // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .init();
+    // Initialize tracing with optional JSON format
+    let log_format = std::env::var("TESTARUDA_LOG_FORMAT").unwrap_or_default();
+    let builder = tracing_subscriber::fmt().with_env_filter(
+        tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
+    );
+    if log_format == "json" {
+        builder.json().init();
+    } else {
+        builder.init();
+    }
 
     let cli = Cli::parse();
 
@@ -195,6 +201,17 @@ fn main() -> miette::Result<()> {
                     },
                 };
             }
+
+            // Emit metrics (TIA-OBS-003)
+            tracing::info!(
+                event = "selection",
+                run_id = %run_id,
+                changed_count = selection.changed_count,
+                selected_count = selection.selected_count,
+                total_tests = store.test_items_count().unwrap_or(0),
+                exit_code = outcome.exit_code(),
+                reason = %outcome.reason(),
+            );
 
             if agent {
                 // Agent output format (TIA-AGENT-001)
@@ -477,6 +494,13 @@ fn main() -> miette::Result<()> {
                 });
 
                 store.ingest(&ingest_payload)?;
+                tracing::info!(
+                    event = "ingest",
+                    run_id = %run_id,
+                    test_count = ingest_result.per_test_results.len(),
+                    runtime_edges = ingest_result.runtime_edges.len(),
+                    mode = "raw",
+                );
                 println!(
                     "✅ Run ingested ({} tests, {} runtime edges)",
                     ingest_result.per_test_results.len(),
@@ -569,6 +593,29 @@ fn main() -> miette::Result<()> {
                 .map_err(|e| miette::miette!(e))?;
             let count = store.test_items_count().unwrap_or(0);
             println!("\n✅ Discovered {} test items", count);
+            Ok(())
+        }
+        Command::Metrics {} => {
+            let store = testaruda::Store::open_default()?;
+            let test_count = store.test_items_count().unwrap_or(0);
+            let run_count = store.run_count().unwrap_or(0);
+            let quarantined_count = store.quarantined_count().unwrap_or(0);
+            let schema_version = store.schema_version().unwrap_or(0);
+
+            println!("📊 testaruda metrics");
+            println!("  Tests tracked:      {}", test_count);
+            println!("  Runs ingested:      {}", run_count);
+            println!("  Quarantined (flaky): {}", quarantined_count);
+            println!("  Schema version:     {}", schema_version);
+
+            tracing::info!(
+                event = "metrics",
+                test_count = test_count,
+                run_count = run_count,
+                quarantined_count = quarantined_count,
+                schema_version = schema_version,
+            );
+
             Ok(())
         }
     }
