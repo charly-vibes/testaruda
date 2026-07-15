@@ -115,6 +115,20 @@ pub struct CoverageGap {
     pub changed_unit_id: u32,
 }
 
+/// Pre-edit blast radius output (TIA-AGENT-005).
+/// Structured JSON for programmatic consumers, simpler than the full agent format.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PreEditOutput {
+    /// Format version identifier.
+    pub format: String,
+    /// Summary statistics.
+    pub summary: SummaryStats,
+    /// Changed file paths.
+    pub changed_files: Vec<String>,
+    /// Selected test node IDs (adapter-assigned, human-readable).
+    pub selected_tests: Vec<String>,
+}
+
 impl AgentOutput {
     /// Build the agent output from a selection result and store context.
     pub fn from_selection(

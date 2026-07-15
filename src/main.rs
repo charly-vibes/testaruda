@@ -318,24 +318,41 @@ fn main() -> miette::Result<()> {
                     .map_err(|e| miette::miette!("JSON serialization failed: {}", e))?;
                 println!("{}", out);
             } else if pre_edit {
-                // Pre-edit blast radius (TIA-AGENT-005): report affected tests
-                println!("📡 Blast radius — pre-edit analysis");
-                println!("  Changed units: {}", selection.changed_count);
-                println!(
-                    "  Affected tests: {} ({})",
-                    selection.selected_count,
-                    if selection.selected_count == 1 {
-                        "1 test".to_string()
-                    } else {
-                        format!("{} tests", selection.selected_count)
+                // Pre-edit blast radius (TIA-AGENT-005): structured JSON output
+                use testaruda::agent::PreEditOutput;
+
+                let mut changed_files = Vec::new();
+                for &cu_id in &changed_ids {
+                    if let Ok((path, _, _)) = store.get_content_unit_info(cu_id) {
+                        changed_files.push(path);
                     }
-                );
-                if !selection.tests.is_empty() {
-                    println!(
-                        "  Affected test IDs: {:?}",
-                        selection.tests.iter().map(|t| t.id).collect::<Vec<_>>()
-                    );
                 }
+                for &cu_id in &unresolved_ids {
+                    if let Ok((path, _, _)) = store.get_content_unit_info(cu_id) {
+                        changed_files.push(path);
+                    }
+                }
+                let mut selected_tests = Vec::new();
+                for t in &selection.tests {
+                    if let Ok(node_id) = store.get_test_node_id(t.id) {
+                        selected_tests.push(node_id);
+                    }
+                }
+
+                let output = PreEditOutput {
+                    format: "testaruda-pre-edit-v1".to_string(),
+                    summary: testaruda::agent::SummaryStats {
+                        changed_count: selection.changed_count,
+                        selected_count: selection.selected_count,
+                        candidate_count: selection.selected_count,
+                        has_coverage_gaps: false,
+                    },
+                    changed_files,
+                    selected_tests,
+                };
+                let out = serde_json::to_string_pretty(&output)
+                    .map_err(|e| miette::miette!("Pre-edit output serialization failed: {}", e))?;
+                println!("{}", out);
             } else {
                 // Human-readable output (CORR-004: include reason)
                 let reason_note = outcome.reason();
