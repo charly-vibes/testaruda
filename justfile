@@ -35,6 +35,11 @@ fmt-check:
 pre-push: fmt-check lint test
     @echo "✅ Pre-push checks passed"
 
+# Full CI gate: fmt + lint + test + build
+ci: fmt-check lint test build-release
+    @echo "✅ CI checks passed"
+
+
 # Format code
 fmt:
     cargo fmt

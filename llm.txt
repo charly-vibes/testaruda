@@ -1,0 +1,26 @@
+# testaruda
+
+Language-agnostic test selection engine for charly-vibes tools.
+
+## Purpose
+
+`testaruda` computes affected-test sets from dependency graphs and change
+fingerprinting. It enables CI to run only the tests relevant to a change.
+
+## Current state
+
+Functional Rust implementation with a semiring-based selection engine.
+
+Key files:
+- `src/` — Core selection engine, adapters, and CLI.
+- `docs/` — mdBook documentation and specification.
+- `openspec/specs/` — Formal specifications.
+- `.github/workflows/` — CI/CD powered by `just`.
+
+## Working norms
+
+- Run `wai status` first.
+- Use `testaruda select --json` for machine-readable output.
+- Use `testaruda select --agent` for agent-optimized output.
+- Run `just pre-push` before pushing.
+- Run `just ci` for the full CI gate.

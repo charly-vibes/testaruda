@@ -1,3 +1,8 @@
+# CI workflow - runs the same commands as local development
+#
+# Uses `just ci` to ensure parity between local and CI environments.
+# If CI fails, run `just ci` locally to reproduce the issue.
+
 name: CI
 
 on:
@@ -7,33 +12,38 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
 jobs:
   ci:
-    name: CI
+    name: Test & Build
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    timeout-minutes: 10
 
-      - name: Install Rust toolchain
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: clippy, rustfmt
 
-      - name: Cache cargo registry
-        uses: actions/cache@v4
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install just
+        uses: extractions/setup-just@v2
+
+      # Run the exact same command as local development
+      - name: Run CI pipeline
+        run: just ci
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      - run: cargo fmt -- --check
-      - run: cargo check
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test
+          name: testaruda-linux-amd64
+          path: target/release/testaruda
 
   coverage:
     name: Coverage
@@ -45,24 +55,14 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-tarpaulin-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-tarpaulin-
-
       - name: Install cargo-tarpaulin
-        run: cargo install cargo-tarpaulin --locked
+        uses: taiki-e/install-action@cargo-tarpaulin
 
-      - name: Run tarpaulin
-        run: cargo tarpaulin --out xml -- --test-threads=1
+      - name: Run coverage
+        run: cargo tarpaulin
 
-      - name: Upload to Codecov
-        uses: codecov/codecov-action@v4
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
