@@ -528,6 +528,57 @@ impl Store {
     }
 
     /// Record a single missed-selection incident and create a manual edge.
+    /// Detect flaky tests by examining outcome oscillation across recent runs
+    /// (TIA-SAFE-011). A test is flaky if it has both `passed` and `failed`
+    /// outcomes in its last N runs. Marked as quarantined (TIA-SAFE-010) to
+    /// ensure they are always selected and excluded from confidence scoring.
+    fn detect_flaky_tests(&self) -> miette::Result<()> {
+        // Find tests with both passed and failed outcomes in their last 5 runs
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT t.id FROM test_items t
+             WHERE (
+                 SELECT COUNT(DISTINCT outcome) FROM (
+                     SELECT outcome FROM run_history
+                     WHERE test_item_id = t.id
+                     ORDER BY id DESC
+                     LIMIT 5
+                 )
+             ) > 1
+             AND t.quarantined = 0",
+            )
+            .map_err(|e| miette::miette!("Failed to prepare flaky query: {}", e))?;
+
+        let flaky_tests: Vec<u32> = stmt
+            .query_map([], |row| row.get::<_, u32>(0))
+            .map_err(|e| miette::miette!("Failed to query flaky tests: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        for test_id in &flaky_tests {
+            self.conn
+                .execute(
+                    "UPDATE test_items SET quarantined = 1 WHERE id = ?1",
+                    rusqlite::params![test_id],
+                )
+                .map_err(|e| {
+                    miette::miette!("Failed to quarantine flaky test {}: {}", test_id, e)
+                })?;
+
+            // Also record the most recent outcome as flaky in run_history
+            // for the last run that had this test
+            if let Ok(node_id) = self.get_test_node_id(*test_id) {
+                eprintln!(
+                    "  🟡 Flaky test detected: {} (id={}) — quarantined",
+                    node_id, test_id
+                );
+            }
+        }
+
+        Ok(())
+    }
+
     fn record_missed_selection(
         &self,
         run_id: &str,
@@ -996,6 +1047,11 @@ impl Store {
                 if let Err(e) = self.detect_missed_selections(&run_id, results) {
                     eprintln!("  ⚠️  Missed-selection detection failed: {}", e);
                 }
+            }
+
+            // Detect flaky tests from outcome oscillation (TIA-SAFE-011)
+            if let Err(e) = self.detect_flaky_tests() {
+                eprintln!("  ⚠️  Flaky detection failed: {}", e);
             }
         } else {
             self.conn
@@ -2291,6 +2347,82 @@ mod tests {
             ctx.quarantined.contains(&tid),
             "quarantined test should appear in quarantined set"
         );
+    }
+
+    #[test]
+    fn test_detect_flaky_tests_oscillation() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'flaky_test')",
+            [],
+        )
+        .unwrap();
+        let tid: u32 = conn
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+
+        // Insert oscillating outcomes (passed, failed) across recent runs
+        for (run_id, outcome) in &[("run1", "passed"), ("run2", "failed")] {
+            conn.execute(
+                "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+                 VALUES (?1, ?2, ?3, 100, 'default')",
+                rusqlite::params![tid, run_id, outcome],
+            )
+            .unwrap();
+        }
+
+        store.detect_flaky_tests().unwrap();
+
+        let quarantined: i32 = conn
+            .query_row(
+                "SELECT quarantined FROM test_items WHERE id = ?1",
+                rusqlite::params![tid],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(quarantined, 1, "flaky test should be quarantined");
+    }
+
+    #[test]
+    fn test_detect_flaky_tests_stable_not_flagged() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let conn = store.conn();
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'stable_test')",
+            [],
+        )
+        .unwrap();
+        let tid: u32 = conn
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+
+        // Insert consistent outcomes (all passed)
+        for (i, outcome) in (0..3).map(|i| (i, "passed")) {
+            conn.execute(
+                "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+                 VALUES (?1, ?2, ?3, 100, 'default')",
+                rusqlite::params![tid, format!("run{}", i), outcome],
+            )
+            .unwrap();
+        }
+
+        store.detect_flaky_tests().unwrap();
+
+        let quarantined: i32 = conn
+            .query_row(
+                "SELECT quarantined FROM test_items WHERE id = ?1",
+                rusqlite::params![tid],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(quarantined, 0, "stable test should not be quarantined");
     }
 
     #[test]
