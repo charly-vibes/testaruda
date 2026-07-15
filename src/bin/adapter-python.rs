@@ -155,7 +155,7 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
         std::collections::HashMap::new();
     for (node_id, file) in &test_files {
         if let Ok(content) = std::fs::read_to_string(file) {
-            let imports = parse_python_imports(&content);
+            let imports = parse_python_imports(&content, file);
             for imp in imports {
                 import_to_tests
                     .entry(imp)
@@ -236,8 +236,22 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
 
 /// Parse `import` and `from ... import` statements from Python source.
 /// Returns full module paths (e.g., `from src.model import X` → `"src.model"`).
-fn parse_python_imports(content: &str) -> Vec<String> {
+/// Relative imports (`from .module import X`) are resolved to absolute module
+/// paths using the importing file's location.
+fn parse_python_imports(content: &str, file_path: &str) -> Vec<String> {
     let mut deps = Vec::new();
+
+    // Derive the base package from the file path.
+    // e.g., "src/package/test_module.py" → base package is "src.package"
+    let base_module = file_path_to_module(file_path);
+    let base_package: Vec<&str> = base_module
+        .rsplit('.')
+        .skip(1)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+
     for line in content.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("import ") {
@@ -248,13 +262,53 @@ fn parse_python_imports(content: &str) -> Vec<String> {
                 deps.push(m);
             }
         } else if trimmed.starts_with("from ") {
-            // from foo.bar import baz → dependency on foo.bar
-            let module = trimmed
-                .strip_prefix("from ")
-                .and_then(|s| s.split(" import ").next())
-                .map(|s| s.trim().to_string());
-            if let Some(m) = module {
-                deps.push(m);
+            let rest = trimmed.strip_prefix("from ").unwrap_or("");
+
+            // Check for relative imports (starts with one or more dots)
+            if rest.starts_with('.') {
+                let dot_count = rest.chars().take_while(|c| *c == '.').count();
+                let after_dots = rest[dot_count..].trim();
+
+                // Split the remaining part: "module_path import X" or just "import X"
+                let after_dots = after_dots.trim();
+                let module_part = if after_dots.starts_with("import") {
+                    // from . import X — no module path after the dots
+                    ""
+                } else {
+                    after_dots
+                        .split(" import ")
+                        .next()
+                        .map(|s| s.trim())
+                        .unwrap_or("")
+                };
+
+                // Resolve: go up (dot_count - 1) levels from the base package
+                let mut parts = base_package.clone();
+                if dot_count > 0 {
+                    let levels_up = dot_count.saturating_sub(1);
+                    let len = parts.len();
+                    if levels_up < len {
+                        parts.truncate(len - levels_up);
+                    } else {
+                        // Can't resolve above the project root — skip
+                        continue;
+                    }
+                }
+
+                if !module_part.is_empty() {
+                    parts.push(module_part);
+                }
+
+                let resolved = parts.join(".");
+                if !resolved.is_empty() {
+                    deps.push(resolved);
+                }
+            } else {
+                // Absolute import: from foo.bar import baz
+                let module = rest.split(" import ").next().map(|s| s.trim().to_string());
+                if let Some(m) = module {
+                    deps.push(m);
+                }
             }
         }
     }
@@ -403,7 +457,7 @@ mod tests {
     #[test]
     fn test_parse_python_imports_absolute() {
         let content = "import os\nimport sys\nfrom collections import OrderedDict\n";
-        let imports = parse_python_imports(content);
+        let imports = parse_python_imports(content, "test.py");
         assert!(imports.contains(&"os".to_string()));
         assert!(imports.contains(&"sys".to_string()));
         assert!(imports.contains(&"collections".to_string()));
@@ -412,7 +466,7 @@ mod tests {
     #[test]
     fn test_parse_python_imports_preserves_full_path() {
         let content = "from src.model import Something\nfrom cositos.protocol import X\n";
-        let imports = parse_python_imports(content);
+        let imports = parse_python_imports(content, "test.py");
         assert!(imports.contains(&"src.model".to_string()));
         assert!(imports.contains(&"cositos.protocol".to_string()));
     }
@@ -420,9 +474,91 @@ mod tests {
     #[test]
     fn test_parse_python_imports_import_as() {
         let content = "import numpy as np\nimport pandas as pd\n";
-        let imports = parse_python_imports(content);
+        let imports = parse_python_imports(content, "test.py");
         assert!(imports.contains(&"numpy".to_string()));
         assert!(imports.contains(&"pandas".to_string()));
+    }
+
+    #[test]
+    fn test_parse_python_imports_relative_current_package() {
+        // from .module import X — resolves to same package as the importing file
+        let content = "from .sibling import Something\n";
+        let imports = parse_python_imports(content, "src/package/test_module.py");
+        assert!(
+            imports.contains(&"src.package.sibling".to_string()),
+            "expected src.package.sibling, got: {:?}",
+            imports
+        );
+    }
+
+    #[test]
+    fn test_parse_python_imports_relative_parent_package() {
+        // from ..module import X — resolves to parent package
+        let content = "from ..other import Something\n";
+        let imports = parse_python_imports(content, "src/package/sub/test_module.py");
+        assert!(
+            imports.contains(&"src.package.other".to_string()),
+            "expected src.package.other, got: {:?}",
+            imports
+        );
+    }
+
+    #[test]
+    fn test_parse_python_imports_relative_import_current_package_only() {
+        // from . import X — imports from the current package itself
+        let content = "from . import something\n";
+        let imports = parse_python_imports(content, "src/package/test_module.py");
+        assert!(
+            imports.contains(&"src.package".to_string()),
+            "expected src.package, got: {:?}",
+            imports
+        );
+    }
+
+    #[test]
+    fn test_parse_python_imports_relative_from_double_dot() {
+        // from .. import X — imports from the parent package with no explicit module
+        let content = "from .. import something\n";
+        let imports = parse_python_imports(content, "src/package/sub/test_module.py");
+        assert!(
+            imports.contains(&"src.package".to_string()),
+            "expected src.package, got: {:?}",
+            imports
+        );
+    }
+
+    #[test]
+    fn test_parse_python_imports_relative_deep() {
+        // from ...module import X — three dots: go up 2 levels
+        // File at src/a/b/c/test_module.py, package is src.a.b.c
+        // from ...top → go up 2 levels to src.a, then add top → src.a.top
+        let content = "from ...top import Something\n";
+        let imports = parse_python_imports(content, "src/a/b/c/test_module.py");
+        assert!(
+            imports.contains(&"src.a.top".to_string()),
+            "expected src.a.top, got: {:?}",
+            imports
+        );
+    }
+
+    #[test]
+    fn test_parse_python_imports_relative_above_root_skipped() {
+        // from .. import X when file is at the top level — should be skipped
+        let content = "from .. import something\n";
+        let imports = parse_python_imports(content, "test.py");
+        assert!(
+            !imports.contains(&"".to_string()),
+            "should not add empty or invalid resolved paths"
+        );
+    }
+
+    #[test]
+    fn test_parse_python_imports_mixed_absolute_and_relative() {
+        let content = "import os\nfrom .model import Model\nfrom ..utils import helper\n";
+        let imports = parse_python_imports(content, "src/package/test_module.py");
+        assert!(imports.contains(&"os".to_string()));
+        assert!(imports.contains(&"src.package.model".to_string()));
+        assert!(imports.contains(&"src.utils".to_string()));
     }
 
     #[test]
