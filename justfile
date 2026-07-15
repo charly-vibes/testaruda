@@ -12,9 +12,9 @@ build:
 release:
     cargo build --release
 
-# Run all tests
+# Run all tests (single-threaded — adapter tests use global cwd)
 test:
-    cargo test
+    cargo test -- --test-threads=1
 
 # Run tests with output
 test-v:
