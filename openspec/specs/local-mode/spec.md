@@ -50,3 +50,30 @@ The CLI SHALL operate without network access in local mode.
 - **GIVEN** no network access
 - **WHEN** the CLI is used in local mode
 - **THEN** it SHALL still compute selection successfully
+
+### Requirement: TIA-LOCAL-006 — Store-readiness precondition
+
+Before performing any store-dependent operation (`select`, `discover`, `ingest`, `explain`, `graph`), the CLI SHALL verify that the testaruda store is initialized (`.testaruda/store.db` exists with the expected schema). If the store is not initialized, the CLI SHALL emit a human-actionable error message suggesting the user run `testaruda init` first, and SHALL NOT attempt any SQL operation.
+
+#### Scenario: Select before init
+- **GIVEN** a directory with no `testaruda init` run
+- **WHEN** `select` is invoked
+- **THEN** the CLI SHALL detect the missing store
+- **AND** SHALL emit an error message indicating the store is missing
+  and suggesting `testaruda init` (e.g. `Error: no testaruda store found
+  — run 'testaruda init' first`)
+- **AND** SHALL NOT attempt any SQL operation
+
+#### Scenario: Other commands before init
+- **GIVEN** a directory with no `testaruda init` run
+- **WHEN** `discover`, `ingest`, `explain`, or `graph` is invoked
+- **THEN** the CLI SHALL detect the missing store
+- **AND** SHALL emit an actionable error message
+
+#### Scenario: Corrupted store
+- **GIVEN** a directory where `.testaruda/store.db` exists but is corrupted
+  or has an incompatible schema version
+- **WHEN** any store-dependent command is invoked
+- **THEN** the CLI SHALL detect the corruption or version mismatch
+- **AND** SHALL emit an error message explaining the issue
+- **AND** SHALL suggest re-running `testaruda init` or using a migration tool

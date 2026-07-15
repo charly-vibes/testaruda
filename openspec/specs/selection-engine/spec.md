@@ -71,3 +71,20 @@ Where predictive ranking is enabled, the selector SHALL apply ranking only as a 
 - **WHEN** selection is computed
 - **THEN** ranking SHALL only re-order or cap the affected set
 - **AND** SHALL NOT remove any always-run member
+
+### Requirement: TIA-SEL-008 — Ordering flag value validation
+
+The CLI SHALL validate the value of the `--ordering` flag against an enumerated set of recognized values. If an unrecognized value is supplied, the CLI SHALL emit an error listing the valid values and SHALL NOT silently default to any behavior. The CLI SHALL use the same validation mechanism used for other enum-style flags (e.g. mutual-exclusivity groups for `--agent`/`--json`/`--pre-edit`).
+
+#### Scenario: Recognized ordering value
+- **GIVEN** an ordering value `"deterministic"`
+- **WHEN** `--ordering deterministic` is passed
+- **THEN** the CLI SHALL accept the value
+- **AND** SHALL apply the corresponding ordering
+
+#### Scenario: Unrecognized ordering value
+- **GIVEN** an ordering value `"banana"`
+- **WHEN** `--ordering banana` is passed
+- **THEN** the CLI SHALL emit an error
+- **AND** SHALL list valid values in the error message
+- **AND** SHALL NOT silently fall back to a default ordering

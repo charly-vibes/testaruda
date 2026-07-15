@@ -54,19 +54,19 @@ Language/framework adapters communicate via JSON over stdin/stdout (TIA-ADAPT-00
 | Architectural constraints | `architectural-constraints/spec.md` | ARCH-001–010 |
 | Core data model | `core-data-model/spec.md` | CORE-001–009 |
 | Change detection | `change-detection/spec.md` | CHG-001–008 |
-| Selection engine | `selection-engine/spec.md` | SEL-001–007 |
+| Selection engine | `selection-engine/spec.md` | SEL-001–008 |
 | Provenance | `provenance/spec.md` | PROV-001–005 |
 | Runtime feedback | `runtime-feedback/spec.md` | RUN-001–006 |
 | Safety | `safety/spec.md` | SAFE-001–012 |
 | Confidence scoring | `confidence-scoring/spec.md` | CONF-001–004 |
-| Adapter protocol | `adapter-protocol/spec.md` | ADAPT-001–013 |
+| Adapter protocol | `adapter-protocol/spec.md` | ADAPT-001–013 (ADAPT-014–016 reworked in [`changes/add-julia-adapter-via-testimonial/`](changes/add-julia-adapter-via-testimonial/)) |
 | Composability | `composability/spec.md` | COMP-001–012 |
 | Persistence | `persistence/spec.md` | STORE-001–005 |
 | CI integration | `ci-integration/spec.md` | CI-001–008 |
-| Local mode | `local-mode/spec.md` | LOCAL-001–005 |
-| Agent mode | `agent-mode/spec.md` | AGENT-001–007 |
-| Observability | `observability/spec.md` | OBS-001–004 |
-| Non-functional | `non-functional/spec.md` | PERF, REL, SEC, PORT, SCALE |
+| Local mode | `local-mode/spec.md` | LOCAL-001–006 |
+| Agent mode | `agent-mode/spec.md` | AGENT-001–008 |
+| Observability | `observability/spec.md` | OBS-001–005 |
+| Non-functional | `non-functional/spec.md` | PERF, REL, SEC, PORT-001–004, SCALE |
 | Verification | `verification/spec.md` | VER-001–005 |
 | Engine | `engine/spec.md` | ENG-001–016 |
 

@@ -109,6 +109,29 @@ The core SHALL declare a protocol-compatibility policy and reject adapters outsi
 - **WHEN** the core attempts to use it
 - **THEN** the core SHALL reject it
 
+### Requirement: TIA-PORT-004 — CLI reference documentation freshness
+
+The repository SHALL keep `docs/cli.md` (or equivalent human-facing CLI reference) in sync with the real `--help` output of the installed binary. The documentation SHALL NOT be considered up-to-date if it:
+- Omits a real subcommand or flag, or
+- Documents a subcommand or flag that does not exist in the real `--help` output.
+
+> **Note:** Common approaches to satisfy this requirement include generating
+> `docs/cli.md` from clap's help text (e.g. `clap-markdown`) or adding a CI
+> check (e.g. `just doc-cli-sync`) that compares documented subcommands and
+> flags against `--help` output and fails on drift.
+
+#### Scenario: Missing subcommand detected
+- **GIVEN** a real subcommand added to the CLI
+- **WHEN** `docs/cli.md` is not updated
+- **THEN** the CI doc-freshness check SHALL fail
+- **AND** the failure SHALL identify the undocumented subcommand
+
+#### Scenario: Generated reference
+- **GIVEN** the CLI binary
+- **WHEN** `docs/cli.md` is generated from `--help` output
+- **THEN** all real subcommands and flags SHALL be present
+- **AND** no phantom subcommands or flags SHALL appear
+
 ### Requirement: TIA-SCALE-001 — Monorepo scaling
 
 The core SHALL support monorepos containing many components without recomputing the full graph per change.

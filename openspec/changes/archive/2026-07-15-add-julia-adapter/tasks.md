@@ -1,3 +1,7 @@
+> All tasks in this file are **SUPERSEDED** by
+> `openspec/changes/add-julia-adapter-via-testimonial/`. See that proposal
+> for the current task list.
+
 ## 1. Core config changes
 - [ ] 1.1 Add `.jl` → `"testaruda-adapter-julia"` to `AdapterConfig::default()` extension map
 - [ ] 1.2 Add Julia detection in `detect_project_language()`: check for `Project.toml` existence, return `"testaruda-adapter-julia"`

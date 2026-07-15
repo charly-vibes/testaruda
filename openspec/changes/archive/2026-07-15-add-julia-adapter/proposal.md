@@ -1,5 +1,15 @@
 # Change: Add JuliaLang adapter
 
+> **SUPERSEDED** by `openspec/changes/add-julia-adapter-via-testimonial/`.
+> This proposal targeted `Test.jl`/`@testset` + `include()`-parsing for a
+> separate `testaruda-adapter-julia` repository. The replacement uses
+> `ReTestItems.jl`/`@testitem` + subprocess coverage recording, living
+> inside Testimonial.jl as a subcommand — a strictly stronger mechanism
+> (empirical edges instead of static guesses). See the replacement
+> proposal for the full rationale.
+>
+> Archived 2026-07-15.
+
 ## Why
 
 Julia is a growing language in scientific computing, data science, and machine learning — domains where test selection is especially valuable due to long-running test suites. The core currently ships with default adapter mappings for Rust (`.rs`) and Python (`.py`), but no Julia support. Users working on Julia projects must manually configure the adapter binary and extension mapping, and `testaruda init` cannot auto-detect Julia projects.

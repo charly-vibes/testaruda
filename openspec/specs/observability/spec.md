@@ -41,3 +41,19 @@ The core SHALL emit structured logs for each selection and ingestion.
 - **GIVEN** a selection or ingestion operation
 - **WHEN** it completes
 - **THEN** structured logs SHALL be emitted for the operation
+
+### Requirement: TIA-OBS-005 — Log routing to stderr in machine-readable modes
+
+When a machine-readable output mode (`--json`, `--agent`, or `--pre-edit`) is active, the core SHALL route all structured log output to stderr, leaving stdout clean for parseable JSON. When no machine-readable mode is active, the core MAY emit logs to either stderr or stdout; stderr is recommended.
+
+#### Scenario: Machine-readable mode log routing
+- **GIVEN** a machine-readable output mode (`--json`, `--agent`, or `--pre-edit`) is active
+- **WHEN** the core emits structured logs
+- **THEN** all log output SHALL appear on stderr
+- **AND** stdout SHALL contain only the requested machine-readable output
+
+#### Scenario: Human mode log placement
+- **GIVEN** no machine-readable output mode is active
+- **WHEN** the core emits structured logs
+- **THEN** it MAY emit logs to stderr or stdout
+- **AND** stderr is the recommended target
