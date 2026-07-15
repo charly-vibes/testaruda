@@ -1,9 +1,9 @@
-//! Deterministic ordering and duration-based sort tests (TIA-SEL-005, TIA-SEL-006, TIA-SEL-007).
+//! Ordering tests: deterministic, duration, and predictive ranking (TIA-SEL-005, TIA-SEL-006, TIA-SEL-007).
 //!
 //! Verifies:
 //! - TIA-SEL-005: identical inputs + store state → byte-identical output
 //! - TIA-SEL-006: duration ordering sorts by descending mean duration
-//! - TIA-SEL-007: ranking re-orders only, never removes always-run
+//! - TIA-SEL-007: predictive ranking re-orders by failure rate, never removes always-run
 //!
 //! Note: tests MUST run single-threaded (they change the process cwd).
 
@@ -322,6 +322,76 @@ fn test_ordering_scenarios() {
             assert!(ids.contains(&tids[0]), "test_session (dep on session.py)");
             assert!(ids.contains(&tids[2]), "test_totp (always-run from failed)");
             assert_eq!(sel.selected_count, 2);
+        }
+
+        // === Scenario 6: Predictive ranking by failure rate (TIA-SEL-007) ===
+        // Seed per-test failure histories, then change helpers.py → affects tids[0,1,3].
+        // Expected order: tids[0] (60% failed) → tids[3] (0% passed) → tids[1] (no history)
+        {
+            // Seed failure histories (5 runs each)
+            // tid[0]: 3/5 failed = 60%
+            for i in 0..5 {
+                let outcome = if i < 3 { "failed" } else { "passed" };
+                store.conn().execute(
+                    "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+                     VALUES (?1, ?2, ?3, 50, 'default')",
+                    rusqlite::params![tids[0], format!("pred-{}-{}", i, tids[0]), outcome],
+                ).unwrap();
+            }
+            // tid[3]: 5/5 passed = 0% failure rate
+            for i in 0..5 {
+                store.conn().execute(
+                    "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+                     VALUES (?1, ?2, 'passed', 50, 'default')",
+                    rusqlite::params![tids[3], format!("pred-{}-{}", i, tids[3])],
+                ).unwrap();
+            }
+            // tid[1]: no history (0 runs) → goes last
+
+            std::fs::write(
+                dir.path().join("src/helpers.py"),
+                b"def fmt(p, q, r, s): return str(p + q + r + s)",
+            )
+            .unwrap();
+            let delta = ChangeSet {
+                files: vec!["src/helpers.py".to_string()],
+                base: None,
+                head: None,
+            };
+
+            // Note: setup_graph seeds all 4 tids with a 'passed' run.
+            // scenario 5 adds a failed run for tids[2].
+            // scenario 6 adds:
+            //   tids[0]: 3 failed + 2 passed → 3/6 = 50%
+            //   tids[3]: 5 passed → 0/6 = 0%
+            //   tids[1]: no additions → 0/1 = 0%
+            //   tids[2]: no additions → 1/2 = 50% (from scenario 5)
+            //
+            // Always-run from scenario 5 means tids[2] is also selected → 4 tests total.
+            // Expected order: tids[0] (50%) → tids[2] (50%) → tids[1] (0%) → tids[3] (0%)
+            // Tiebreaker on equal rate: ascending ID
+            let sel =
+                Selector::select_with_ordering(store, &delta, TestOrdering::Predictive).unwrap();
+            assert_eq!(
+                sel.selected_count, 4,
+                "helpers.py → 3 affected + 1 always-run"
+            );
+            let ids: Vec<u32> = sel.tests.iter().map(|t| t.id).collect();
+            // Verify descending failure rate with ID tiebreaker
+            let rates = store.load_failure_rates().unwrap();
+            for i in 1..ids.len() {
+                let ra = rates.get(&ids[i - 1]).copied().unwrap_or(0.0);
+                let rb = rates.get(&ids[i]).copied().unwrap_or(0.0);
+                assert!(
+                    ra >= rb || (ra == rb && ids[i - 1] < ids[i]),
+                    "order violation at {}: id={}(rate={}) before id={}(rate={})",
+                    i,
+                    ids[i - 1],
+                    ra,
+                    ids[i],
+                    rb
+                );
+            }
         }
     });
 }

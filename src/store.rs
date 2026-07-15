@@ -1776,6 +1776,38 @@ impl Store {
         Ok(map)
     }
 
+    /// Load the historical failure rate (failed / total) for each test item.
+    ///
+    /// Returns a map of test_item_id → failure_rate (0.0 to 1.0).
+    /// Tests with no run history are omitted from the map.
+    ///
+    /// Used by predictive ranking (TIA-SEL-007).
+    pub fn load_failure_rates(&self) -> miette::Result<std::collections::HashMap<u32, f64>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT test_item_id,
+                        CAST(SUM(CASE WHEN outcome = 'failed' THEN 1 ELSE 0 END) AS REAL) /
+                        CAST(COUNT(*) AS REAL) AS failure_rate
+                 FROM run_history
+                 WHERE environment = 'default'
+                 GROUP BY test_item_id",
+            )
+            .map_err(|e| miette::miette!("Failure rate query prep failed: {}", e))?;
+        let rows = stmt
+            .query_map([], |row| {
+                let id: u32 = row.get(0)?;
+                let rate: f64 = row.get(1)?;
+                Ok((id, rate))
+            })
+            .map_err(|e| miette::miette!("Failure rate query failed: {}", e))?;
+        let mut map = std::collections::HashMap::new();
+        for row in rows.flatten() {
+            map.insert(row.0, row.1);
+        }
+        Ok(map)
+    }
+
     /// Resolve or create an environment fingerprint (TIA-RUN-006, TIA-CORE-008).
     ///
     /// Looks up the environment_fingerprints table by toolchain and OS.

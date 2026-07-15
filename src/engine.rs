@@ -24,6 +24,11 @@ pub enum TestOrdering {
     ///
     /// Tests with no recorded history are placed at the end.
     ByDuration,
+    /// Order by descending historical failure rate (TIA-SEL-007).
+    ///
+    /// Tests with the highest failure rate are placed first.
+    /// Tests with no recorded history are placed at the end.
+    Predictive,
 }
 
 /// Origin of a dependency edge.
@@ -272,6 +277,17 @@ impl<'a> Engine<'a> {
                     let db = durations.get(&b.id).copied().unwrap_or(0);
                     // Descending: higher duration first
                     db.cmp(&da).then_with(|| a.id.cmp(&b.id))
+                });
+            }
+            TestOrdering::Predictive => {
+                let failure_rates = self.store.load_failure_rates()?;
+                affected.sort_by(|a, b| {
+                    let ra = failure_rates.get(&a.id).copied().unwrap_or(0.0);
+                    let rb = failure_rates.get(&b.id).copied().unwrap_or(0.0);
+                    // Descending: higher failure rate first
+                    rb.partial_cmp(&ra)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| a.id.cmp(&b.id))
                 });
             }
         }
