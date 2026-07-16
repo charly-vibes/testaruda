@@ -1,15 +1,15 @@
 ## Precondition: resolve blocking decisions
-- [ ] Resolve `Base.reset_coverage()` spike (`design.md` Decision 4 caveat) — does Julia ≥1.11 permit sequential in-process resets, or is subprocess-isolation unconditionally necessary?
-- [ ] Resolve multi-package monorepo scoping (`design.md` Decision 5) — walk-all-`Project.toml`s vs. per-package invocation
+- [x] Resolve `Base.reset_coverage()` spike (design.md Decision 4 caveat) — confirmed: `Base.reset_coverage()` does not exist in Julia 1.12.5. Subprocess isolation is unconditionally necessary.
+- [x] Resolve multi-package monorepo scoping (design.md Decision 5) — adopted per-package invocation (Option 2). Adapter handles one package; CI invokes testaruda per package.
 
 ## 1. Testimonial.jl adapter implementation
-- [ ] 1.1 Add `bin/testaruda_adapter.jl` entry point (thin JSON protocol dispatcher)
-- [ ] 1.2 Implement `handshake` command: respond with languages=`["julia"]`, granularity=`"file"`, capabilities `{symbol_model_complete: false, fingerprinting: true, runtime_edges: true}`
+- [x] 1.1 Add `bin/testaruda_adapter.jl` entry point (thin JSON protocol dispatcher)
+- [x] 1.2 Implement `handshake` command: respond with languages=`["julia"]`, granularity=`"file"`, capabilities `{symbol_model_complete: false, fingerprinting: true, runtime_edges: true}`
 - [ ] 1.3 Implement `discover` command: walk test directories, parse `@testitem` blocks via `ASTParser.jl`. Node IDs = `test_file:testitem_name`
 - [ ] 1.4 Implement `static-deps` command: return changed files as `unresolved` on first invocation; return coverage-map edges on subsequent invocations
-- [ ] 1.5 Implement `fingerprint` command: compute BLAKE3 content hashes for requested files
+- [x] 1.5 Implement `fingerprint` command: compute SHA-256 content hashes for requested files
 - [ ] 1.6 Implement `ingest` command: spawn per-item subprocess with `--code-coverage=user`, parse `.jl.cov` via `Coverage.jl`, return runtime edges
-- [ ] 1.7 Implement `run-args` command: emit `ReTestItems.runtests` invocation args filtered by selected items
+- [x] 1.7 Implement `run-args` command: emit `ReTestItems.runtests` invocation args filtered by selected items
 - [ ] 1.8 Add error handling: graceful timeout, malformed input, fallback to all-tests on failure
 
 ## 2. Testing

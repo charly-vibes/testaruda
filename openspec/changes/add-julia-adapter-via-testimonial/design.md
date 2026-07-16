@@ -36,7 +36,7 @@ testaruda's own build/CI for a feature most testaruda contributors never touch.
 | `discover` | Enumerate `@testitem`s under `test_directories`. Node ID = `test_file:testitem_name`, stable and unique. Testimonial.jl's own `ASTParser.jl` is necessary — `ReTestItems.jl` does not expose a public discovery-only function (verified against published source) |
 | `static-deps` | **First invocation (no coverage recorded):** every changed file → `unresolved`. This triggers testaruda's existing fallback (`TIA-SAFE-004`). **Subsequent invocations:** look up changed files in the coverage map built by `ingest` and return those edges |
 | `ingest` | Per-item subprocess with `--code-coverage=user`, parse `.jl.cov` via `Coverage.jl`, keep only `count > 0` lines. Return file→line→test edges as runtime edges. No separate `.testimonial/index.jls` persistence — testaruda's SQLite store is the system of record |
-| `fingerprint` | BLAKE3 of file contents — align to testaruda's own choice |
+| `fingerprint` | SHA-256 of file contents — standard library, avoids non-stdlib dep |
 | `run-args` | Emit `ReTestItems.runtests` invocation args filtered by `(test_file, item_name)` pairs |
 
 ## Decision 3: granularity is file-level for v1

@@ -46,7 +46,7 @@ that duplicate what testaruda's Rust core already does.**
    - `@testitem` discovery (parsing `ReTestItems.jl` source)
    - Per-item subprocess coverage recording with `--code-coverage=user`
    - `.jl.cov` parsing via `Coverage.jl`
-   - BLAKE3 content fingerprinting
+   - SHA-256 content fingerprinting (stdlib dependency — avoids adding blake3)
 
    Testimonial.jl's own proposals for confidence scoring, safety invariants,
    provenance/explainability, runtime feedback, and component-boundary analysis
