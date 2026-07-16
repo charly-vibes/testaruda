@@ -115,12 +115,22 @@ If an adapter's protocol version is incompatible with the core, then the core SH
 
 ### Requirement: TIA-ADAPT-012 — Adapter failure fallback
 
-If an adapter fails, times out, or returns malformed output, then the core SHALL fall back to selecting all tests in the affected component and record the failure.
+If an adapter fails, times out, or returns malformed output, then the core
+SHALL fall back to selecting all tests in the affected component and record
+the failure. This includes pre-spawn failures (adapter binary not found,
+command not found) and startup failures (adapter crashes before responding).
 
 #### Scenario: Adapter timeout
 - **GIVEN** an adapter that times out
 - **WHEN** the core is waiting for a response
 - **THEN** the core SHALL fall back to selecting all tests in the affected component
+- **AND** SHALL record the adapter failure
+
+#### Scenario: Adapter binary not found
+- **GIVEN** the adapter binary is not installed or not found at the configured path
+- **WHEN** the core attempts to spawn the adapter
+- **THEN** the core SHALL report the missing binary
+- **AND** SHALL fall back to selecting all tests
 - **AND** SHALL record the adapter failure
 
 ### Requirement: TIA-ADAPT-013 — Least privilege and timeout

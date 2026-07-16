@@ -25,7 +25,7 @@ for the exact script path once settled).
 - **GIVEN** a system without Julia installed
 - **WHEN** the core attempts to spawn the adapter entry point
 - **THEN** the core SHALL report "adapter entry point not found"
-- **AND** SHALL fall back to selecting all tests
+- **AND** SHALL fall back to selecting all tests (per TIA-ADAPT-012)
 
 #### Scenario: Missing Testimonial.jl package
 - **GIVEN** a system with Julia installed but without the `Testimonial` package
@@ -33,7 +33,7 @@ for the exact script path once settled).
 - **THEN** the adapter SHALL fail with a `LoadError`
 - **AND** the error message SHALL suggest installing Testimonial.jl
   (e.g. `Pkg.add("Testimonial")`)
-- **AND** the core SHALL fall back to selecting all tests
+- **AND** the core SHALL fall back to selecting all tests (per TIA-ADAPT-012)
 
 ### Requirement: TIA-ADAPT-015 — Julia discover scope (@testitem-based)
 
