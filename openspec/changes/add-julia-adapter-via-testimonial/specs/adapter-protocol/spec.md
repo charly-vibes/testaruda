@@ -8,10 +8,19 @@ the handshake. The adapter SHALL declare `symbol_model_complete: false` and
 `granularity: "file"`.
 
 The adapter SHALL be hosted inside the Testimonial.jl package (not as a
-separate repository), accessed via a shim invocation. The `testaruda.toml`
-adapter config SHALL specify the full invocation, e.g.
-`command = "julia --project=. bin/testaruda_adapter.jl"` (see `design.md`
-for the exact script path once settled).
+separate repository), accessed via a Julia `-e` expression. The `testaruda.toml`
+adapter config SHALL use the recommended invocation:
+```toml
+[adapters]".jl" = "julia --project=. -e 'using Testimonial; Testimonial.Protocol.run_adapter_protocol()'"
+```
+This works for both system-installed (via `Pkg.add`) and local-dev setups.
+The `--project=.` resolves to the current project's environment, which
+must have `Testimonial` as a dependency.
+
+For local development from a cloned Testimonial.jl repo, an alternative is:
+```toml
+[adapters]".jl" = "julia --project=/path/to/Testimonial.jl bin/testaruda_adapter.jl"
+```
 
 #### Scenario: Julia handshake with runtime_edges
 - **GIVEN** a Julia adapter entry point is spawned

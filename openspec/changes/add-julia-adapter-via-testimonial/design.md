@@ -16,8 +16,13 @@ and what it does* — not whether it needs to exist.
 `Testimonial.run_adapter_protocol()`, wired to a thin executable script
 (`bin/testaruda_adapter.jl`) that reads one JSON command per line from stdin
 and writes one JSON response per line to stdout, per `TIA-ADAPT-001`.
-testaruda's `testaruda.toml` then points `.jl` at this script
-(e.g. `julia --project=. bin/testaruda_adapter.jl`).
+testaruda's `testaruda.toml` then points `.jl` at the adapter entry point.
+The recommended invocation is `-e` based, which works for both system-installed
+and local-dev setups:
+```toml
+[adapters]".jl" = "julia --project=. -e 'using Testimonial; Testimonial.Protocol.run_adapter_protocol()'"
+```
+For local development, an alternative is `julia --project=/path/to/Testimonial.jl bin/testaruda_adapter.jl`.
 
 **Rejected: a separate `testaruda-adapter-julia` repository.** No technical
 win — the recording logic (subprocess spawning, `.jl.cov` parsing) has to exist
