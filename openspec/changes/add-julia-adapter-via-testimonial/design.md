@@ -33,11 +33,11 @@ testaruda's own build/CI for a feature most testaruda contributors never touch.
 | testaruda protocol command | Backed by (Testimonial.jl internals) | Notes |
 |---|---|---|
 | `handshake` | static response | `languages: ["julia"]`, `granularity: "file"`, capabilities `{symbol_model_complete: false, fingerprinting: true, runtime_edges: true}` — unlike the superseded proposal's `runtime_edges: false`, because coverage-based edges *are* runtime edges |
-| `discover` | Enumerate `@testitem`s under `test_directories`. Node ID = `test_file:testitem_name`, stable and unique. Testimonial.jl's own `ASTParser.jl` is necessary — `ReTestItems.jl` does not expose a public discovery-only function (verified against published source) |
+| `discover` | Enumerate `@testitem`s under `test_directories`. Node ID = `test_file:line` (stable, location-based), not name-based. See ADAPT-015 rationale. |
 | `static-deps` | **First invocation (no coverage recorded):** every changed file → `unresolved`. This triggers testaruda's existing fallback (`TIA-SAFE-004`). **Subsequent invocations:** look up changed files in the coverage map built by `ingest` and return those edges |
 | `ingest` | Per-item subprocess with `--code-coverage=user`, parse `.jl.cov` via `Coverage.jl`, keep only `count > 0` lines. Return file→line→test edges as runtime edges. No separate `.testimonial/index.jls` persistence — testaruda's SQLite store is the system of record |
 | `fingerprint` | SHA-256 of file contents — standard library, avoids non-stdlib dep |
-| `run-args` | Emit `ReTestItems.runtests` invocation args filtered by `(test_file, item_name)` pairs |
+| `run-args` | Emit `ReTestItems.runtests` invocation args for selected node IDs (`test_file:line`). Resolve each node ID to `(file, name)` pairs via AST parser. |
 
 ## Decision 3: granularity is file-level for v1
 

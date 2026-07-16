@@ -5,7 +5,7 @@
 ## 1. Testimonial.jl adapter implementation
 - [x] 1.1 Add `bin/testaruda_adapter.jl` entry point (thin JSON protocol dispatcher)
 - [x] 1.2 Implement `handshake` command: respond with languages=`["julia"]`, granularity=`"file"`, capabilities `{symbol_model_complete: false, fingerprinting: true, runtime_edges: true}`
-- [ ] 1.3 Implement `discover` command: walk test directories, parse `@testitem` blocks via `ASTParser.jl`. Node IDs = `test_file:testitem_name`
+- [ ] 1.3 Implement `discover` command: walk test directories, parse `@testitem` blocks via `ASTParser.jl`. Node IDs = `test_file:line` (stable, location-based)
 - [ ] 1.4 Implement `static-deps` command: return changed files as `unresolved` on first invocation; return coverage-map edges on subsequent invocations
 - [x] 1.5 Implement `fingerprint` command: compute SHA-256 content hashes for requested files
 - [ ] 1.6 Implement `ingest` command: spawn per-item subprocess with `--code-coverage=user`, parse `.jl.cov` via `Coverage.jl`, return runtime edges
