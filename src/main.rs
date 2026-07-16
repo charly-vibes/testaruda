@@ -160,6 +160,7 @@ fn main() -> miette::Result<()> {
         }
         Command::Calibrate { threshold } => {
             let store = testaruda::Store::open_default()?;
+            store.check_initialized()?;
             let metrics = store.evaluate_ranking_calibration()?;
             println!("=== Predictive Ranking Calibration Gate ===");
             println!("Hold-out tests: {}", metrics.total_test_items);
@@ -196,6 +197,7 @@ fn main() -> miette::Result<()> {
             ordering,
         } => {
             let store = testaruda::Store::open_default()?;
+            store.check_initialized()?;
             let delta = testaruda::ChangeSet::from_diff(
                 base.as_deref(),
                 head.as_deref(),
@@ -498,6 +500,7 @@ fn main() -> miette::Result<()> {
         }
         Command::Ingest { path, raw, adapter } => {
             let store = testaruda::Store::open_default()?;
+            store.check_initialized()?;
 
             if raw {
                 // Raw mode: treat file as test runner output, delegate to adapter
@@ -588,6 +591,7 @@ fn main() -> miette::Result<()> {
         }
         Command::Graph => {
             let store = testaruda::Store::open_default()?;
+            store.check_initialized()?;
             let graph = store.export_graph()?;
             let out = serde_json::to_string_pretty(&graph)
                 .map_err(|e| miette::miette!("JSON serialization failed: {}", e))?;
@@ -607,6 +611,7 @@ fn main() -> miette::Result<()> {
         }
         Command::Explain { test_id, change } => {
             let store = testaruda::Store::open_default()?;
+            store.check_initialized()?;
             let explanation = store.explain(&test_id, change.as_deref())?;
             let out = serde_json::to_string_pretty(&explanation)
                 .map_err(|e| miette::miette!("JSON serialization failed: {}", e))?;
@@ -615,6 +620,7 @@ fn main() -> miette::Result<()> {
         }
         Command::Validate { program } => {
             let store = testaruda::Store::open_default()?;
+            store.check_initialized()?;
             println!("🔮 Soufflé oracle validation");
 
             // Generate Datalog from the current store
@@ -667,6 +673,7 @@ fn main() -> miette::Result<()> {
         }
         Command::Metrics {} => {
             let store = testaruda::Store::open_default()?;
+            store.check_initialized()?;
             let test_count = store.test_items_count().unwrap_or(0);
             let run_count = store.run_count().unwrap_or(0);
             let quarantined_count = store.quarantined_count().unwrap_or(0);
