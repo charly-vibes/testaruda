@@ -15,6 +15,12 @@ Where the agent output format is requested, the CLI SHALL emit a structured JSON
 - **AND** each per-test entry SHALL include `id`, `node_id`, `always_run`, `optional fallback_reason`, `reason_chain`, and `confidence`
 - **AND** when `always_run` is `true` and edges are missing, `fallback_reason` SHALL explain why
 
+#### Scenario: Agent JSON output
+- **GIVEN** a request for agent output format
+- **WHEN** selection is computed
+- **THEN** the CLI SHALL emit a structured JSON object on stdout
+- **AND** the output SHALL contain `selection`, `changed_units`, and `summary`
+
 ### Requirement: TIA-AGENT-002 — Byte-stable agent output
 
 Given the same change set and store state, the CLI in agent mode SHALL produce byte-stable output. Agent mode SHALL implicitly enforce deterministic output ordering (TIA-SEL-005) regardless of parallel evaluation (TIA-COMP-008), without requiring a separate flag from the caller.

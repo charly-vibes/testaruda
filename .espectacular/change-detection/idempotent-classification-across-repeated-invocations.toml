@@ -1,5 +1,5 @@
 id = "idempotent-classification-across-repeated-invocations"
-description = "Contract for: Repeated cold-start invocation with no intervening change (TIA-CHG-009 idempotency)"
+description = "Contract for: Repeated cold-start invocation with no intervening change (TIA-CHG-010 idempotency)"
 archetype = "PF"
 status = "active"
 superseded_by = ""

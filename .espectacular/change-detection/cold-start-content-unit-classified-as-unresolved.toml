@@ -1,5 +1,5 @@
 id = "cold-start-content-unit-classified-as-unresolved"
-description = "Contract for: Cold-start content unit classified as unresolved (TIA-CHG-009)"
+description = "Contract for: Cold-start content unit classified as unresolved (TIA-CHG-010)"
 archetype = "PF"
 status = "active"
 superseded_by = ""
