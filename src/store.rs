@@ -1157,44 +1157,86 @@ impl Store {
     ///
     /// Creates content units for edges and inserts dependency edges into the
     /// dependency_edges and reverse_index tables.
+    /// Normalize a DepEdge target path by stripping any trailing `:line_number` suffix.
+    ///
+    /// Runtime edges use `file:line` format (e.g., `src/Todo.jl:3`) for line-level
+    /// precision, but content units are tracked at file-level granularity. Stripping
+    /// the line suffix ensures edges from the same file map to the same content unit,
+    /// which the selection engine looks up by file path.
+    fn normalize_edge_target(path: &str) -> &str {
+        if let Some(colon) = path.rfind(':') {
+            // Check if the part after the last colon is a number (line number)
+            let after = &path[colon + 1..];
+            if after.parse::<u32>().is_ok() {
+                return &path[..colon];
+            }
+        }
+        path
+    }
+
     pub fn store_static_deps(
         &self,
         adapter: &str,
         deps: &[crate::adapter::DepEdge],
     ) -> miette::Result<()> {
+        // Group edges by normalized target path to avoid duplicate
+        // content unit creation (SQLite UNIQUE treats NULL as distinct).
+        let mut by_cu_path: std::collections::HashMap<String, Vec<&crate::adapter::DepEdge>> =
+            std::collections::HashMap::new();
+
         for edge in deps {
-            // Ensure the content unit (target) exists
+            // Normalize target path: strip `:line` suffix from runtime edges
+            // so file-level content units are used (TIA-ADAPT-008).
+            let normalized = Self::normalize_edge_target(&edge.to);
+            // Also make path relative to project root so it matches the format
+            // used by the selection engine (delta.files are relative paths from git).
+            let proj_root = self.project_root.to_string_lossy();
+            let cu_path = if let Some(relative) = normalized.strip_prefix(&*proj_root) {
+                relative.strip_prefix('/').unwrap_or(relative)
+            } else {
+                normalized
+            };
+            by_cu_path
+                .entry(cu_path.to_string())
+                .or_default()
+                .push(edge);
+        }
+
+        for (cu_path, edges) in &by_cu_path {
+            // Ensure the content unit (target) exists — once per unique path
             let cu_id = self
-                .ensure_content_unit("default", &edge.to, None, "source")
+                .ensure_content_unit("default", cu_path, None, "source")
                 .map_err(|e| miette::miette!("Failed to create content unit: {}", e))?;
 
-            // Find the test item (source) by node_id
-            let test_id = self.conn.query_row(
-                "SELECT id FROM test_items WHERE component = 'default' AND adapter = ?1 AND node_id = ?2",
-                rusqlite::params![adapter, edge.from],
-                |row| row.get::<_, u32>(0),
-            );
-            if let Ok(tid) = test_id {
-                // Insert the dependency edge
-                let origin = match edge.origin.as_str() {
-                    "runtime" => "runtime",
-                    "manual" => "manual",
-                    _ => "static",
-                };
-                self.conn.execute(
-                    "INSERT OR IGNORE INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
-                     VALUES (?1, ?2, 'default', ?3, ?4)",
-                    rusqlite::params![tid, cu_id, origin, edge.weight],
-                ).map_err(|e| miette::miette!("Failed to insert dependency edge: {}", e))?;
+            for edge in edges {
+                // Find the test item (source) by node_id
+                let test_id = self.conn.query_row(
+                    "SELECT id FROM test_items WHERE component = 'default' AND adapter = ?1 AND node_id = ?2",
+                    rusqlite::params![adapter, edge.from],
+                    |row| row.get::<_, u32>(0),
+                );
+                if let Ok(tid) = test_id {
+                    // Insert the dependency edge
+                    let origin = match edge.origin.as_str() {
+                        "runtime" => "runtime",
+                        "manual" => "manual",
+                        _ => "static",
+                    };
+                    self.conn.execute(
+                        "INSERT OR IGNORE INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
+                         VALUES (?1, ?2, 'default', ?3, ?4)",
+                        rusqlite::params![tid, cu_id, origin, edge.weight],
+                    ).map_err(|e| miette::miette!("Failed to insert dependency edge: {}", e))?;
 
-                // Also update the reverse index
-                self.conn
-                    .execute(
-                        "INSERT OR IGNORE INTO reverse_index (content_unit_id, test_item_id)
-                     VALUES (?1, ?2)",
-                        rusqlite::params![cu_id, tid],
-                    )
-                    .map_err(|e| miette::miette!("Failed to update reverse index: {}", e))?;
+                    // Also update the reverse index
+                    self.conn
+                        .execute(
+                            "INSERT OR IGNORE INTO reverse_index (content_unit_id, test_item_id)
+                             VALUES (?1, ?2)",
+                            rusqlite::params![cu_id, tid],
+                        )
+                        .map_err(|e| miette::miette!("Failed to update reverse index: {}", e))?;
+                }
             }
         }
         Ok(())
