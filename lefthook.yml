@@ -21,12 +21,20 @@ pre-commit:
       run: just lint
 
 pre-push:
+  parallel: true
   commands:
     beads:
       run: bd hooks run pre-push
       skip: no_beads
+    format-check:
+      glob: "*.rs"
+      run: just fmt-check
+    lint:
+      glob: "*.rs"
+      run: just lint
     test:
-      run: just pre-push
+      # Run only affected tests via testaruda --safe (falls back to cargo test)
+      run: testaruda select --safe --base origin/main --head HEAD
       fail_text: |
         Tests failed. Push blocked.
 
