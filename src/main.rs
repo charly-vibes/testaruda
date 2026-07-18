@@ -43,6 +43,11 @@ enum Command {
         /// CI mode: run selected tests and ingest results automatically (TIA-CI-008)
         #[arg(long)]
         ci: bool,
+        /// Safe mode: pre-flight checks then fall back to `cargo test` if
+        /// anything is missing (config, store, git refs) or confidence is low.
+        /// Implies --ci.
+        #[arg(long)]
+        safe: bool,
         /// Selection ordering mode
         #[arg(long, default_value_t)]
         ordering: testaruda::TestOrdering,
@@ -194,8 +199,21 @@ fn main() -> miette::Result<()> {
             agent,
             pre_edit,
             ci,
+            safe,
             ordering,
         } => {
+            // Safe mode: pre-flight checks with fallback to cargo test
+            if safe {
+                if !std::path::Path::new("testaruda.toml").exists() {
+                    eprintln!("  \u{26a0}\u{fe0f}  testaruda not configured (no testaruda.toml)");
+                    run_cargo_test_fallback();
+                }
+                if !std::path::Path::new(".testaruda").exists() {
+                    eprintln!("  \u{26a0}\u{fe0f}  testaruda store not initialized");
+                    run_cargo_test_fallback();
+                }
+            }
+
             let store = testaruda::Store::open_default()?;
             store.check_initialized()?;
             let delta = testaruda::ChangeSet::from_diff(
@@ -383,12 +401,17 @@ fn main() -> miette::Result<()> {
 
                 let code = outcome.exit_code();
                 if code != 0 {
+                    if safe && code == 10 {
+                        eprintln!("  \u{26a0}\u{fe0f}  Low confidence — running full test suite");
+                        run_cargo_test_fallback();
+                    }
                     std::process::exit(code);
                 }
             }
 
             // CI mode (TIA-CI-008): run selected tests and ingest results
-            if ci && !selection.tests.is_empty() {
+            let effective_ci = ci || safe;
+            if effective_ci && !selection.tests.is_empty() {
                 // Collect selected test file paths (node_ids from store)
                 let mut selected_files: Vec<String> = Vec::new();
                 for t in &selection.tests {
@@ -896,6 +919,22 @@ pub fn find_project_root() -> miette::Result<std::path::PathBuf> {
 // ===== CI Exit Codes (TIA-CI-001..008) =====
 
 /// Exit codes for CI pipeline integration.
+#[allow(dead_code)]
+/// Fallback: run `cargo test` and exit with its exit code.
+/// Used by --safe mode when pre-flight checks fail or confidence is low.
+fn run_cargo_test_fallback() -> ! {
+    eprintln!("  \u{25b6}\u{fe0f}  cargo test (fallback)");
+    let status = std::process::Command::new("cargo")
+        .args(["test"])
+        .status()
+        .unwrap_or_else(|e| {
+            eprintln!("  \u{274c}  Failed to run cargo test: {}", e);
+            std::process::exit(1)
+        });
+    let code = status.code().unwrap_or(1);
+    std::process::exit(code)
+}
+
 #[allow(dead_code)]
 mod ci_exit {
     pub const SUCCESS: i32 = 0; // TIA-CI-001
