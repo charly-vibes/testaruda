@@ -2,6 +2,8 @@
 
 use clap::{Parser, Subcommand};
 use std::io::IsTerminal;
+#[cfg(unix)]
+use std::os::unix::process::ExitStatusExt;
 
 #[derive(Parser)]
 #[command(name = "testaruda", author, version, about)]
@@ -45,7 +47,8 @@ enum Command {
         ci: bool,
         /// Safe mode: pre-flight checks then fall back to `cargo test` if
         /// anything is missing (config, store, git refs) or confidence is low.
-        /// Implies --ci.
+        /// Implies --ci. Recommended: pass --base and --head to test the diff
+        /// between two git refs; otherwise falls back to uncommitted changes.
         #[arg(long)]
         safe: bool,
         /// Selection ordering mode
@@ -204,11 +207,18 @@ fn main() -> miette::Result<()> {
         } => {
             // Safe mode: pre-flight checks with fallback to cargo test
             if safe {
-                if !std::path::Path::new("testaruda.toml").exists() {
+                let project_root = match find_project_root() {
+                    Ok(p) => p,
+                    Err(_) => {
+                        eprintln!("  \u{26a0}\u{fe0f}  testaruda not initialized (no .git or testaruda.toml found)");
+                        run_cargo_test_fallback();
+                    }
+                };
+                if !project_root.join("testaruda.toml").exists() {
                     eprintln!("  \u{26a0}\u{fe0f}  testaruda not configured (no testaruda.toml)");
                     run_cargo_test_fallback();
                 }
-                if !std::path::Path::new(".testaruda").exists() {
+                if !project_root.join(".testaruda").exists() {
                     eprintln!("  \u{26a0}\u{fe0f}  testaruda store not initialized");
                     run_cargo_test_fallback();
                 }
@@ -405,6 +415,10 @@ fn main() -> miette::Result<()> {
                         eprintln!("  \u{26a0}\u{fe0f}  Low confidence — running full test suite");
                         run_cargo_test_fallback();
                     }
+                    if safe && code == 20 {
+                        eprintln!("  \u{2705}  No tests affected by this change — skipping");
+                        std::process::exit(0);
+                    }
                     std::process::exit(code);
                 }
             }
@@ -462,14 +476,10 @@ fn main() -> miette::Result<()> {
                                         format!("{}\n{}", stdout, stderr)
                                     };
 
-                                    // Check test runner exit code (TIA-CI-008)
-                                    if !output.status.success() {
-                                        eprintln!(
-                                            "  ❌ CI: test runner failed with exit code {}",
-                                            output.status.code().unwrap_or(-1)
-                                        );
-                                        std::process::exit(output.status.code().unwrap_or(1));
-                                    }
+                                    // Capture exit code, ingest FIRST, then exit with captured code
+                                    // This preserves the feedback loop: failed runs are recorded (TIA-CI-008)
+                                    let test_runner_ok = output.status.success();
+                                    let test_runner_code = output.status.code().unwrap_or(1);
 
                                     eprintln!("  📥 CI: ingesting results...");
                                     match adapter.ingest(&combined) {
@@ -514,6 +524,15 @@ fn main() -> miette::Result<()> {
                                         Err(e) => {
                                             eprintln!("  ⚠️  CI: adapter ingest failed: {}", e);
                                         }
+                                    }
+
+                                    // Exit with test runner code AFTER ingest preserves history
+                                    if !test_runner_ok {
+                                        eprintln!(
+                                            "  ❌  CI: test runner failed with exit code {}",
+                                            test_runner_code
+                                        );
+                                        std::process::exit(test_runner_code);
                                     }
                                 }
                                 Err(e) => {
@@ -918,8 +937,6 @@ pub fn find_project_root() -> miette::Result<std::path::PathBuf> {
 
 // ===== CI Exit Codes (TIA-CI-001..008) =====
 
-/// Exit codes for CI pipeline integration.
-#[allow(dead_code)]
 /// Fallback: run `cargo test` and exit with its exit code.
 /// Used by --safe mode when pre-flight checks fail or confidence is low.
 fn run_cargo_test_fallback() -> ! {
@@ -931,6 +948,14 @@ fn run_cargo_test_fallback() -> ! {
             eprintln!("  \u{274c}  Failed to run cargo test: {}", e);
             std::process::exit(1)
         });
+    #[cfg(unix)]
+    if let Some(signal) = status.signal() {
+        eprintln!(
+            "  \u{26a0}\u{fe0f}  cargo test was interrupted (signal {})",
+            signal
+        );
+        std::process::exit(128 + signal);
+    }
     let code = status.code().unwrap_or(1);
     std::process::exit(code)
 }

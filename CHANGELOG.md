@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.2.2 — Pre-push integration (2026-07-17)
+
+### Added
+
+- `testaruda select --safe`: pre-flight checks (testaruda.toml, store,
+  git refs) with graceful fallback to `cargo test`. Implies --ci.
+  Intended for pre-push hooks in Rust projects.
+- `.flatpak-builder/` exclusion in Rust adapter discover to avoid
+  bloated discovery in Flatpak build environments.
+
+### Fixed
+
+- `schema_version()` query table name mismatch (`_schema_version` vs
+  `schema_version`).
+- CI mode now propagates test runner exit code instead of always exiting 0.
+- `--safe` mode captures exit code before ingesting results, preserving
+  the feedback loop for failed runs.
+
+---
+
 ## 0.2.1 — UX Round 5 implementation (2026-07-15)
 
 ### Added

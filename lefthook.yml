@@ -33,6 +33,7 @@ pre-push:
       glob: "*.rs"
       run: just lint
     test:
+      glob: "*.rs"
       # Run only affected tests via testaruda --safe (falls back to cargo test)
       run: testaruda select --safe --base origin/main --head HEAD
       fail_text: |
