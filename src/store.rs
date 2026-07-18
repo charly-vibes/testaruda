@@ -1121,7 +1121,7 @@ impl Store {
     /// Get the current schema version.
     pub fn schema_version(&self) -> rusqlite::Result<u32> {
         self.conn
-            .query_row("SELECT version FROM schema_version", [], |row| row.get(0))
+            .query_row("SELECT version FROM _schema_version", [], |row| row.get(0))
     }
 
     /// Check that the store has been initialized, returning a human-readable error
