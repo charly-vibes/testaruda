@@ -439,6 +439,15 @@ fn main() -> miette::Result<()> {
                                         format!("{}\n{}", stdout, stderr)
                                     };
 
+                                    // Check test runner exit code (TIA-CI-008)
+                                    if !output.status.success() {
+                                        eprintln!(
+                                            "  ❌ CI: test runner failed with exit code {}",
+                                            output.status.code().unwrap_or(-1)
+                                        );
+                                        std::process::exit(output.status.code().unwrap_or(1));
+                                    }
+
                                     eprintln!("  📥 CI: ingesting results...");
                                     match adapter.ingest(&combined) {
                                         Ok(ingest_result) => {

@@ -81,6 +81,7 @@ fn cmd_discover() -> serde_json::Value {
             e.file_type().is_file()
                 && e.path().to_string_lossy().ends_with(".rs")
                 && !p.contains("/target/")
+                && !p.contains("/.flatpak-builder/")
         })
     {
         let path = entry.path().to_string_lossy().to_string();
