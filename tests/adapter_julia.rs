@@ -297,3 +297,163 @@ fn julia_adapter_unknown_command() {
     child.kill().ok();
     child.wait().ok();
 }
+
+/// Path to the Julia fixture project (relative to crate root).
+fn fixture_path() -> std::path::PathBuf {
+    let crate_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    crate_root.join("tests").join("fixtures").join("julia")
+}
+
+/// Spawn the Julia adapter subprocess.
+fn spawn_adapter() -> std::process::Child {
+    Command::new("testaruda-adapter-julia")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn Julia adapter")
+}
+
+#[test]
+fn julia_adapter_full_pipeline() {
+    if !julia_available() || !adapter_available() {
+        return;
+    }
+
+    let fix = fixture_path();
+    let test_dir = fix.join("test");
+    let src_file = fix.join("src").join("MyFixture.jl");
+
+    let mut child = spawn_adapter();
+
+    // 1. Handshake
+    let resp = send_command(&mut child, r#"{"command":"handshake"}"#);
+    let hs: serde_json::Value =
+        serde_json::from_str(&resp).expect("handshake should be valid JSON");
+    assert!(hs["ok"].as_bool().unwrap_or(false));
+    assert_eq!(hs["result"]["name"], "testimonial-adapter");
+    assert_eq!(hs["result"]["languages"], serde_json::json!(["julia"]));
+
+    // 2. Discover
+    let cmd = format!(
+        r#"{{"command":"discover","params":{{"test_directories":["{}"]}}}}"#,
+        test_dir.display()
+    );
+    let resp = send_command(&mut child, &cmd);
+    let disc: serde_json::Value =
+        serde_json::from_str(&resp).expect("discover should be valid JSON");
+    assert!(disc["ok"].as_bool().unwrap_or(false));
+    let nodes = disc["result"].as_array().unwrap();
+    assert_eq!(nodes.len(), 3, "should discover 3 @testitems");
+
+    // Verify node IDs are file:line format
+    for node in nodes {
+        assert_eq!(node["suite_kind"], "ReTestItems.jl");
+        let node_id = node["node_id"].as_str().unwrap();
+        assert!(node_id.contains(":"), "node_id should contain :");
+    }
+
+    // 3. Fingerprint
+    let cmd = format!(
+        r#"{{"command":"fingerprint","params":{{"files":["{}"]}}}}"#,
+        src_file.display()
+    );
+    let resp = send_command(&mut child, &cmd);
+    let fp: serde_json::Value =
+        serde_json::from_str(&resp).expect("fingerprint should be valid JSON");
+    assert!(fp["ok"].as_bool().unwrap_or(false));
+    let fingerprints = fp["result"]["fingerprints"].as_array().unwrap();
+    assert_eq!(fingerprints.len(), 1);
+    assert_eq!(fingerprints[0]["fingerprint"].as_str().unwrap().len(), 64);
+
+    // 4. Static-deps (no prior coverage) — all unresolved
+    let cmd = format!(
+        r#"{{"command":"static-deps","params":{{"changed_files":["{}"]}}}}"#,
+        src_file.display()
+    );
+    let resp = send_command(&mut child, &cmd);
+    let sd: serde_json::Value =
+        serde_json::from_str(&resp).expect("static-deps should be valid JSON");
+    assert!(sd["ok"].as_bool().unwrap_or(false));
+    let sd_edges = &sd["result"]["edges"];
+    // The key is the absolute path, and it should be "unresolved"
+    let abs_src = std::fs::canonicalize(&src_file).unwrap();
+    let abs_src_str = abs_src.to_string_lossy();
+    assert_eq!(
+        sd_edges[abs_src_str.as_ref()],
+        "unresolved",
+        "without prior ingest, changed files should be unresolved"
+    );
+
+    // 5. Ingest via run_output (TIA-ADAPT-008)
+    // The adapter parses run_output JSON lines and attempts to record
+    // real coverage for each item. If coverage recording fails (e.g.
+    // no Julia subprocess runner available in this context), per-test
+    // results are still returned but runtime_edges may be empty.
+    let discovered_ids: Vec<String> = nodes
+        .iter()
+        .map(|n| n["node_id"].as_str().unwrap().to_string())
+        .collect();
+    let run_output_lines: Vec<String> = discovered_ids
+        .iter()
+        .map(|id| {
+            format!(
+                r#"{{"test_id":"{}","outcome":"passed","duration_ms":10}}"#,
+                id
+            )
+        })
+        .collect();
+    let run_output = run_output_lines.join("\n");
+
+    let ingest_cmd = serde_json::json!({
+        "command": "ingest",
+        "params": {
+            "run_output": run_output
+        }
+    });
+    let resp = send_command(&mut child, &ingest_cmd.to_string());
+    let ingest: serde_json::Value =
+        serde_json::from_str(&resp).expect("ingest should be valid JSON");
+    assert!(ingest["ok"].as_bool().unwrap_or(false));
+    assert!(
+        ingest["result"]["runtime_edges"].is_array(),
+        "runtime_edges should be an array"
+    );
+    assert!(
+        ingest["result"]["per_test_results"].is_array(),
+        "per_test_results should be an array"
+    );
+    assert_eq!(
+        ingest["result"]["per_test_results"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3,
+        "should have 3 per-test results"
+    );
+    // Note: runtime_edges may be empty or partial here because real
+    // coverage recording requires the TestimonialRunner subprocess.
+    // Full coverage integration is tested in Testimonial.jl's own suite.
+
+    // 6. Run-args — should produce a valid Julia invocation
+    let selected = vec![discovered_ids[0].clone()];
+    let run_args_cmd = serde_json::json!({
+        "command": "run-args",
+        "params": {
+            "selected": selected
+        }
+    });
+    let resp = send_command(&mut child, &run_args_cmd.to_string());
+    let ra: serde_json::Value = serde_json::from_str(&resp).expect("run-args should be valid JSON");
+    assert!(ra["ok"].as_bool().unwrap_or(false));
+    let runner_args = ra["result"]["runner_args"].as_array().unwrap();
+    assert_eq!(runner_args[0], "julia");
+    let expr = runner_args[3].as_str().unwrap_or("");
+    assert!(
+        expr.contains("ReTestItems"),
+        "run-args should emit ReTestItems.runtests invocation"
+    );
+
+    child.kill().ok();
+    child.wait().ok();
+}

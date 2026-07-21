@@ -22,9 +22,18 @@ shadow = false
 full_run_interval = 7
 
 [adapters]
-# Command to invoke adapters
-command = "testaruda-adapter"
-timeout = 30
+# Map file extensions to adapter binaries.
+# Adapters must be installed on PATH or specified as absolute paths.
+".rs" = "testaruda-adapter-rust"
+".py" = "testaruda-adapter-python"
+".jl" = "testaruda-adapter-julia"
+
+# Default adapter when no extension matches
+default = "testaruda-adapter-rust"
+
+# Built-in adapters are Rust binaries compiled by cargo (testaruda-adapter-rust,
+# testaruda-adapter-python). The Julia adapter lives in Testimonial.jl and is
+# accessed via a shell wrapper — see getting-started.md for installation.
 
 [always_run]
 # Path globs that always trigger affected tests

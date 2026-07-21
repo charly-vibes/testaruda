@@ -5,6 +5,19 @@
 - Rust 1.75+
 - Git (for change detection)
 
+### Optional: Julia adapter
+
+To use testaruda with Julia projects, you additionally need:
+
+- [Julia](https://julialang.org/) 1.9+ (coverage recording requires Julia 1.12+ for LCOV tracefile support, or any 1.x for `.jl.cov` sidecar files)
+- [Testimonial.jl](https://github.com/sashakile/Testimonial.jl) — the adapter lives inside this package
+
+```bash
+julia -e 'using Pkg; Pkg.add("Testimonial")'
+# Link the adapter wrapper onto PATH
+ln -s ~/.julia/packages/Testimonial/*/bin/testaruda-adapter-julia ~/.local/bin/
+```
+
 ## Installation
 
 ```bash

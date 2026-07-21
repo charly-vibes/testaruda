@@ -1,0 +1,10 @@
+id = "julia-adapter-dependency-analysis"
+description = "Contract for: Julia coverage-based runtime edge dependency analysis (ADAPT-016)"
+archetype = "PF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+[[tests.shell]]
+command = "cargo test -p testaruda --test adapter_julia julia_adapter_static_deps_unresolved -- --test-threads=1"
+timeout_seconds = 60
