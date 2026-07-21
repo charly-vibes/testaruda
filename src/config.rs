@@ -153,6 +153,7 @@ impl Config {
 # Adapters must be installed on PATH or specified as absolute paths.
 ".rs" = "testaruda-adapter-rust"
 ".py" = "testaruda-adapter-python"
+".jl" = "testaruda-adapter-julia"
 
 # Default adapter when no extension matches
 default = "{}"
@@ -190,6 +191,7 @@ impl Default for AdapterConfig {
         let mut extensions = std::collections::HashMap::new();
         extensions.insert(".rs".to_string(), "testaruda-adapter-rust".to_string());
         extensions.insert(".py".to_string(), "testaruda-adapter-python".to_string());
+        extensions.insert(".jl".to_string(), "testaruda-adapter-julia".to_string());
         Self {
             extensions,
             default: Some("testaruda-adapter-rust".to_string()),
@@ -212,6 +214,10 @@ pub fn detect_project_language(project_root: &Path) -> Option<String> {
         || project_root.join("Pipfile").exists()
     {
         return Some("testaruda-adapter-python".to_string());
+    }
+    // Check Julia (Project.toml marker)
+    if project_root.join("Project.toml").exists() {
+        return Some("testaruda-adapter-julia".to_string());
     }
     None
 }
