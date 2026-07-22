@@ -457,3 +457,318 @@ fn julia_adapter_full_pipeline() {
     child.kill().ok();
     child.wait().ok();
 }
+
+// ============================================================================
+// Error cases
+// ============================================================================
+
+#[test]
+fn julia_adapter_malformed_json() {
+    if !julia_available() || !adapter_available() {
+        return;
+    }
+
+    let mut child = spawn_adapter();
+    let resp = send_command(&mut child, "not valid json at all");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&resp).expect("response should be valid JSON");
+
+    assert!(
+        !parsed["ok"].as_bool().unwrap_or(true),
+        "malformed JSON should fail"
+    );
+    let err = parsed["error"].to_string();
+    assert!(
+        err.to_lowercase().contains("malformed json")
+            || err.to_lowercase().contains("json parsing error"),
+        "error should mention JSON parsing: {}",
+        err
+    );
+
+    child.kill().ok();
+    child.wait().ok();
+}
+
+#[test]
+fn julia_adapter_discover_empty_dir() {
+    if !julia_available() || !adapter_available() {
+        return;
+    }
+
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+
+    let mut child = spawn_adapter();
+    let cmd = format!(
+        r#"{{"command":"discover","params":{{"test_directories":["{}"]}}}}"#,
+        dir.path().display()
+    );
+    let resp = send_command(&mut child, &cmd);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&resp).expect("discover response should be valid JSON");
+
+    assert!(
+        parsed["ok"].as_bool().unwrap_or(false),
+        "discover should succeed on empty dir"
+    );
+    let nodes = parsed["result"]
+        .as_array()
+        .expect("result should be an array");
+    assert!(nodes.is_empty(), "empty dir should have no tests");
+
+    child.kill().ok();
+    child.wait().ok();
+}
+
+#[test]
+fn julia_adapter_static_deps_no_changed_files() {
+    if !julia_available() || !adapter_available() {
+        return;
+    }
+
+    let mut child = spawn_adapter();
+    let resp = send_command(&mut child, r#"{"command":"static-deps","params":{}}"#);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&resp).expect("static-deps response should be valid JSON");
+
+    assert!(
+        !parsed["ok"].as_bool().unwrap_or(true),
+        "missing changed_files should fail"
+    );
+    let err = parsed["error"]["message"]
+        .as_str()
+        .unwrap_or("")
+        .to_lowercase();
+    assert!(
+        err.contains("changed_files") || err.contains("missing"),
+        "error should mention missing changed_files: {}",
+        err
+    );
+
+    child.kill().ok();
+    child.wait().ok();
+}
+
+#[test]
+fn julia_adapter_static_deps_multiple_files() {
+    if !julia_available() || !adapter_available() {
+        return;
+    }
+
+    let mut child = spawn_adapter();
+    let resp = send_command(
+        &mut child,
+        r#"{"command":"static-deps","params":{"changed_files":["src/a.jl","src/b.jl"]}}"#,
+    );
+    let parsed: serde_json::Value =
+        serde_json::from_str(&resp).expect("static-deps response should be valid JSON");
+
+    assert!(
+        parsed["ok"].as_bool().unwrap_or(false),
+        "static-deps with multiple files should succeed"
+    );
+    let edges = &parsed["result"]["edges"];
+    assert!(
+        edges["src/a.jl"] == "unresolved" || edges["src/a.jl"] == serde_json::json!([]),
+        "multiple changed files should each be handled: {:?}",
+        edges
+    );
+    assert!(
+        edges["src/b.jl"] == "unresolved" || edges["src/b.jl"] == serde_json::json!([]),
+        "multiple changed files should each be handled: {:?}",
+        edges
+    );
+
+    child.kill().ok();
+    child.wait().ok();
+}
+
+#[test]
+fn julia_adapter_ingest_empty_output() {
+    if !julia_available() || !adapter_available() {
+        return;
+    }
+
+    let mut child = spawn_adapter();
+    let resp = send_command(
+        &mut child,
+        r#"{"command":"ingest","params":{"run_output":""}}"#,
+    );
+    let parsed: serde_json::Value =
+        serde_json::from_str(&resp).expect("ingest response should be valid JSON");
+
+    assert!(
+        parsed["ok"].as_bool().unwrap_or(false),
+        "ingest with empty output should succeed with empty results"
+    );
+    assert!(
+        parsed["result"]["per_test_results"]
+            .as_array()
+            .unwrap()
+            .is_empty(),
+        "empty run_output should produce no results"
+    );
+    assert!(
+        parsed["result"]["runtime_edges"]
+            .as_array()
+            .unwrap()
+            .is_empty(),
+        "empty run_output should produce no runtime edges"
+    );
+
+    child.kill().ok();
+    child.wait().ok();
+}
+
+#[test]
+fn julia_adapter_ingest_mixed_outcomes() {
+    if !julia_available() || !adapter_available() {
+        return;
+    }
+
+    let mut child = spawn_adapter();
+    let run_output = r#"{"test_id":"test_a.jl:1","outcome":"passed","duration_ms":5}
+{"test_id":"test_b.jl:10","outcome":"failed","duration_ms":20}
+{"test_id":"test_c.jl:20","outcome":"passed","duration_ms":3}"#;
+    let cmd = serde_json::json!({
+        "command": "ingest",
+        "params": {
+            "run_output": run_output
+        }
+    });
+    let resp = send_command(&mut child, &cmd.to_string());
+    let parsed: serde_json::Value =
+        serde_json::from_str(&resp).expect("ingest response should be valid JSON");
+
+    assert!(
+        parsed["ok"].as_bool().unwrap_or(false),
+        "ingest with valid output should succeed"
+    );
+
+    let results = parsed["result"]["per_test_results"].as_array().unwrap();
+    assert_eq!(results.len(), 3, "should have 3 per-test results");
+
+    // Find each outcome
+    let passed: Vec<&str> = results
+        .iter()
+        .filter(|r| r["outcome"].as_str() == Some("passed"))
+        .filter_map(|r| r["test_id"].as_str())
+        .collect();
+    let failed: Vec<&str> = results
+        .iter()
+        .filter(|r| r["outcome"].as_str() == Some("failed"))
+        .filter_map(|r| r["test_id"].as_str())
+        .collect();
+
+    assert_eq!(passed.len(), 2, "should have 2 passed tests");
+    assert_eq!(failed.len(), 1, "should have 1 failed test");
+    assert!(
+        passed.iter().any(|id| id.ends_with("test_a.jl:1")),
+        "test_a should be in passed"
+    );
+    assert!(
+        failed.iter().any(|id| id.ends_with("test_b.jl:10")),
+        "test_b should be in failed"
+    );
+
+    child.kill().ok();
+    child.wait().ok();
+}
+
+#[test]
+fn julia_adapter_ingest_without_duration() {
+    if !julia_available() || !adapter_available() {
+        return;
+    }
+
+    let mut child = spawn_adapter();
+    // Test result without duration_ms field
+    let run_output = r#"{"test_id":"test_x.jl:5","outcome":"passed"}"#;
+    let cmd = serde_json::json!({
+        "command": "ingest",
+        "params": {
+            "run_output": run_output
+        }
+    });
+    let resp = send_command(&mut child, &cmd.to_string());
+    let parsed: serde_json::Value =
+        serde_json::from_str(&resp).expect("ingest response should be valid JSON");
+
+    assert!(
+        parsed["ok"].as_bool().unwrap_or(false),
+        "ingest without duration should succeed"
+    );
+    let results = parsed["result"]["per_test_results"].as_array().unwrap();
+    assert_eq!(results.len(), 1, "should have 1 result");
+    assert_eq!(results[0]["outcome"].as_str(), Some("passed"));
+    // The adapter prepends the CWD to relative paths
+    let test_id = results[0]["test_id"].as_str().unwrap();
+    assert!(
+        test_id.ends_with("test_x.jl:5"),
+        "test_id should end with test_x.jl:5, got: {}",
+        test_id
+    );
+
+    child.kill().ok();
+    child.wait().ok();
+}
+
+#[test]
+fn julia_adapter_run_args_empty_selected() {
+    if !julia_available() || !adapter_available() {
+        return;
+    }
+
+    let mut child = spawn_adapter();
+    let resp = send_command(
+        &mut child,
+        r#"{"command":"run-args","params":{"selected":[]}}"#,
+    );
+    let parsed: serde_json::Value =
+        serde_json::from_str(&resp).expect("run-args response should be valid JSON");
+
+    assert!(
+        !parsed["ok"].as_bool().unwrap_or(true),
+        "empty selected should fail"
+    );
+    let err = parsed["error"]["message"]
+        .as_str()
+        .unwrap_or("")
+        .to_lowercase();
+    assert!(
+        err.contains("empty") || err.contains("missing"),
+        "error should mention empty/missing selected: {}",
+        err
+    );
+
+    child.kill().ok();
+    child.wait().ok();
+}
+
+#[test]
+fn julia_adapter_missing_params_structure() {
+    if !julia_available() || !adapter_available() {
+        return;
+    }
+
+    let mut child = spawn_adapter();
+    let resp = send_command(&mut child, r#"{"command":"fingerprint","params":{}}"#);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&resp).expect("response should be valid JSON");
+
+    assert!(
+        !parsed["ok"].as_bool().unwrap_or(true),
+        "fingerprint without files should fail"
+    );
+    let err = parsed["error"]["message"]
+        .as_str()
+        .unwrap_or("")
+        .to_lowercase();
+    assert!(
+        err.contains("files") || err.contains("missing"),
+        "error should mention missing files: {}",
+        err
+    );
+
+    child.kill().ok();
+    child.wait().ok();
+}
