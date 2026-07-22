@@ -24,34 +24,45 @@ Each edge case includes a severity rating and a recommendation.
 ### Edge 1: src/ layout (vs flat layout)
 
 **Scenario:** Source code lives in `src/`, tests in `tests/`. Import paths use
-the package name as root (e.g., `from src.model import Model`).
+the package name as root (e.g., `from my_package.model import Model`).
 
 **Affected commands:** discover, static-deps
 
-**Current behavior:** The adapter's WalkDir starts at `"."` and finds all files
-including those in `src/`. The `test_` / `_test.py` filter correctly excludes
-source files from test discovery. The `file_path_to_module` function correctly
-converts `src/model.py` → `src.model`.
+**Current behavior:**
+- **Discover:** Works correctly. WalkDir finds all files; `test_` / `_test.py`
+  filter correctly excludes source files.
+- **Static-deps:** **Broken.** The adapter's `file_path_to_module` converts
+  `"src/my_package/model.py"` → `"src.my_package.model"`. But test imports use
+  the package name without the `src.` prefix (e.g., `from my_package.model import
+  Model`). The mismatch means no edges are created from changed files in `src/`
+  to tests that import them.
 
-**Expected behavior:** No change needed — the adapter already handles this layout
-correctly.
+**Expected behavior:** The adapter should detect that `src/` is a source root
+(e.g., via presence of `src/` directory with `__init__.py` or via configuration)
+and strip it from module path resolution. For `static-deps`, changing
+`src/my_package/model.py` should produce edges to tests importing
+`my_package.model`.
 
 **Minimal reproduction:**
 ```
 my_project/
 ├── src/
-│   ├── __init__.py
-│   └── model.py
+│   └── my_package/
+│       ├── __init__.py
+│       └── model.py
 └── tests/
-    ├── __init__.py
-    └── test_model.py    # from src.model import Model
+    └── test_model.py    # from my_package.model import Model
+                         # adapter converts src/my_package/model.py → src.my_package.model
+                         # test imports my_package.model → no match
 ```
 
-**Fixture needed?** No — works with current code. Test via existing integration
-test fixture.
+**Fixture needed?** Yes — the `tests/fixtures/python-src-layout/` fixture
+(`testaruda-6yw`). The integration test `static_deps_src_layout_resolves_modules`
+documents this current limitation.
 
-**Severity:** cosmetic
-**Recommendation:** won't fix
+**Severity:** major (upgraded from cosmetic after integration testing)
+**Recommendation:** fix adapter — add source root detection (e.g., strip known
+source directories like `src/` from module path resolution)
 
 ---
 
@@ -1046,7 +1057,7 @@ will run all 100 parametrized test cases.
 
 | # | Edge Case | Severity | Recommendation | Fixture Needed |
 |---|-----------|----------|----------------|---------------|
-| 1 | src/ layout | cosmetic | won't fix | No |
+| 1 | src/ layout | **major** | fix adapter | Yes |
 | 2 | Tests in separate dir vs co-located | cosmetic | won't fix | No |
 | 3 | Namespace packages (PEP 420) | minor | fix adapter | Yes |
 | 4 | `__init__.py` discovery implications | cosmetic | won't fix | No |
@@ -1082,14 +1093,13 @@ will run all 100 parametrized test cases.
 | Severity | Count | Tickets |
 |----------|-------|---------|
 | blocker | 2 | 14 (dynamic imports), 18 (C extensions) |
-| major | 5 | 6 (non-standard naming), 9 (symlinks), 17 (__init__.py re-exports), 21 (sys.path), 29 (xdist) |
+| major | 6 | 1 (src/ layout), 6 (non-standard naming), 9 (symlinks), 17 (__init__.py re-exports), 21 (sys.path), 29 (xdist) |
 | minor | 7 | 3 (namespace packages), 8 (Unicode filenames), 11 (editable installs), 19 (TYPE_CHECKING), 22 (egg-link / pth), 23 (large files), 27 (generated files) |
-| cosmetic | 16 | rest |
+| cosmetic | 15 | rest |
 
 ### Test strategy
 
 **Can be tested with real-world codebases:**
-- src/ layout (Edge 1)
 - Non-standard test file naming (Edge 6) — `testSmoke.py` pattern
 - Deeply nested packages (Edge 7)
 - Imports in `__init__.py` (Edge 17)
@@ -1098,6 +1108,7 @@ will run all 100 parametrized test cases.
 - Test markers and parametrization (Edge 30)
 
 **Need synthetic fixtures:**
+- src/ layout (Edge 1)
 - Namespace packages (Edge 3)
 - Non-standard naming variants (Edge 6) — `check_*` prefix and `_spec.py` suffix
 - Unicode filenames (Edge 8)
