@@ -1,5 +1,5 @@
-id = "julia-adapter-handshake"
-description = "Contract for: Julia adapter handshake with coverage-based capabilities (ADAPT-014)"
+id = "julia-handshake-with-runtime-edges"
+description = "Julia adapter handshake with coverage-based capabilities"
 archetype = "PF"
 status = "active"
 superseded_by = ""

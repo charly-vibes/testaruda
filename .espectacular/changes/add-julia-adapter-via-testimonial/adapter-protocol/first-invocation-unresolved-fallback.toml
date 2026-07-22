@@ -1,5 +1,5 @@
-id = "julia-adapter-dependency-analysis"
-description = "Contract for: Julia coverage-based runtime edge dependency analysis (ADAPT-016)"
+id = "first-invocation-unresolved-fallback"
+description = "First invocation of Julia static-deps falls back to unresolved for all changed files"
 archetype = "PF"
 status = "active"
 superseded_by = ""

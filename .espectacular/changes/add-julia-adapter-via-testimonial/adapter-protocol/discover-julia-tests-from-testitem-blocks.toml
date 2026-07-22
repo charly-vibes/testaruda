@@ -1,5 +1,5 @@
-id = "julia-adapter-discovery"
-description = "Contract for: Julia @testitem-based test discovery (ADAPT-015)"
+id = "discover-julia-tests-from-testitem-blocks"
+description = "Discover Julia tests from @testitem blocks"
 archetype = "PF"
 status = "active"
 superseded_by = ""
