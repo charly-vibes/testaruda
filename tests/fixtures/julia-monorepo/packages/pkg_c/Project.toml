@@ -1,0 +1,6 @@
+name = "TestarudaMonorepoPkgC"
+uuid = "00000000-0000-0000-0000-00000000000c"
+version = "0.1.0"
+
+[deps]
+ReTestItems = "bbf2d1e0-9f73-4d0c-8f3f-4a0b3f0a0c0a"
