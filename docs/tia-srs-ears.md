@@ -263,7 +263,7 @@ Requirement IDs: `TIA-<GROUP>-<NNN>`. Each requirement carries a verification me
 > §4 (ARCH) is binding and **engine-independent**: it constrains the abstraction (a provenance-semiring K-relation, selection as its transpose, soundness as over-approximation). This section pins the **reference implementation** that realises §4 with the least code. `TIA-ENG-*` requirements bind the reference build; they do not constrain the abstraction, which remains portable per TIA-ENG-012.
 
 ### 8.1 Decision
-The reference implementation is a single Rust binary embedding **Ascent** (a Datalog-style logic language with lattice support) as the in-process selection engine. Cross-invocation incrementality is provided by change scoping plus the content-addressed component cache (TIA-COMP-010), **not** by a persistent streaming engine. **Soufflé** serves as an out-of-process provenance oracle for validation and full why-provenance. **DBSP/Feldera** is the documented scale-up path for long-running, fully-incremental, retraction-aware selection. **DDlog** is rejected (archived/unmaintained).
+The reference implementation is a single Rust binary embedding **Ascent** (a Datalog-style logic language with lattice support) as the in-process selection engine. Change scoping is active today; the store's content-addressed component-cache primitives (TIA-COMP-010) are not yet integrated into the selection path. **Soufflé** serves as an out-of-process provenance oracle for validation and full why-provenance. **DBSP/Feldera** is the documented scale-up path for long-running, fully-incremental, retraction-aware selection. **DDlog** is rejected (archived/unmaintained).
 
 ### 8.2 Concern → mechanism
 

@@ -34,8 +34,8 @@ scoop install testaruda
 ```bash
 git clone https://github.com/charly-vibes/testaruda
 cd testaruda
-cargo build --release
-# Installs: testaruda, testaruda-adapter-rust, testaruda-adapter-python
+cargo install --path .
+# Installs testaruda, testaruda-adapter-rust, and testaruda-adapter-python
 ```
 
 ## Quick Start
@@ -46,6 +46,9 @@ cargo install testaruda
 
 # Initialize the store and config
 testaruda init
+
+# Discover tests through the configured language adapters
+testaruda discover
 
 # Select tests affected by uncommitted changes
 testaruda select
@@ -70,28 +73,22 @@ testaruda discovers tests by spawning language-specific adapter processes:
 
 | Adapter | Language | Discovery Method |
 |---------|----------|-----------------|
-| `testaruda-adapter-rust` | Rust | Scans `#[test]` attributes |
+| `testaruda-adapter-rust` | Rust | Scans `#[test]` and `#[tokio::test]` attributes |
 | `testaruda-adapter-python` | Python | Scans `test_*.py` / `*_test.py` files |
+| `testaruda-adapter-julia` | Julia | Uses Testimonial.jl to discover `@testitem` tests |
 
-See [`docs/configuration.md`](docs/configuration.md) for adapter configuration.
+The Rust and Python adapters ship with testaruda. The Julia adapter is installed
+through Testimonial.jl. See [Getting Started](docs/getting-started.md) for setup
+and [Configuration](docs/configuration.md) for adapter registration.
 
 ## Requirements
 
 See `docs/tia-srs-ears.md` for the full Software Requirements Specification
-(EARS notation, draft v0.2).
+(EARS notation, draft v0.3). The SRS describes normative target behavior; use
+the user guides and generated CLI reference for the currently available surface.
 
-## Tools
-
-This project uses:
-
-| Tool | Purpose |
-|------|---------|
-| [wai](https://github.com/charly-vibes/wai) | Workflow tracking |
-| [beads](https://github.com/gastownhall/beads) | Issue tracking |
-| [openspec](https://github.com/gastownhall/openspec) | Spec-driven development |
-| [pretender](https://github.com/charly-vibes/pretender) | Code quality checks |
-| [dont](https://github.com/charly-vibes/dont) | Grounded claims |
-| [espectacular](https://github.com/charly-vibes/espectacular) | Spec-test verification |
+Contributor setup and quality checks are documented in
+[Contributing](docs/contributing.md).
 
 ## License
 

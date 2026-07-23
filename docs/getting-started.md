@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Rust 1.75+
+- A stable Rust toolchain
 - Git (for change detection)
 
 ### Optional: Julia adapter
@@ -18,6 +18,10 @@ julia -e 'using Pkg; Pkg.add("Testimonial")'
 ln -s ~/.julia/packages/Testimonial/*/bin/testaruda-adapter-julia ~/.local/bin/
 ```
 
+The Julia adapter discovers `@testitem` tests through ReTestItems/TestItems. If
+a project mixes `@testitem` and plain `@test` blocks, only the `@testitem` tests
+are available for selection.
+
 ## Installation
 
 ```bash
@@ -29,9 +33,8 @@ Or from source:
 ```bash
 git clone https://github.com/charly-vibes/testaruda
 cd testaruda
-cargo build --release
-# Binaries: testaruda, testaruda-adapter-rust, testaruda-adapter-python
-cp target/release/testaruda* ~/.local/bin/
+cargo install --path .
+# Installs testaruda, testaruda-adapter-rust, and testaruda-adapter-python
 ```
 
 ## First Run
@@ -42,6 +45,7 @@ testaruda init
 
 # Discover tests via adapters (scans project for #[test], test_*.py, etc.)
 testaruda discover
+# Prints the number of test items stored in .testaruda/
 
 # Select tests affected by uncommitted changes
 testaruda select
@@ -57,6 +61,20 @@ testaruda select --shadow
 
 # Explicit file list
 testaruda select --files "src/lib.rs,src/main.rs"
+```
+
+A successful selection prints the selected test records and the reason for any
+safety fallback. If no dependency data exists yet, testaruda intentionally
+over-selects rather than risking a missed test.
+
+## CI safety mode
+
+Use safe mode when selection should execute tests in CI. It performs preflight
+checks and falls back to the full Cargo test suite if configuration, store data,
+Git revisions, or confidence are insufficient:
+
+```bash
+testaruda select --safe --base origin/main --head HEAD
 ```
 
 ## Next Steps

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/charly-vibes/testaruda/schemas/pre-edit-output-v1.json",
+  "title": "testaruda Pre-Edit Output v1",
+  "description": "JSON Schema for testaruda select --pre-edit output.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "testaruda-pre-edit-v1"
+    },
+    "summary": {
+      "$ref": "#/$defs/SummaryStats"
+    },
+    "changed_files": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "selected_tests": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "required": ["format", "summary", "changed_files", "selected_tests"],
+  "$defs": {
+    "SummaryStats": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "changed_count": { "type": "integer", "minimum": 0 },
+        "selected_count": { "type": "integer", "minimum": 0 },
+        "candidate_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of tests with direct stored dependencies on changed units"
+        },
+        "has_coverage_gaps": { "type": "boolean" }
+      },
+      "required": ["changed_count", "selected_count", "candidate_count", "has_coverage_gaps"]
+    }
+  }
+}

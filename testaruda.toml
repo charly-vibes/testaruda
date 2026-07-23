@@ -1,13 +1,15 @@
 # testaruda configuration
 
 [adapters]
+# Default adapter when no extension matches
+default = "testaruda-adapter-rust"
+
+[adapters.extensions]
 # Map file extensions to adapter binaries.
 # Adapters must be installed on PATH or specified as absolute paths.
 ".rs" = "testaruda-adapter-rust"
 ".py" = "testaruda-adapter-python"
-
-# Default adapter when no extension matches
-default = "testaruda-adapter-rust"
+".jl" = "testaruda-adapter-julia"
 
 [discover]
 # Directory/file names to exclude from discover walks.

@@ -381,13 +381,16 @@ fn main() -> miette::Result<()> {
                         selected_tests.push(node_id);
                     }
                 }
+                let candidate_count = store
+                    .get_test_ids_for_content_units(&changed_ids, &unresolved_ids)?
+                    .len();
 
                 let output = PreEditOutput {
                     format: "testaruda-pre-edit-v1".to_string(),
                     summary: testaruda::agent::SummaryStats {
                         changed_count: selection.changed_count,
                         selected_count: selection.selected_count,
-                        candidate_count: selection.selected_count,
+                        candidate_count,
                         has_coverage_gaps: false,
                     },
                     changed_files,

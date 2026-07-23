@@ -46,8 +46,9 @@ Soufflé serves as an out-of-process provenance oracle for validation.
 
 ## Incrementality
 
-Cross-run incrementality is provided by:
-- **Change scoping** — only the subgraph reachable from changed CUs is re-evaluated
-- **Component cache** — per-component decisions cached by dependency fingerprint
+The active selection path uses **change scoping**: it evaluates the dependency
+subgraph reachable from changed content units. The store contains
+content-addressed component-cache primitives, but the current selection path
+does not yet reuse cached selection decisions across invocations.
 
 See `docs/tia-srs-ears.md` for the full specification.

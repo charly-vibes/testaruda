@@ -3,6 +3,10 @@
 The full Software Requirements Specification (SRS) uses the EARS (Easy Approach
 to Requirements Syntax) notation and is documented in `docs/tia-srs-ears.md`.
 
+The SRS is a draft normative target, not an implementation-status report. For
+current behavior, consult the generated [CLI Reference](cli.md),
+[Configuration](configuration.md), and [Architecture](architecture.md) pages.
+
 ## Key Requirement Groups
 
 | Group | Area |
@@ -32,6 +36,6 @@ to Requirements Syntax) notation and is documented in `docs/tia-srs-ears.md`.
 
 ## Design Constraints
 
-The reference implementation uses **Ascent** as the embedded logic engine,
-with Soufflé as a validation oracle. See TIA-ENG-001 through TIA-ENG-016
-for full details.
+The current implementation uses **Ascent** as the embedded logic engine and can
+generate and run Soufflé programs for validation. See TIA-ENG-001 through
+TIA-ENG-016 for the complete target constraints.

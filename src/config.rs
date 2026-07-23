@@ -149,14 +149,15 @@ impl Config {
             r#"# testaruda configuration
 
 [adapters]
+# Default adapter when no extension matches
+default = "{}"
+
+[adapters.extensions]
 # Map file extensions to adapter binaries.
 # Adapters must be installed on PATH or specified as absolute paths.
 ".rs" = "testaruda-adapter-rust"
 ".py" = "testaruda-adapter-python"
 ".jl" = "testaruda-adapter-julia"
-
-# Default adapter when no extension matches
-default = "{}"
 
 [discover]
 # Directory/file names to exclude from discover walks.
@@ -246,5 +247,35 @@ impl AdapterConfig {
             reg.set_default(default);
         }
         reg
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Config;
+
+    #[test]
+    fn generated_config_round_trips_adapter_extensions() {
+        let project = tempfile::tempdir().unwrap();
+
+        Config::write_default(project.path()).unwrap();
+        let config = Config::load(project.path()).unwrap();
+
+        assert_eq!(
+            config.adapters.extensions.get(".rs").map(String::as_str),
+            Some("testaruda-adapter-rust")
+        );
+        assert_eq!(
+            config.adapters.extensions.get(".py").map(String::as_str),
+            Some("testaruda-adapter-python")
+        );
+        assert_eq!(
+            config.adapters.extensions.get(".jl").map(String::as_str),
+            Some("testaruda-adapter-julia")
+        );
+        assert_eq!(
+            config.adapters.default.as_deref(),
+            Some("testaruda-adapter-rust")
+        );
     }
 }

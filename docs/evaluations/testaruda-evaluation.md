@@ -1,8 +1,12 @@
 # testaruda — implementation-state and specification evaluation
 
+> **Historical report:** Every finding is scoped to the subject commit named in
+> its evaluation round. Consult later retest sections and current user
+> documentation before applying a finding to the present implementation.
+
 **What this document is.** An independent, self-contained evaluation of **testaruda**, a
 software project that was scaffolded using the `charly-vibes` developer-tool suite as its
-mandated workflow. It is a companion to [`dev-tooling-evaluation.md`](dev-tooling-evaluation.md)
+mandated workflow. It is a companion to the separate `dev-tooling-evaluation.md` report
 (which evaluates the *tools*); this document evaluates the *project those tools produced* —
 both the state of its code and, in depth, the quality of its written specification. It is
 written to the "amnesia test": every tool, term, and scenario is defined here, so it is

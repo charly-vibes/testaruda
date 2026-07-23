@@ -1,12 +1,18 @@
 # Python Adapter Edge Case Catalog
 
-**Ticket:** testaruda-64o  
-**Status:** Draft  
+**Ticket:** testaruda-64o
+
+**Status:** Point-in-time engineering audit
+
 **Last updated:** 2026-07-21
 
 This document catalogs unusual Python project structures that could break the
 Python adapter's `discover`, `static-deps`, `fingerprint`, or `run-args` commands.
 Each edge case includes a severity rating and a recommendation.
+
+Behavior statements describe the implementation at the date above. They are
+engineering evidence, not a compatibility contract; verify resolved tickets
+and current integration tests before treating a finding as still open.
 
 ## Severity Scale
 

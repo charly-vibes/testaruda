@@ -1,0 +1,34 @@
+# testaruda
+
+> Language-agnostic, recall-first affected-test selection from code changes.
+
+testaruda persists a dependency graph, computes changed content units, and
+selects tests through an embedded Ascent query. Rust and Python adapters ship
+with the package; the Julia adapter is provided by Testimonial.jl.
+
+## User documentation
+
+- [Getting started](docs/getting-started.md): installation, initialization,
+  discovery, first selection, and safe CI mode.
+- [CLI reference](docs/cli.md): generated command and option reference.
+- [Configuration](docs/configuration.md): supported `testaruda.toml` fields,
+  defaults, adapters, and safety rules.
+- [Agent mode](docs/agent-mode.md): structured `--agent` and `--pre-edit`
+  output contracts.
+- [Architecture](docs/architecture.md): current components and selection path.
+
+## Integration contracts
+
+- [Adapter protocol](docs/adapter-protocol.md): JSON-lines subprocess protocol.
+- [Agent output schema](schemas/agent-output-v1.json): `--agent` JSON Schema.
+- [Pre-edit output schema](schemas/pre-edit-output-v1.json): `--pre-edit` JSON Schema.
+- [Software requirements](docs/tia-srs-ears.md): draft normative requirements;
+  requirements are not evidence that every capability is implemented.
+
+## Contributor documentation
+
+- [Contributing](docs/contributing.md): local checks and contribution workflow.
+- [Python adapter edge cases](docs/adapter-python-edge-cases.md): dated engineering
+  audit, not a user-facing behavior guarantee.
+- [Evaluation reports](docs/evaluations/README.md): historical implementation
+  evaluations; consult their dates and retest sections before using findings.

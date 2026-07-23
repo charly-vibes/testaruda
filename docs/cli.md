@@ -63,6 +63,7 @@ Select affected tests from a code change
 * `--agent` — Agent output format: structured JSON for LLM agent consumption (TIA-AGENT-001) Conflicts with --json and --pre-edit
 * `--pre-edit` — Pre-edit blast radius: report affected tests for proposed changes (TIA-AGENT-005) Conflicts with --json and --agent
 * `--ci` — CI mode: run selected tests and ingest results automatically (TIA-CI-008)
+* `--safe` — Safe mode: pre-flight checks then fall back to `cargo test` if anything is missing (config, store, git refs) or confidence is low. Implies --ci. Recommended: pass --base and --head to test the diff between two git refs; otherwise falls back to uncommitted changes
 * `--ordering <ORDERING>` — Selection ordering mode
 
   Default value: `default`

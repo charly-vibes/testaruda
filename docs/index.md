@@ -13,6 +13,9 @@ cargo install testaruda
 # Initialize the store
 testaruda init
 
+# Discover tests through configured adapters
+testaruda discover
+
 # Select tests affected by uncommitted changes
 testaruda select
 
@@ -28,15 +31,12 @@ testaruda ingest results.json
 - **Transpose selection**: affected = Δ · (D*)ᵀ ∪ always_run
 - **Soundness**: over-approximation — missed selections are bugs
 - **Semiring abstraction**: Boolean (selection), Viterbi (confidence), Tropical (distance)
-- **Incrementality**: change-scoping + content-addressed component cache
+- **Incrementality**: the active path scopes evaluation to changed components;
+  component-cache primitives exist but are not yet integrated into selection
 
-## Tools
+## Continue
 
-| Tool | Purpose |
-|------|---------|
-| wai | Workflow tracking |
-| beads | Issue tracking |
-| openspec | Spec-driven development |
-| pretender | Code quality checks |
-| dont | Grounded claims |
-| espectacular | Spec-test verification |
+- Follow the complete [Getting Started](getting-started.md) tutorial.
+- Look up commands in the [CLI Reference](cli.md).
+- Configure language adapters and safety rules in [Configuration](configuration.md).
+- Integrate structured output using [Agent Mode](agent-mode.md).

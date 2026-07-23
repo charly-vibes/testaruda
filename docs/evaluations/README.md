@@ -3,6 +3,10 @@
 Independent evaluation reports covering implementation state, specification
 correctness, and release readiness for testaruda.
 
+These are historical, commit-scoped engineering records. Findings in an early
+round may be resolved by a later retest or by commits after the report's subject
+commit; they do not describe the current release unless explicitly restated.
+
 | Document | Scope |
 |---|---|
 | [`testaruda-evaluation.md`](testaruda-evaluation.md) | Full evaluation across three rounds (2026-07-07 → 2026-07-10 → 2026-07-14). Covers implementation findings I1–I12, specification defects S1–S9, retest rounds, and deep evaluation of the ticket backlog. |

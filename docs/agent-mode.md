@@ -34,7 +34,7 @@ fields:
 |-------|------|-------------|
 | `changed_count` | integer | Number of content units that changed. |
 | `selected_count` | integer | Number of tests selected to run. |
-| `candidate_count` | integer | All tests that could be affected (superset of selected). |
+| `candidate_count` | integer | Tests with direct stored dependencies on the changed units. Safety fallbacks can make this smaller than `selected_count`. |
 | `has_coverage_gaps` | boolean | Whether any coverage gaps were detected. |
 
 ### Changed Unit (`changed_units[]`)
@@ -58,9 +58,10 @@ chose it.
 |-------|------|-------------|
 | `id` | integer | Internal store identifier. |
 | `node_id` | string or null | Adapter-assigned human-readable test identifier (e.g., `tests/test_model.py::test_model`). |
-| `confidence` | number | Selection confidence, 0.0–1.0. Values ≥ 1.0 indicate always-run (mandatory execution). |
+| `confidence` | number | Selection confidence, 0.0–1.0. |
 | `distance` | integer or null | Minimum number of dependency hops from a changed unit. |
-| `always_run` | boolean | Whether this test is in the always-run set (confidence ≥ 1.0 or no dependency data). |
+| `always_run` | boolean | Whether this test is a safety fallback: confidence is `1.0` and no dependency distance is available. |
+| `quarantined` | boolean | Whether the test runs for monitoring but is excluded from pass/fail trust calculations. |
 | `fallback_reason` | string or null | Human-readable explanation for *why* the test is in always-run state. Present when `always_run` is true. |
 | `reason_chain` | array | List of witness edges that form the selection reason. |
 
@@ -134,6 +135,6 @@ testaruda select --pre-edit [--files <list>]
 ```
 
 Output format: `testaruda-pre-edit-v1` with `changed_files` and
-`selected_tests` arrays plus summary stats. See the JSON Schema at
-`schemas/agent-output-v1.json` for details (the pre-edit variant
-shares the `SummaryStats` definition).
+`selected_tests` arrays plus summary stats. Its contract is published in
+`schemas/pre-edit-output-v1.json`. The full agent-mode contract is published
+separately in `schemas/agent-output-v1.json`.

@@ -51,7 +51,7 @@
         },
         "candidate_count": {
           "type": "integer",
-          "description": "Number of candidate tests (all tests that could be affected)"
+          "description": "Number of tests with direct stored dependencies on changed units; safety fallbacks can make this smaller than selected_count"
         },
         "has_coverage_gaps": {
           "type": "boolean",
@@ -111,6 +111,10 @@
           "type": "boolean",
           "description": "Whether this test is in the always-run set"
         },
+        "quarantined": {
+          "type": "boolean",
+          "description": "Whether this test is selected for monitoring but excluded from pass/fail trust calculations"
+        },
         "fallback_reason": {
           "type": ["string", "null"],
           "description": "Human-readable explanation of why this test is in the always-run state. Present when always_run is true."
@@ -121,7 +125,7 @@
           "items": { "$ref": "#/$defs/ReasonEdge" }
         }
       },
-      "required": ["id", "node_id", "confidence", "distance", "always_run", "reason_chain"]
+      "required": ["id", "node_id", "confidence", "distance", "always_run", "quarantined", "reason_chain"]
     },
     "ReasonEdge": {
       "type": "object",
