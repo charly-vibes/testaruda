@@ -41,6 +41,7 @@ SAMPLE=10
 ADAPTER="testaruda-adapter-python"
 TIMEOUT=30
 OUTPUT=""
+TEST_DIR=""
 REPO=""
 
 # ============================================================================
@@ -54,6 +55,7 @@ while [[ $# -gt 0 ]]; do
         --output)    shift; OUTPUT="$1" ;;
         --adapter)   shift; ADAPTER="$1" ;;
         --timeout)   shift; TIMEOUT="$1" ;;
+        --test-dir)  shift; TEST_DIR="$1" ;;
         --help)      head -40 "$0" | grep -E "^#" | sed 's/^# \?//'; exit 0 ;;
         *)           REPO="$1" ;;
     esac
@@ -178,7 +180,13 @@ fi
 echo "  [2/6] Discover..." >&2
 
 START="$(date +%s%N)"
-DISCOVER_RESPONSE="$(adapter_command '{"command":"discover"}' "$WORK_DIR")"
+
+if [[ -n "$TEST_DIR" ]]; then
+    DISCOVER_CMD=$(jq -c -n --arg td "$TEST_DIR" '{"command":"discover","params":{"test_directories":[$td]}}')
+else
+    DISCOVER_CMD='{"command":"discover"}'
+fi
+DISCOVER_RESPONSE="$(adapter_command "$DISCOVER_CMD" "$WORK_DIR")"
 DISCOVER_DURATION=$(( ($(date +%s%N) - START) / 1000000 ))
 
 DISCOVER_OK=false
@@ -221,7 +229,7 @@ if [[ "$DISCOVER_COUNT" -gt 0 ]]; then
 
     if echo "$FP_RESPONSE" | jq -e '.ok == true' >/dev/null 2>&1; then
         FINGERPRINT_OK=true
-        FINGERPRINT_COUNT="$(echo "$FP_RESPONSE" | jq '.fingerprints | length')"
+        FINGERPRINT_COUNT="$(echo "$FP_RESPONSE" | jq '.fingerprints // .result.fingerprints // [] | length')"
     else
         FINGERPRINT_ERROR="$(echo "$FP_RESPONSE" | jq '.error // "fingerprint failed"' 2>/dev/null || echo '"no response"')"
     fi
@@ -259,8 +267,8 @@ if [[ "$CHANGED_COUNT" -gt 0 ]]; then
     if echo "$SD_RESPONSE" | jq -e '.ok == true' >/dev/null 2>&1; then
         STATIC_DEPS_OK=true
         STATIC_DEPS_CHANGED="$CHANGED_COUNT"
-        STATIC_DEPS_EDGES=$(echo "$SD_RESPONSE" | jq '[.edges | to_entries[] | .value | length] | add // 0')
-        STATIC_DEPS_UNRESOLVED=$(echo "$SD_RESPONSE" | jq '[.edges | to_entries[] | select(.value == "unresolved")] | length')
+        STATIC_DEPS_EDGES=$(echo "$SD_RESPONSE" | jq '[.edges // .result.edges // {} | to_entries[] | .value | length] | add // 0')
+        STATIC_DEPS_UNRESOLVED=$(echo "$SD_RESPONSE" | jq '[.edges // .result.edges // {} | to_entries[] | select(.value == "unresolved")] | length')
     else
         STATIC_DEPS_ERROR="$(echo "$SD_RESPONSE" | jq '.error // "static-deps failed"' 2>/dev/null || echo '"no response"')"
     fi
@@ -336,7 +344,7 @@ if [[ "$DISCOVER_COUNT" -gt 0 ]]; then
         INGEST_OK=true
         INGEST_COUNT="$(echo "$INGEST_RESPONSE" | jq '.result.per_test_results | length')"
     else
-        INGEST_ERROR="$(echo "$INGEST_RESPONSE" | jq '.error // "ingest failed"' 2>/dev/null || echo '"no response"')"
+        INGEST_ERROR="$(echo "$INGEST_RESPONSE" | jq '.error' 2>/dev/null || echo null)"
     fi
 fi
 
@@ -355,31 +363,31 @@ OUTPUT_JSON="$(jq -n \
     --arg head_msg "$HEAD_MSG" \
     --argjson handshake_ok "$HANDSHAKE_OK" \
     --argjson handshake_duration "$HANDSHAKE_DURATION" \
-    --argjson handshake_capabilities "$HANDSHAKE_CAPABILITIES" \
-    --argjson handshake_error "$HANDSHAKE_ERROR" \
+    --arg handshake_capabilities "$HANDSHAKE_CAPABILITIES" \
+    --arg handshake_error "$HANDSHAKE_ERROR" \
     --argjson discover_ok "$DISCOVER_OK" \
     --argjson discover_duration "$DISCOVER_DURATION" \
     --argjson discover_count "$DISCOVER_COUNT" \
-    --argjson discover_files "$DISCOVER_FILES" \
-    --argjson discover_error "$DISCOVER_ERROR" \
+    --arg discover_files "$DISCOVER_FILES" \
+    --arg discover_error "$DISCOVER_ERROR" \
     --argjson fingerprint_ok "$FINGERPRINT_OK" \
     --argjson fingerprint_duration "$FINGERPRINT_DURATION" \
     --argjson fingerprint_count "$FINGERPRINT_COUNT" \
-    --argjson fingerprint_error "$FINGERPRINT_ERROR" \
+    --arg fingerprint_error "$FINGERPRINT_ERROR" \
     --argjson static_deps_ok "$STATIC_DEPS_OK" \
     --argjson static_deps_duration "$STATIC_DEPS_DURATION" \
     --argjson static_deps_changed "$STATIC_DEPS_CHANGED" \
     --argjson static_deps_edges "$STATIC_DEPS_EDGES" \
     --argjson static_deps_unresolved "$STATIC_DEPS_UNRESOLVED" \
-    --argjson static_deps_error "$STATIC_DEPS_ERROR" \
+    --arg static_deps_error "$STATIC_DEPS_ERROR" \
     --argjson run_args_ok "$RUN_ARGS_OK" \
     --argjson run_args_duration "$RUN_ARGS_DURATION" \
     --argjson run_args_count "$RUN_ARGS_COUNT" \
-    --argjson run_args_error "$RUN_ARGS_ERROR" \
+    --arg run_args_error "$RUN_ARGS_ERROR" \
     --argjson ingest_ok "$INGEST_OK" \
     --argjson ingest_duration "$INGEST_DURATION" \
     --argjson ingest_count "$INGEST_COUNT" \
-    --argjson ingest_error "$INGEST_ERROR" \
+    --arg ingest_error "$INGEST_ERROR" \
     --arg adapter "$ADAPTER" \
     '{
   "schema": "https://testaruda.dev/schemas/stress-test-v1",
@@ -396,20 +404,20 @@ OUTPUT_JSON="$(jq -n \
       "ok": $handshake_ok,
       "duration_ms": $handshake_duration,
       "capabilities": $handshake_capabilities,
-      "error": $handshake_error
+      "error": ($handshake_error | fromjson? // null)
     },
     "discover": {
       "ok": $discover_ok,
       "duration_ms": $discover_duration,
       "test_count": $discover_count,
       "test_files": $discover_files,
-      "error": $discover_error
+      "error": ($discover_error | fromjson? // null)
     },
     "fingerprint": {
       "ok": $fingerprint_ok,
       "duration_ms": $fingerprint_duration,
       "file_count": $fingerprint_count,
-      "error": $fingerprint_error
+      "error": ($fingerprint_error | fromjson? // null)
     },
     "static_deps": {
       "ok": $static_deps_ok,
@@ -417,19 +425,19 @@ OUTPUT_JSON="$(jq -n \
       "changed_files": $static_deps_changed,
       "edges": $static_deps_edges,
       "unresolved": $static_deps_unresolved,
-      "error": $static_deps_error
+      "error": ($static_deps_error | fromjson? // null)
     },
     "run_args": {
       "ok": $run_args_ok,
       "duration_ms": $run_args_duration,
       "selected_count": $run_args_count,
-      "error": $run_args_error
+      "error": ($run_args_error | fromjson? // null)
     },
     "ingest": {
       "ok": $ingest_ok,
       "duration_ms": $ingest_duration,
       "ingested_count": $ingest_count,
-      "error": $ingest_error
+      "error": ($ingest_error | fromjson? // null)
     }
   }
 }')"
