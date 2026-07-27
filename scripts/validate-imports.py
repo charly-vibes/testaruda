@@ -460,27 +460,46 @@ def run_adapter(adapter: str, cmd: dict, cwd: str) -> dict | None:
 def validate(repo_root: str, backend: LanguageBackend, adapter: str) -> dict:
     """
     Run full validation:
-    1. Discover test files via adapter
+    1. Find test files (via adapter discover or file scan)
     2. For each test file, compare GT imports vs adapter import parsing
     """
-    # Discover test files
-    disc = run_adapter(adapter, {"command": "discover"}, repo_root)
-    if not disc or not disc.get("ok"):
-        return {"error": "adapter discover failed", "adapter_ok": False}
+    # Try adapter discover first (not for Julia — it discovers globally, not per-repo)
+    if backend.name == "julia":
+        test_files = []
+    else:
+        disc = run_adapter(adapter, {"command": "discover"}, repo_root)
+        if disc and disc.get("ok"):
+            test_files = sorted(set(
+                t["file"] for t in disc.get("result", [])
+                if isinstance(t, dict) and "file" in t
+            ))
+        else:
+            test_files = []
 
-    test_files = sorted(set(
-        t["file"] for t in disc.get("result", [])
-        if isinstance(t, dict) and "file" in t
-    ))
-
-    # Also find all source files for context
+    # Also find all source files by scanning the repo
     all_files = find_source_files(repo_root, backend)
-    source_files = [f for f in all_files if not backend.is_test_file(f[0])]
-    test_files_found = [f for f in all_files if backend.is_test_file(f[0])]
 
-    # If adapter didn't find test files but we did, use our list
-    if not test_files and test_files_found:
-        test_files = [f[0] for f in test_files_found]
+    # For Julia: scan files for @testitem blocks as ground truth
+    if backend.name == "julia" or not test_files:
+        testitem_files = []
+        for rel_path, abs_path in all_files:
+            try:
+                content = Path(abs_path).read_text(encoding="utf-8", errors="replace")
+                if "@testitem" in content and "/test/" in rel_path:
+                    testitem_files.append(rel_path)
+            except Exception:
+                continue
+        # Use @testitem files as our test file list
+        all_test_item_paths = set(testitem_files)
+        if all_test_item_paths:
+            test_files = sorted(all_test_item_paths)
+
+    # If still no test files, fall back to directory-based detection
+    source_files = [f for f in all_files if not backend.is_test_file(f[0])]
+    if not test_files:
+        test_files_found = [f[0] for f in all_files if backend.is_test_file(f[0])]
+        if test_files_found:
+            test_files = test_files_found
 
     # Compare imports per test file
     return _compare(repo_root, backend, test_files)
@@ -675,7 +694,16 @@ def _run_all():
         (str(scratch / "structlog"), "python", "testaruda-adapter-python", "structlog (Python)"),
         (str(scratch / "httpx"), "python", "testaruda-adapter-python", "httpx (Python)"),
         (str(repo_dir / "tests" / "fixtures" / "julia"), "julia", "testaruda-adapter-julia", "fixture (Julia)"),
+        (str(scratch / "json-jl"), "julia", "testaruda-adapter-julia", "JSON.jl"),
+        (str(scratch / "csv-jl"), "julia", "testaruda-adapter-julia", "CSV.jl"),
+        (str(scratch / "http-jl"), "julia", "testaruda-adapter-julia", "HTTP.jl"),
+        (str(scratch / "dataframes-jl"), "julia", "testaruda-adapter-julia", "DataFrames.jl"),
+        (str(scratch / "plots-jl"), "julia", "testaruda-adapter-julia", "Plots.jl"),
     ]
+    # Add Testimonial.jl if available
+    testimonial = Path(os.path.expanduser("~")) / "para" / "areas" / "dev" / "gh" / "sk" / "Testimonial.jl"
+    if testimonial.exists():
+        test_suites.append((str(testimonial), "julia", "testaruda-adapter-julia", "Testimonial.jl"))
 
     print(f"=== Multi-language import validation ===", file=sys.stderr)
 
