@@ -668,7 +668,12 @@ def _run_all():
     # Test repos: repo_path, language, adapter, display_name
     test_suites = [
         (str(repo_dir), "rust", "testaruda-adapter-rust", "testaruda (Rust)"),
+        (str(scratch / "bat"), "rust", "testaruda-adapter-rust", "bat (Rust)"),
+        (str(scratch / "tokei"), "rust", "testaruda-adapter-rust", "tokei (Rust)"),
         (str(scratch / "click"), "python", "testaruda-adapter-python", "click (Python)"),
+        (str(scratch / "attrs"), "python", "testaruda-adapter-python", "attrs (Python)"),
+        (str(scratch / "structlog"), "python", "testaruda-adapter-python", "structlog (Python)"),
+        (str(scratch / "httpx"), "python", "testaruda-adapter-python", "httpx (Python)"),
         (str(repo_dir / "tests" / "fixtures" / "julia"), "julia", "testaruda-adapter-julia", "fixture (Julia)"),
     ]
 
