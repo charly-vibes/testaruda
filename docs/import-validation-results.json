@@ -1,0 +1,90 @@
+{
+  "schema": "https://testaruda.dev/schemas/import-validation-v1",
+  "generated": "2026-07-27",
+  "summary": {
+    "projects_analyzed": 3,
+    "total_test_files": 91,
+    "total_imports_ground_truth": 433,
+    "aggregate_precision": 0.9572,
+    "aggregate_recall": 0.9804,
+    "aggregate_f1": 0.9684,
+    "total_false_positives": 19,
+    "total_false_negatives": 8
+  },
+  "per_project": [
+    {
+      "name": "click",
+      "test_files": 34,
+      "gt_imports": 172,
+      "precision": 0.9885,
+      "recall": 1.0,
+      "f1": 0.9942,
+      "false_positives": 2,
+      "false_negatives": 0,
+      "gaps": []
+    },
+    {
+      "name": "attrs",
+      "test_files": 26,
+      "gt_imports": 138,
+      "precision": 0.8912,
+      "recall": 0.9493,
+      "f1": 0.9193,
+      "false_positives": 16,
+      "false_negatives": 7,
+      "gaps": [
+        "relative_current: 7 imports (0/7 matched) \u2014 100% miss rate"
+      ]
+    },
+    {
+      "name": "httpx",
+      "test_files": 31,
+      "gt_imports": 123,
+      "precision": 0.9919,
+      "recall": 0.9919,
+      "f1": 0.9919,
+      "false_positives": 1,
+      "false_negatives": 1,
+      "gaps": [
+        "relative_parent: 1 import (0/1 matched)"
+      ]
+    }
+  ],
+  "import_pattern_analysis": {
+    "import_plain": {
+      "total": 302,
+      "matched": 302,
+      "miss_rate": 0.0
+    },
+    "from_absolute": {
+      "total": 153,
+      "matched": 153,
+      "miss_rate": 0.0
+    },
+    "lazy_import": {
+      "total": 10,
+      "matched": 10,
+      "miss_rate": 0.0
+    },
+    "type_checking": {
+      "total": 2,
+      "matched": 2,
+      "miss_rate": 0.0
+    },
+    "relative_current": {
+      "total": 7,
+      "matched": 0,
+      "miss_rate": 1.0
+    },
+    "relative_parent": {
+      "total": 1,
+      "matched": 0,
+      "miss_rate": 1.0
+    }
+  },
+  "recommendations": [
+    "Fix relative import resolution (Edge 12): the adapter resolves from .X as the full path without the dot-suffix module. All 8 relative imports across attrs and httpx were missed (100% miss rate). Priority: HIGH.",
+    "Investigate false positives: 19 false positives suggest the regex-based parser catches imports inside comments or string literals. Consider AST-based parsing or adding exclude patterns. Priority: LOW.",
+    "Lazy imports, TYPE_CHECKING imports, and function-body imports are all handled correctly by the current line-based parser \u2014 no changes needed there."
+  ]
+}
