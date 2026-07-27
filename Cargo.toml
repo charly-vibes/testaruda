@@ -8,6 +8,9 @@ repository = "https://github.com/charly-vibes/testaruda"
 keywords = ["test-selection", "dependency-analysis", "testing", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 
+[workspace]
+members = ["adapter-typescript"]
+
 [[bin]]
 name = "testaruda"
 path = "src/main.rs"
