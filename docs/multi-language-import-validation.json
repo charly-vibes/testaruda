@@ -135,14 +135,14 @@
       "language": "python"
     },
     {
-      "precision": 0.9211,
-      "recall": 0.9375,
-      "f1": 0.9292,
+      "precision": 0.9825,
+      "recall": 1.0,
+      "f1": 0.9912,
       "total_imports_ground_truth": 112,
       "total_imports_adapter": 114,
-      "matched": 105,
-      "false_positives": 9,
-      "false_negatives": 7,
+      "matched": 112,
+      "false_positives": 2,
+      "false_negatives": 0,
       "test_files_analyzed": 26,
       "test_files": [
         "bench/test_benchmarks.py",
@@ -176,14 +176,14 @@
       "language": "python"
     },
     {
-      "precision": 0.9099,
-      "recall": 0.9099,
-      "f1": 0.9099,
-      "total_imports_ground_truth": 111,
+      "precision": 0.991,
+      "recall": 1.0,
+      "f1": 0.9955,
+      "total_imports_ground_truth": 110,
       "total_imports_adapter": 111,
-      "matched": 101,
-      "false_positives": 10,
-      "false_negatives": 10,
+      "matched": 110,
+      "false_positives": 1,
+      "false_negatives": 0,
       "test_files_analyzed": 17,
       "test_files": [
         "tests/processors/test_processors.py",
@@ -208,14 +208,14 @@
       "language": "python"
     },
     {
-      "precision": 0.9918,
-      "recall": 0.9918,
-      "f1": 0.9918,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
       "total_imports_ground_truth": 122,
       "total_imports_adapter": 122,
-      "matched": 121,
-      "false_positives": 1,
-      "false_negatives": 1,
+      "matched": 122,
+      "false_positives": 0,
+      "false_negatives": 0,
       "test_files_analyzed": 31,
       "test_files": [
         "tests/client/test_async_client.py",
@@ -470,12 +470,12 @@
       "precision": 1.0,
       "recall": 1.0,
       "f1": 1.0,
-      "total_imports_ground_truth": 79,
-      "total_imports_adapter": 79,
-      "matched": 79,
+      "total_imports_ground_truth": 81,
+      "total_imports_adapter": 81,
+      "matched": 81,
       "false_positives": 0,
       "false_negatives": 0,
-      "test_files_analyzed": 50,
+      "test_files_analyzed": 51,
       "test_files": [
         "test/helpers.jl",
         "test/runtests.jl",
@@ -504,6 +504,7 @@
         "test/test_inter_component_edges.jl",
         "test/test_lcov_tracefile.jl",
         "test/test_load_index_components.jl",
+        "test/test_manual_edges.jl",
         "test/test_migrate_index.jl",
         "test/test_mockrunner.jl",
         "test/test_must_run_config.jl",
@@ -534,14 +535,14 @@
   ],
   "aggregate": {
     "languages_tested": 14,
-    "total_imports_ground_truth": 920,
-    "total_imports_adapter": 923,
-    "total_matched": 902,
-    "false_positives": 21,
-    "false_negatives": 18,
-    "precision": 0.9772,
-    "recall": 0.9804,
-    "f1": 0.9788,
+    "total_imports_ground_truth": 921,
+    "total_imports_adapter": 925,
+    "total_matched": 921,
+    "false_positives": 4,
+    "false_negatives": 0,
+    "precision": 0.9957,
+    "recall": 1.0,
+    "f1": 0.9978,
     "per_language": [
       {
         "language": "rust",
@@ -586,32 +587,32 @@
       {
         "language": "python",
         "repo": "attrs (Python)",
-        "precision": 0.9211,
-        "recall": 0.9375,
-        "f1": 0.9292,
+        "precision": 0.9825,
+        "recall": 1.0,
+        "f1": 0.9912,
         "test_files": 26,
-        "fp": 9,
-        "fn": 7
+        "fp": 2,
+        "fn": 0
       },
       {
         "language": "python",
         "repo": "structlog (Python)",
-        "precision": 0.9099,
-        "recall": 0.9099,
-        "f1": 0.9099,
+        "precision": 0.991,
+        "recall": 1.0,
+        "f1": 0.9955,
         "test_files": 17,
-        "fp": 10,
-        "fn": 10
+        "fp": 1,
+        "fn": 0
       },
       {
         "language": "python",
         "repo": "httpx (Python)",
-        "precision": 0.9918,
-        "recall": 0.9918,
-        "f1": 0.9918,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
         "test_files": 31,
-        "fp": 1,
-        "fn": 1
+        "fp": 0,
+        "fn": 0
       },
       {
         "language": "julia",
@@ -679,7 +680,7 @@
         "precision": 1.0,
         "recall": 1.0,
         "f1": 1.0,
-        "test_files": 50,
+        "test_files": 51,
         "fp": 0,
         "fn": 0
       }

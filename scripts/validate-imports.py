@@ -100,14 +100,34 @@ def _py_ast_imports(content: str, file_path: str, repo_root: str) -> set[str]:
     except SyntaxError:
         return imports
 
+    # Derive base package from file path (same logic as adapter)
+    rel_path = file_path.replace(repo_root, "").lstrip("/")
+    module_path = rel_path.replace(".py", "").replace("/", ".").lstrip(".")
+    base_package_parts = module_path.rsplit(".", 1)[:-1]  # parent package path
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                imports.add(alias.name.split(".")[0])  # top-level module
+                imports.add(alias.name.split(".")[0])
         elif isinstance(node, ast.ImportFrom):
+            level = node.level or 0
             mod = node.module or ""
-            if mod:
+            if level == 0:
+                # Absolute import
                 imports.add(mod.split(".")[0])
+            else:
+                # Relative import — resolve to absolute module path
+                parts = list(base_package_parts[0]) if base_package_parts else []
+                levels_up = max(0, level - 1)
+                if levels_up < len(parts):
+                    parts = parts[:len(parts) - levels_up]
+                else:
+                    continue  # above root
+                if mod:
+                    parts.append(mod)
+                resolved = ".".join(parts)
+                if resolved:
+                    imports.add(resolved.split(".")[0])
     return imports
 
 
