@@ -11,8 +11,8 @@
           "message": "fix: populate 3 contracts with targeted test commands\n",
           "summary": {
             "handshake": "Handshake:    6ms",
-            "discover": "Discover:     59ms (179 tests)",
-            "fingerprint": "Fingerprint:  11ms (179 files)",
+            "discover": "Discover:     56ms (179 tests)",
+            "fingerprint": "Fingerprint:  10ms (179 files)",
             "static-deps": "Static-deps:  52ms (3 files, 0 edges, 0 unresolved)",
             "run-args": "Run-args:     5ms (5 selected)",
             "ingest": "Ingest:       6ms (10 ingested)"
@@ -26,12 +26,12 @@
           "files": 3,
           "message": "fix: enable beads backup via tracked issues.jsonl\n",
           "summary": {
-            "handshake": "Handshake:    7ms",
-            "discover": "Discover:     52ms (179 tests)",
-            "fingerprint": "Fingerprint:  11ms (179 files)",
-            "static-deps": "Static-deps:  54ms (3 files, 0 edges, 0 unresolved)",
-            "run-args": "Run-args:     6ms (5 selected)",
-            "ingest": "Ingest:       7ms (10 ingested)"
+            "handshake": "Handshake:    6ms",
+            "discover": "Discover:     54ms (179 tests)",
+            "fingerprint": "Fingerprint:  10ms (179 files)",
+            "static-deps": "Static-deps:  52ms (3 files, 0 edges, 0 unresolved)",
+            "run-args": "Run-args:     5ms (5 selected)",
+            "ingest": "Ingest:       5ms (10 ingested)"
           },
           "exit_code": 0,
           "adapter": "testaruda-adapter-rust"
@@ -42,12 +42,12 @@
           "files": 4,
           "message": "feat: implement run-args and ingest adapter commands (TIA-AD",
           "summary": {
-            "handshake": "Handshake:    5ms",
-            "discover": "Discover:     53ms (179 tests)",
-            "fingerprint": "Fingerprint:  12ms (179 files)",
-            "static-deps": "Static-deps:  53ms (4 files, 1088 edges, 0 unresolved)",
+            "handshake": "Handshake:    6ms",
+            "discover": "Discover:     51ms (179 tests)",
+            "fingerprint": "Fingerprint:  11ms (179 files)",
+            "static-deps": "Static-deps:  57ms (4 files, 1088 edges, 0 unresolved)",
             "run-args": "Run-args:     5ms (5 selected)",
-            "ingest": "Ingest:       5ms (10 ingested)"
+            "ingest": "Ingest:       6ms (10 ingested)"
           },
           "exit_code": 0,
           "adapter": "testaruda-adapter-rust"
@@ -65,10 +65,10 @@
           "message": "Fix help/version/diagnostic commands with invalid config\n",
           "summary": {
             "handshake": "Handshake:    5ms",
-            "discover": "Discover:     17ms (383 tests)",
+            "discover": "Discover:     13ms (383 tests)",
             "fingerprint": "Fingerprint:  17ms (383 files)",
-            "static-deps": "Static-deps:  38ms (2 files, 13680 edges, 0 unresolved)",
-            "run-args": "Run-args:     6ms (5 selected)",
+            "static-deps": "Static-deps:  39ms (2 files, 13680 edges, 0 unresolved)",
+            "run-args": "Run-args:     7ms (5 selected)",
             "ingest": "Ingest:       6ms (10 ingested)"
           },
           "exit_code": 0,
@@ -81,10 +81,10 @@
           "message": "cargo fmt\n",
           "summary": {
             "handshake": "Handshake:    5ms",
-            "discover": "Discover:     14ms (383 tests)",
+            "discover": "Discover:     13ms (383 tests)",
             "fingerprint": "Fingerprint:  18ms (383 files)",
             "static-deps": "Static-deps:  39ms (2 files, 13680 edges, 0 unresolved)",
-            "run-args": "Run-args:     7ms (5 selected)",
+            "run-args": "Run-args:     6ms (5 selected)",
             "ingest": "Ingest:       6ms (10 ingested)"
           },
           "exit_code": 0,
@@ -96,11 +96,11 @@
           "files": 1,
           "message": "add integration test for ANSI theme with simple JSON\n",
           "summary": {
-            "handshake": "Handshake:    6ms",
-            "discover": "Discover:     14ms (383 tests)",
-            "fingerprint": "Fingerprint:  17ms (383 files)",
-            "static-deps": "Static-deps:  37ms (1 files, 13680 edges, 0 unresolved)",
-            "run-args": "Run-args:     7ms (5 selected)",
+            "handshake": "Handshake:    4ms",
+            "discover": "Discover:     12ms (383 tests)",
+            "fingerprint": "Fingerprint:  16ms (383 files)",
+            "static-deps": "Static-deps:  38ms (1 files, 13680 edges, 0 unresolved)",
+            "run-args": "Run-args:     5ms (5 selected)",
             "ingest": "Ingest:       6ms (10 ingested)"
           },
           "exit_code": 0,
@@ -118,12 +118,12 @@
           "files": 2,
           "message": "feat: --files argument now sorts alphabetically (#1059)\n",
           "summary": {
-            "handshake": "Handshake:    5ms",
+            "handshake": "Handshake:    7ms",
             "discover": "Discover:     6ms (23 tests)",
-            "fingerprint": "Fingerprint:  8ms (23 files)",
-            "static-deps": "Static-deps:  7ms (2 files, 0 edges, 0 unresolved)",
-            "run-args": "Run-args:     5ms (5 selected)",
-            "ingest": "Ingest:       6ms (10 ingested)"
+            "fingerprint": "Fingerprint:  6ms (23 files)",
+            "static-deps": "Static-deps:  6ms (2 files, 0 edges, 0 unresolved)",
+            "run-args": "Run-args:     6ms (5 selected)",
+            "ingest": "Ingest:       7ms (10 ingested)"
           },
           "exit_code": 0,
           "adapter": "testaruda-adapter-rust"
@@ -134,12 +134,12 @@
           "files": 2,
           "message": "perf: read only first 128B from the file when searching for ",
           "summary": {
-            "handshake": "Handshake:    6ms",
+            "handshake": "Handshake:    7ms",
             "discover": "Discover:     7ms (23 tests)",
-            "fingerprint": "Fingerprint:  7ms (23 files)",
+            "fingerprint": "Fingerprint:  6ms (23 files)",
             "static-deps": "Static-deps:  6ms (2 files, 108 edges, 0 unresolved)",
-            "run-args": "Run-args:     6ms (5 selected)",
-            "ingest": "Ingest:       6ms (10 ingested)"
+            "run-args": "Run-args:     5ms (5 selected)",
+            "ingest": "Ingest:       7ms (10 ingested)"
           },
           "exit_code": 0,
           "adapter": "testaruda-adapter-rust"
@@ -150,12 +150,12 @@
           "files": 1,
           "message": "fix issue https://github.com/XAMPPRocky/tokei/issues/1138 (#",
           "summary": {
-            "handshake": "Handshake:    6ms",
-            "discover": "Discover:     8ms (23 tests)",
-            "fingerprint": "Fingerprint:  5ms (23 files)",
-            "static-deps": "Static-deps:  8ms (1 files, 0 edges, 0 unresolved)",
-            "run-args": "Run-args:     7ms (5 selected)",
-            "ingest": "Ingest:       7ms (10 ingested)"
+            "handshake": "Handshake:    7ms",
+            "discover": "Discover:     7ms (23 tests)",
+            "fingerprint": "Fingerprint:  6ms (23 files)",
+            "static-deps": "Static-deps:  6ms (1 files, 0 edges, 0 unresolved)",
+            "run-args": "Run-args:     5ms (5 selected)",
+            "ingest": "Ingest:       6ms (10 ingested)"
           },
           "exit_code": 0,
           "adapter": "testaruda-adapter-rust"
@@ -172,12 +172,12 @@
           "files": 4,
           "message": "allow multiple=True with flags\n",
           "summary": {
-            "handshake": "Handshake:    6ms",
-            "discover": "Discover:     7ms (34 tests)",
-            "fingerprint": "Fingerprint:  8ms (34 files)",
-            "static-deps": "Static-deps:  8ms (4 files, 8 edges, 0 unresolved)",
-            "run-args": "Run-args:     6ms (5 selected)",
-            "ingest": "Ingest:       6ms (10 ingested)"
+            "handshake": "Handshake:    7ms",
+            "discover": "Discover:     6ms (34 tests)",
+            "fingerprint": "Fingerprint:  7ms (34 files)",
+            "static-deps": "Static-deps:  7ms (4 files, 8 edges, 0 unresolved)",
+            "run-args": "Run-args:     5ms (5 selected)",
+            "ingest": "Ingest:       5ms (10 ingested)"
           },
           "exit_code": 0,
           "adapter": "testaruda-adapter-python"
@@ -188,12 +188,12 @@
           "files": 2,
           "message": "Add `cls` to signature of `argument` and `option`\n",
           "summary": {
-            "handshake": "Handshake:    7ms",
-            "discover": "Discover:     6ms (34 tests)",
-            "fingerprint": "Fingerprint:  6ms (34 files)",
-            "static-deps": "Static-deps:  7ms (2 files, 0 edges, 0 unresolved)",
+            "handshake": "Handshake:    4ms",
+            "discover": "Discover:     5ms (34 tests)",
+            "fingerprint": "Fingerprint:  5ms (34 files)",
+            "static-deps": "Static-deps:  6ms (2 files, 0 edges, 0 unresolved)",
             "run-args": "Run-args:     6ms (5 selected)",
-            "ingest": "Ingest:       5ms (10 ingested)"
+            "ingest": "Ingest:       6ms (10 ingested)"
           },
           "exit_code": 0,
           "adapter": "testaruda-adapter-python"
@@ -204,12 +204,12 @@
           "files": 1,
           "message": "remove py2 compat from docs\n",
           "summary": {
-            "handshake": "Handshake:    7ms",
+            "handshake": "Handshake:    5ms",
             "discover": "Discover:     5ms (34 tests)",
-            "fingerprint": "Fingerprint:  7ms (34 files)",
+            "fingerprint": "Fingerprint:  5ms (34 files)",
             "static-deps": "Static-deps:  7ms (1 files, 0 edges, 0 unresolved)",
             "run-args": "Run-args:     5ms (5 selected)",
-            "ingest": "Ingest:       7ms (10 ingested)"
+            "ingest": "Ingest:       4ms (10 ingested)"
           },
           "exit_code": 0,
           "adapter": "testaruda-adapter-python"
@@ -227,11 +227,11 @@
           "message": "Improve type hinting of or_ (#1471)\n",
           "summary": {
             "handshake": "Handshake:    6ms",
-            "discover": "Discover:     7ms (26 tests)",
-            "fingerprint": "Fingerprint:  5ms (26 files)",
-            "static-deps": "Static-deps:  8ms (3 files, 0 edges, 0 unresolved)",
-            "run-args": "Run-args:     5ms (5 selected)",
-            "ingest": "Ingest:       5ms (10 ingested)"
+            "discover": "Discover:     6ms (26 tests)",
+            "fingerprint": "Fingerprint:  6ms (26 files)",
+            "static-deps": "Static-deps:  7ms (3 files, 0 edges, 0 unresolved)",
+            "run-args": "Run-args:     4ms (5 selected)",
+            "ingest": "Ingest:       4ms (10 ingested)"
           },
           "exit_code": 0,
           "adapter": "testaruda-adapter-python"
@@ -243,11 +243,11 @@
           "message": "Run Pyright in strict mode\n",
           "summary": {
             "handshake": "Handshake:    5ms",
-            "discover": "Discover:     6ms (26 tests)",
-            "fingerprint": "Fingerprint:  7ms (26 files)",
+            "discover": "Discover:     5ms (26 tests)",
+            "fingerprint": "Fingerprint:  5ms (26 files)",
             "static-deps": "Static-deps:  7ms (2 files, 0 edges, 0 unresolved)",
-            "run-args": "Run-args:     6ms (5 selected)",
-            "ingest": "Ingest:       7ms (10 ingested)"
+            "run-args": "Run-args:     5ms (5 selected)",
+            "ingest": "Ingest:       5ms (10 ingested)"
           },
           "exit_code": 0,
           "adapter": "testaruda-adapter-python"
@@ -258,12 +258,12 @@
           "files": 5,
           "message": "De-dup typing examples names; fix PR template\n",
           "summary": {
-            "handshake": "Handshake:    5ms",
+            "handshake": "Handshake:    4ms",
             "discover": "Discover:     6ms (26 tests)",
             "fingerprint": "Fingerprint:  5ms (26 files)",
             "static-deps": "Static-deps:  6ms (5 files, 0 edges, 0 unresolved)",
-            "run-args": "Run-args:     6ms (5 selected)",
-            "ingest": "Ingest:       6ms (10 ingested)"
+            "run-args": "Run-args:     5ms (5 selected)",
+            "ingest": "Ingest:       7ms (10 ingested)"
           },
           "exit_code": 0,
           "adapter": "testaruda-adapter-python"
@@ -280,11 +280,11 @@
           "files": 2,
           "message": "Version 0.27.0 (#3095)\n",
           "summary": {
-            "handshake": "Handshake:    7ms",
-            "discover": "Discover:     6ms (31 tests)",
-            "fingerprint": "Fingerprint:  8ms (31 files)",
-            "static-deps": "Static-deps:  7ms (2 files, 0 edges, 0 unresolved)",
-            "run-args": "Run-args:     6ms (5 selected)",
+            "handshake": "Handshake:    5ms",
+            "discover": "Discover:     4ms (31 tests)",
+            "fingerprint": "Fingerprint:  5ms (31 files)",
+            "static-deps": "Static-deps:  8ms (2 files, 0 edges, 0 unresolved)",
+            "run-args": "Run-args:     5ms (5 selected)",
             "ingest": "Ingest:       6ms (10 ingested)"
           },
           "exit_code": 0,
@@ -296,12 +296,12 @@
           "files": 2,
           "message": "Use more permissible types in ASGIApp  (#3109)\n",
           "summary": {
-            "handshake": "Handshake:    7ms",
+            "handshake": "Handshake:    6ms",
             "discover": "Discover:     6ms (31 tests)",
-            "fingerprint": "Fingerprint:  8ms (31 files)",
+            "fingerprint": "Fingerprint:  6ms (31 files)",
             "static-deps": "Static-deps:  6ms (2 files, 0 edges, 0 unresolved)",
-            "run-args": "Run-args:     5ms (5 selected)",
-            "ingest": "Ingest:       6ms (10 ingested)"
+            "run-args": "Run-args:     6ms (5 selected)",
+            "ingest": "Ingest:       7ms (10 ingested)"
           },
           "exit_code": 0,
           "adapter": "testaruda-adapter-python"
@@ -313,11 +313,11 @@
           "message": "Fix client.send() timeout new Request instance (#3116)\n",
           "summary": {
             "handshake": "Handshake:    6ms",
-            "discover": "Discover:     4ms (31 tests)",
+            "discover": "Discover:     6ms (31 tests)",
             "fingerprint": "Fingerprint:  7ms (31 files)",
-            "static-deps": "Static-deps:  6ms (2 files, 4 edges, 0 unresolved)",
+            "static-deps": "Static-deps:  5ms (2 files, 4 edges, 0 unresolved)",
             "run-args": "Run-args:     7ms (5 selected)",
-            "ingest": "Ingest:       7ms (10 ingested)"
+            "ingest": "Ingest:       6ms (10 ingested)"
           },
           "exit_code": 0,
           "adapter": "testaruda-adapter-python"
@@ -333,8 +333,15 @@
           "type": "source",
           "files": 1,
           "message": "Add support for missing (#257)\n",
-          "summary": {},
-          "exit_code": 5,
+          "summary": {
+            "handshake": "Handshake:    1618ms",
+            "discover": "Discover:     1574ms (72 tests)",
+            "fingerprint": "Fingerprint:  1637ms (72 files)",
+            "static-deps": "Static-deps:  1232ms (1 files, 10 edges, 1 unresolved)",
+            "run-args": "Run-args:     1966ms (5 selected)",
+            "ingest": "Ingest:       30196ms (0 ingested)"
+          },
+          "exit_code": 0,
           "adapter": "testaruda-adapter-julia"
         },
         {
@@ -342,8 +349,15 @@
           "type": "source",
           "files": 2,
           "message": "Fix integer parsing with number-accepted characters that are",
-          "summary": {},
-          "exit_code": 5,
+          "summary": {
+            "handshake": "Handshake:    1629ms",
+            "discover": "Discover:     1546ms (72 tests)",
+            "fingerprint": "Fingerprint:  1535ms (72 files)",
+            "static-deps": "Static-deps:  1200ms (2 files, 20 edges, 2 unresolved)",
+            "run-args": "Run-args:     1972ms (5 selected)",
+            "ingest": "Ingest:       30197ms (0 ingested)"
+          },
+          "exit_code": 0,
           "adapter": "testaruda-adapter-julia"
         },
         {
@@ -351,8 +365,15 @@
           "type": "source",
           "files": 2,
           "message": "make bench work (#262)\n",
-          "summary": {},
-          "exit_code": 5,
+          "summary": {
+            "handshake": "Handshake:    1653ms",
+            "discover": "Discover:     1605ms (72 tests)",
+            "fingerprint": "Fingerprint:  1633ms (72 files)",
+            "static-deps": "Static-deps:  1238ms (2 files, 20 edges, 2 unresolved)",
+            "run-args": "Run-args:     1939ms (5 selected)",
+            "ingest": "Ingest:       30181ms (0 ingested)"
+          },
+          "exit_code": 0,
           "adapter": "testaruda-adapter-julia"
         }
       ]
@@ -366,8 +387,15 @@
           "type": "source",
           "files": 2,
           "message": "Ensure tempfile for compressed input is removed when uncompr",
-          "summary": {},
-          "exit_code": 5,
+          "summary": {
+            "handshake": "Handshake:    1727ms",
+            "discover": "Discover:     1557ms (72 tests)",
+            "fingerprint": "Fingerprint:  1595ms (72 files)",
+            "static-deps": "Static-deps:  1302ms (2 files, 20 edges, 2 unresolved)",
+            "run-args": "Run-args:     1882ms (5 selected)",
+            "ingest": "Ingest:       30191ms (0 ingested)"
+          },
+          "exit_code": 0,
           "adapter": "testaruda-adapter-julia"
         },
         {
@@ -375,8 +403,15 @@
           "type": "source",
           "files": 3,
           "message": "Take dependency on InlineStrings package (#923)\n",
-          "summary": {},
-          "exit_code": 5,
+          "summary": {
+            "handshake": "Handshake:    1686ms",
+            "discover": "Discover:     1620ms (72 tests)",
+            "fingerprint": "Fingerprint:  1636ms (72 files)",
+            "static-deps": "Static-deps:  1248ms (3 files, 30 edges, 3 unresolved)",
+            "run-args": "Run-args:     1838ms (5 selected)",
+            "ingest": "Ingest:       30190ms (0 ingested)"
+          },
+          "exit_code": 0,
           "adapter": "testaruda-adapter-julia"
         },
         {
@@ -384,8 +419,15 @@
           "type": "source",
           "files": 2,
           "message": "Fix ambiguity of \"promoting\" a PooledVector to its same type",
-          "summary": {},
-          "exit_code": 5,
+          "summary": {
+            "handshake": "Handshake:    1610ms",
+            "discover": "Discover:     1573ms (72 tests)",
+            "fingerprint": "Fingerprint:  1590ms (72 files)",
+            "static-deps": "Static-deps:  1222ms (2 files, 20 edges, 2 unresolved)",
+            "run-args": "Run-args:     1894ms (5 selected)",
+            "ingest": "Ingest:       30198ms (0 ingested)"
+          },
+          "exit_code": 0,
           "adapter": "testaruda-adapter-julia"
         }
       ]
@@ -399,8 +441,15 @@
           "type": "source",
           "files": 1,
           "message": "Fix Julia 1.11 IOBuffer/GenericIOBuffer compat issuewq\n",
-          "summary": {},
-          "exit_code": 5,
+          "summary": {
+            "handshake": "Handshake:    1609ms",
+            "discover": "Discover:     1606ms (72 tests)",
+            "fingerprint": "Fingerprint:  1576ms (72 files)",
+            "static-deps": "Static-deps:  1240ms (1 files, 10 edges, 1 unresolved)",
+            "run-args": "Run-args:     1885ms (5 selected)",
+            "ingest": "Ingest:       30184ms (0 ingested)"
+          },
+          "exit_code": 0,
           "adapter": "testaruda-adapter-julia"
         },
         {
@@ -408,8 +457,15 @@
           "type": "source",
           "files": 1,
           "message": "Fix 1.10/1.11 compat issue\n",
-          "summary": {},
-          "exit_code": 5,
+          "summary": {
+            "handshake": "Handshake:    1596ms",
+            "discover": "Discover:     1571ms (72 tests)",
+            "fingerprint": "Fingerprint:  1604ms (72 files)",
+            "static-deps": "Static-deps:  1287ms (1 files, 10 edges, 1 unresolved)",
+            "run-args": "Run-args:     1893ms (5 selected)",
+            "ingest": "Ingest:       30196ms (0 ingested)"
+          },
+          "exit_code": 0,
           "adapter": "testaruda-adapter-julia"
         },
         {
@@ -417,8 +473,15 @@
           "type": "source",
           "files": 2,
           "message": "Don't pass verbosity for withlevel call\n",
-          "summary": {},
-          "exit_code": 5,
+          "summary": {
+            "handshake": "Handshake:    1686ms",
+            "discover": "Discover:     1536ms (72 tests)",
+            "fingerprint": "Fingerprint:  1629ms (72 files)",
+            "static-deps": "Static-deps:  1259ms (2 files, 20 edges, 2 unresolved)",
+            "run-args": "Run-args:     1887ms (5 selected)",
+            "ingest": "Ingest:       30192ms (0 ingested)"
+          },
+          "exit_code": 0,
           "adapter": "testaruda-adapter-julia"
         }
       ]
