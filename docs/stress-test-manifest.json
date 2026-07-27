@@ -1,0 +1,77 @@
+{
+  "manifest_version": 2,
+  "generated": "2026-07-27",
+  "description": "Candidate codebases for adapter stress testing across all managed languages",
+  "clone_base": "target/scratch/",
+  "languages": {
+    "python": {
+      "adapter": "testaruda-adapter-python",
+      "status": "released",
+      "document": "docs/python-stress-test-candidates.md",
+      "projects": [
+        {"id": "click",   "repo_url": "https://github.com/pallets/click.git",      "size": "small",  "test_framework": "pytest",  "source_dir": "src/click/"},
+        {"id": "attrs",   "repo_url": "https://github.com/python-attrs/attrs.git", "size": "small",  "test_framework": "pytest",  "source_dir": "src/attr/"},
+        {"id": "structlog","repo_url": "https://github.com/hynek/structlog.git",   "size": "small",  "test_framework": "pytest",  "source_dir": "src/structlog/"},
+        {"id": "httpx",   "repo_url": "https://github.com/encode/httpx.git",       "size": "medium", "test_framework": "pytest",  "source_dir": "httpx/"},
+        {"id": "requests","repo_url": "https://github.com/psf/requests.git",       "size": "medium", "test_framework": "pytest",  "source_dir": "requests/"},
+        {"id": "pydantic","repo_url": "https://github.com/pydantic/pydantic.git", "size": "medium", "test_framework": "pytest",  "source_dir": "pydantic/"},
+        {"id": "pandas",  "repo_url": "https://github.com/pandas-dev/pandas.git",  "size": "large",  "test_framework": "pytest",  "source_dir": "pandas/"},
+        {"id": "scikit-learn","repo_url": "https://github.com/scikit-learn/scikit-learn.git", "size": "large", "test_framework": "pytest", "source_dir": "sklearn/"}
+      ]
+    },
+    "rust": {
+      "adapter": "testaruda-adapter-rust",
+      "status": "released",
+      "document": "docs/rust-stress-test-candidates.md",
+      "projects": [
+        {"id": "bat",         "repo_url": "https://github.com/sharkdp/bat.git",          "size": "small",  "test_framework": "cargo test", "source_dir": "src/"},
+        {"id": "tokei",       "repo_url": "https://github.com/XAMPPRocky/tokei.git",     "size": "small",  "test_framework": "cargo test", "source_dir": "src/"},
+        {"id": "fd",          "repo_url": "https://github.com/sharkdp/fd.git",            "size": "small",  "test_framework": "cargo test", "source_dir": "src/"},
+        {"id": "ripgrep",     "repo_url": "https://github.com/BurntSushi/ripgrep.git",    "size": "medium", "test_framework": "cargo test", "source_dir": "crates/"},
+        {"id": "serde",       "repo_url": "https://github.com/serde-rs/serde.git",        "size": "medium", "test_framework": "cargo test", "source_dir": ""},
+        {"id": "clap",        "repo_url": "https://github.com/clap-rs/clap.git",          "size": "medium", "test_framework": "cargo test", "source_dir": ""},
+        {"id": "tokio",       "repo_url": "https://github.com/tokio-rs/tokio.git",        "size": "large",  "test_framework": "cargo test", "source_dir": ""},
+        {"id": "rust-analyzer","repo_url": "https://github.com/rust-lang/rust-analyzer.git", "size": "large", "test_framework": "cargo test", "source_dir": "crates/"}
+      ]
+    },
+    "julia": {
+      "adapter": "testaruda-adapter-julia",
+      "status": "released",
+      "document": "docs/julia-stress-test-candidates.md",
+      "projects": [
+        {"id": "json.jl",            "repo_url": "https://github.com/JuliaIO/JSON.jl.git",                     "size": "small",  "test_framework": "Test.jl", "source_dir": "src/"},
+        {"id": "csv.jl",             "repo_url": "https://github.com/JuliaData/CSV.jl.git",                     "size": "small",  "test_framework": "Test.jl", "source_dir": "src/"},
+        {"id": "dataframes.jl",      "repo_url": "https://github.com/JuliaData/DataFrames.jl.git",             "size": "medium", "test_framework": "Test.jl", "source_dir": "src/"},
+        {"id": "http.jl",            "repo_url": "https://github.com/JuliaWeb/HTTP.jl.git",                     "size": "medium", "test_framework": "Test.jl", "source_dir": "src/"},
+        {"id": "plots.jl",           "repo_url": "https://github.com/JuliaPlots/Plots.jl.git",                 "size": "large",  "test_framework": "Test.jl", "source_dir": "src/"},
+        {"id": "differentialequations.jl","repo_url": "https://github.com/SciML/DifferentialEquations.jl.git", "size": "large",  "test_framework": "Test.jl", "source_dir": "src/"}
+      ]
+    },
+    "typescript": {
+      "adapter": "testaruda-adapter-typescript",
+      "status": "planned",
+      "document": "docs/typescript-stress-test-candidates.md",
+      "projects": [
+        {"id": "chalk",      "repo_url": "https://github.com/chalk/chalk.git",             "size": "small",  "test_framework": "ava",         "source_dir": "source/"},
+        {"id": "zod",         "repo_url": "https://github.com/colinhacks/zod.git",         "size": "small",  "test_framework": "vitest",      "source_dir": "src/"},
+        {"id": "express",    "repo_url": "https://github.com/expressjs/express.git",       "size": "medium", "test_framework": "mocha",       "source_dir": "lib/"},
+        {"id": "prettier",   "repo_url": "https://github.com/prettier/prettier.git",       "size": "medium", "test_framework": "jest",        "source_dir": "src/"},
+        {"id": "next.js",    "repo_url": "https://github.com/vercel/next.js.git",          "size": "large",  "test_framework": "jest+playwright", "source_dir": "packages/"},
+        {"id": "typescript", "repo_url": "https://github.com/microsoft/TypeScript.git",    "size": "large",  "test_framework": "jest",        "source_dir": "src/"}
+      ]
+    },
+    "clojure": {
+      "adapter": "testaruda-adapter-clojure",
+      "status": "planned",
+      "document": "docs/clojure-stress-test-candidates.md",
+      "projects": [
+        {"id": "cheshire",     "repo_url": "https://github.com/dakrone/cheshire.git",         "size": "small",  "test_framework": "clojure.test", "source_dir": ""},
+        {"id": "clj-http",     "repo_url": "https://github.com/dakrone/clj-http.git",        "size": "small",  "test_framework": "clojure.test", "source_dir": "src/"},
+        {"id": "ring",         "repo_url": "https://github.com/ring-clojure/ring.git",         "size": "medium", "test_framework": "clojure.test", "source_dir": ""},
+        {"id": "re-frame",     "repo_url": "https://github.com/day8/re-frame.git",            "size": "medium", "test_framework": "clojure.test", "source_dir": "src/"},
+        {"id": "metabase",     "repo_url": "https://github.com/metabase/metabase.git",         "size": "large",  "test_framework": "clojure.test", "source_dir": ""},
+        {"id": "leiningen",    "repo_url": "https://github.com/technomancy/leiningen.git",     "size": "large",  "test_framework": "clojure.test", "source_dir": "leiningen-core/src/"}
+      ]
+    }
+  }
+}
