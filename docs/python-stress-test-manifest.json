@@ -1,0 +1,97 @@
+{
+  "manifest_version": 1,
+  "generated": "2026-07-22",
+  "ticket": "testaruda-b1i",
+  "description": "Candidate Python codebases for adapter stress testing",
+  "clone_base": "target/scratch/",
+  "projects": [
+    {
+      "id": "click",
+      "name": "click",
+      "repo_url": "https://github.com/pallets/click.git",
+      "clone_path": "target/scratch/click",
+      "size_category": "small",
+      "test_framework": "pytest",
+      "test_dir": "tests/",
+      "source_dir": "src/click/",
+      "notes": "Fast clone, minimal deps. Good baseline test. Use --since HEAD~200 for sampling."
+    },
+    {
+      "id": "attrs",
+      "name": "attrs",
+      "repo_url": "https://github.com/python-attrs/attrs.git",
+      "clone_path": "target/scratch/attrs",
+      "size_category": "small",
+      "test_framework": "pytest",
+      "test_dir": "tests/",
+      "source_dir": "src/attr/",
+      "notes": "Excellent code quality, property-based tests. Tests conditional imports and circular deps."
+    },
+    {
+      "id": "structlog",
+      "name": "structlog",
+      "repo_url": "https://github.com/hynek/structlog.git",
+      "clone_path": "target/scratch/structlog",
+      "size_category": "small",
+      "test_framework": "pytest",
+      "test_dir": "tests/",
+      "source_dir": "src/structlog/",
+      "notes": "Modern Python, async patterns. Fast clone. Tests composition-heavy code."
+    },
+    {
+      "id": "httpx",
+      "name": "httpx",
+      "repo_url": "https://github.com/encode/httpx.git",
+      "clone_path": "target/scratch/httpx",
+      "size_category": "medium",
+      "test_framework": "pytest",
+      "test_dir": "tests/",
+      "source_dir": "httpx/",
+      "notes": "Async HTTP client. Tests async discovery and third-party import resolution. Requires httpcore etc."
+    },
+    {
+      "id": "requests",
+      "name": "requests",
+      "repo_url": "https://github.com/psf/requests.git",
+      "clone_path": "target/scratch/requests",
+      "size_category": "medium",
+      "test_framework": "pytest",
+      "test_dir": "tests/",
+      "source_dir": "requests/",
+      "notes": "Classic HTTP library. Tests conditional dependency resolution. Sync counterpart to httpx."
+    },
+    {
+      "id": "pydantic",
+      "name": "pydantic",
+      "repo_url": "https://github.com/pydantic/pydantic.git",
+      "clone_path": "target/scratch/pydantic",
+      "size_category": "medium",
+      "test_framework": "pytest",
+      "test_dir": "tests/",
+      "source_dir": "pydantic/",
+      "notes": "Rust core (pydantic-core .so). Tests mixed Python/C codebase handling. Heavy generics."
+    },
+    {
+      "id": "pandas",
+      "name": "pandas",
+      "repo_url": "https://github.com/pandas-dev/pandas.git",
+      "clone_path": "target/scratch/pandas",
+      "size_category": "large",
+      "test_framework": "pytest",
+      "test_dir": "tests/",
+      "source_dir": "pandas/",
+      "notes": "Massive codebase (~400k LOC, 1500+ files). Cython/C extensions. Long clone time. Max stress test."
+    },
+    {
+      "id": "scikit-learn",
+      "name": "scikit-learn",
+      "repo_url": "https://github.com/scikit-learn/scikit-learn.git",
+      "clone_path": "target/scratch/scikit-learn",
+      "size_category": "large",
+      "test_framework": "pytest",
+      "test_dir": "sklearn/*/tests/",
+      "source_dir": "sklearn/",
+      "notes": "Co-located tests per module. Cython extensions. Medium clone time. Unique test layout."
+    }
+  ]
+}
