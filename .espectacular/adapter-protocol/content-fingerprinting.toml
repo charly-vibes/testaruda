@@ -8,3 +8,7 @@ authored_with = "0.1.0"
 [[tests.shell]]
 command = "cargo test adapter::tests::test_fingerprint"
 timeout_seconds = 60
+
+[[tests.shell]]
+command = "cargo test --package adapter-clojure -- fingerprint_returns_results"
+timeout_seconds = 60
