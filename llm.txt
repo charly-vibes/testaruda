@@ -1,0 +1,79 @@
+# testaruda — Language-agnostic test selection engine
+
+testaruda computes the minimal set of tests affected by a code change
+using provenance-semiring dependency analysis. It is language-agnostic:
+language-specific adapters (Rust, Python, TypeScript, Julia) parse test
+files and track imports via tree-sitter.
+
+## Quick start
+
+```bash
+testaruda init          # Initialize store and config
+testaruda discover      # Discover test files via configured adapters
+testaruda select        # Select tests affected by workspace changes
+testaruda ingest <path> # Ingest test run results
+testaruda doctor        # Validate project configuration
+```
+
+## Commands
+
+| Command     | Description                                                |
+|-------------|------------------------------------------------------------|
+| init        | Initialize store and config in the current project         |
+| select      | Select affected tests from a code change                   |
+| calibrate   | Evaluate the predictive ranking calibration gate           |
+| ingest      | Ingest test run results to update the model                |
+| graph       | Show the current dependency graph                          |
+| import      | Import a dependency graph from a JSON export               |
+| explain     | Explain why a test was or was not selected                 |
+| validate    | Run the Soufflé oracle for cross-validation                |
+| discover    | Discover tests via configured adapters                     |
+| metrics     | Show operational metrics                                   |
+| doctor      | Validate project configuration (testaruda.toml)            |
+| completions | Generate shell completions                                 |
+
+## Architecture
+
+testaruda uses a Datalog-based engine (via the `ascent` crate) to compute
+test selection. The dependency graph is built from:
+
+- **Static edges**: parsed from source code imports (tree-sitter)
+- **Runtime edges**: from test runner output (JUnit XML or verbose)
+- **Provenance semiring**: tracks confidence, distance, and quality
+
+## Configuration
+
+Project configuration lives in `testaruda.toml`:
+
+```toml
+[adapters.extensions]
+ts = "testaruda-adapter-typescript"
+tsx = "testaruda-adapter-typescript"
+mts = "testaruda-adapter-typescript"
+cts = "testaruda-adapter-typescript"
+py = "testaruda-adapter-python"
+rs = "testaruda-adapter-rust"
+jl = "testaruda-adapter-julia"
+```
+
+## Language adapters
+
+Each adapter is a standalone binary that communicates with testaruda via
+JSON-over-stdin/stdout protocol. The adapter protocol supports:
+
+- `handshake` — declare capabilities
+- `discover` — find test files
+- `static-deps` — extract import dependency edges
+- `fingerprint` — compute file hashes
+- `run-args` — build test runner command-line arguments
+- `ingest` — parse test runner output
+
+## Links
+
+- Repository: <https://github.com/charly-vibes/testaruda>
+- Issue tracker: Beads (run `bd ready`)
+
+## Project context
+
+This file is a hand-written description for LLM context. It will be
+replaced by `genesis::aix` generation once that module is stable.

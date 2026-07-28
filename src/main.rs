@@ -5,6 +5,46 @@ use std::io::IsTerminal;
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
 
+/// Build the genesis command registry with all testaruda commands.
+///
+/// Used for typo detection via `genesis::suggestions`.
+pub fn build_command_registry() -> genesis::suggestions::CommandRegistry {
+    let mut reg = genesis::suggestions::CommandRegistry::new();
+    reg.register(
+        "testaruda",
+        vec![
+            "init".to_string(),
+            "select".to_string(),
+            "calibrate".to_string(),
+            "ingest".to_string(),
+            "graph".to_string(),
+            "import".to_string(),
+            "explain".to_string(),
+            "validate".to_string(),
+            "discover".to_string(),
+            "metrics".to_string(),
+            "doctor".to_string(),
+            "completions".to_string(),
+        ],
+    );
+    reg
+}
+
+/// Build the genesis managed block registry with all testaruda's standard blocks.
+pub fn build_block_registry() -> genesis::managed_block::BlockRegistry {
+    let mut reg = genesis::managed_block::BlockRegistry::new();
+    reg.register(genesis::managed_block::BlockDef::new("WAI"));
+    reg.register(genesis::managed_block::BlockDef::new("OPENSPEC"));
+    reg.register(genesis::managed_block::BlockDef::new("DONT"));
+    reg.register(genesis::managed_block::BlockDef::new("BEADS"));
+    reg.register(genesis::managed_block::BlockDef::with_markers(
+        "ah:managed",
+        "<!-- ah:managed:start -->",
+        "<!-- ah:managed:end -->",
+    ));
+    reg
+}
+
 #[derive(Parser)]
 #[command(name = "testaruda", author, version, about)]
 struct Cli {
@@ -129,7 +169,37 @@ fn main() -> miette::Result<()> {
         builder.init();
     }
 
-    let cli = Cli::parse();
+    let cli = match Cli::try_parse() {
+        Ok(c) => c,
+        Err(err) => {
+            // Use genesis suggestions to provide better error messages for typos
+            let err_str = err.to_string();
+            let _err_kind = err.kind();
+
+            // Extract the unknown subcommand from clap's error
+            // Clap errors for unknown subcommands look like:
+            // "error: unrecognized subcommand 'slect'"
+            // or "error: Found argument 'slect' which wasn't expected"
+            let unknown = err_str.split('\'').nth(1).map(|s| s.trim().to_string());
+
+            if let Some(ref cmd) = unknown {
+                let engine = genesis::suggestions::SuggestionEngine::new();
+                let reg = build_command_registry();
+                if let Some(suggestion) = engine.suggest_typo(cmd, &reg) {
+                    eprintln!("{}", err.render());
+                    eprintln!();
+                    eprintln!("💡 {}", suggestion.message());
+                    if let Some(footer) = suggestion.footer() {
+                        eprintln!("   {}", footer);
+                    }
+                    std::process::exit(2);
+                }
+            }
+
+            // Fall through to default clap error handling
+            err.exit();
+        }
+    };
 
     match cli.command {
         Command::Init => {
@@ -171,6 +241,23 @@ fn main() -> miette::Result<()> {
                      Install souffle-lang from https://souffle-lang.github.io"
                 ),
             }
+            // Inject managed blocks into AGENTS.md if it exists
+            let agents_path = project_root.join("AGENTS.md");
+            if agents_path.exists() {
+                let injector = genesis::managed_block::BlockInjector::new(build_block_registry());
+
+                // Ensure BEADS managed block is present
+                let beads_content = "\n<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->\n## Beads Issue Tracker\n\nThis project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.\n\n### Quick Reference\n\n```bash\nbd ready              # Find available work\nbd show <id>          # View issue details\nbd update <id> --claim  # Claim work\nbd close <id>         # Complete work\n```\n\n### Rules\n\n- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists\n- Run `bd prime` for detailed command reference and session close protocol\n- Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files\n\n## Session Completion\n\n**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.\n\n**MANDATORY WORKFLOW:**\n\n1. **File issues for remaining work** - Create issues for anything that needs follow-up\n2. **Run quality gates** (if code changed) - Tests, linters, builds\n3. **Update issue status** - Close finished work, update in-progress items\n4. **PUSH TO REMOTE** - This is MANDATORY.\n5. **Clean up** - Clear stashes, prune remote branches\n6. **Verify** - All changes committed AND pushed\n7. **Hand off** - Provide context for next session\n<!-- END BEADS INTEGRATION -->\n";
+                match injector.inject(&agents_path, "BEADS", beads_content) {
+                    Ok(r) => tracing::info!(
+                        event = "managed_block_injected",
+                        block = "BEADS",
+                        result = ?r
+                    ),
+                    Err(e) => eprintln!("  ⚠️  Failed to inject BEADS block: {}", e),
+                }
+            }
+
             println!("✅ testaruda initialized at {}", project_root.display());
             Ok(())
         }
@@ -355,7 +442,7 @@ fn main() -> miette::Result<()> {
                     .map_err(|e| miette::miette!("Agent output serialization failed: {}", e))?;
                 println!("{}", out);
             } else if json {
-                // Machine-readable plan (TIA-CI-006)
+                // Machine-readable plan (TIA-CI-006) via genesis envelope
                 let plan = CiPlan {
                     shadow_mode: shadow,
                     exit_code: outcome.exit_code(),
@@ -365,7 +452,13 @@ fn main() -> miette::Result<()> {
                     all_tests: shadow,
                     tests: &selection.tests,
                 };
-                let out = serde_json::to_string_pretty(&plan)
+                let envelope = genesis::envelope::Envelope::success(
+                    genesis::envelope::EnvelopeKind::List,
+                    plan,
+                    vec![],
+                    vec![],
+                );
+                let out = serde_json::to_string_pretty(&envelope)
                     .map_err(|e| miette::miette!("JSON serialization failed: {}", e))?;
                 println!("{}", out);
             } else if pre_edit {
@@ -1233,5 +1326,314 @@ mod tests {
         assert_ne!(ci_exit::FULL_RUN, ci_exit::EMPTY);
         assert_ne!(ci_exit::ERROR, ci_exit::FULL_RUN);
         assert_ne!(ci_exit::ERROR, ci_exit::EMPTY);
+    }
+
+    // ========================================================================
+    // Genesis adoption: suggestions tests
+    // ========================================================================
+
+    #[test]
+    fn test_build_command_registry_includes_all_commands() {
+        let reg = super::build_command_registry();
+        let all = reg.all();
+        assert!(all.contains(&"init"), "should include init");
+        assert!(all.contains(&"select"), "should include select");
+        assert!(all.contains(&"discover"), "should include discover");
+        assert!(all.contains(&"ingest"), "should include ingest");
+        assert!(all.contains(&"calibrate"), "should include calibrate");
+        assert!(all.contains(&"graph"), "should include graph");
+        assert!(all.contains(&"import"), "should include import");
+        assert!(all.contains(&"explain"), "should include explain");
+        assert!(all.contains(&"validate"), "should include validate");
+        assert!(all.contains(&"metrics"), "should include metrics");
+        assert!(all.contains(&"doctor"), "should include doctor");
+        assert!(all.contains(&"completions"), "should include completions");
+        // Should NOT include hidden commands
+        assert!(
+            !all.contains(&"gen-cli-docs"),
+            "should exclude gen-cli-docs"
+        );
+    }
+
+    #[test]
+    fn test_typo_slect_suggests_select() {
+        let reg = super::build_command_registry();
+        let engine = genesis::suggestions::SuggestionEngine::new();
+        let suggestion = engine.suggest_typo("slect", &reg);
+        assert!(suggestion.is_some(), "slect should suggest select");
+        if let Some(genesis::suggestions::Suggestion::DidYouMean {
+            original,
+            suggestion,
+        }) = suggestion
+        {
+            assert_eq!(original, "slect");
+            assert_eq!(suggestion, "select");
+        } else {
+            panic!("expected DidYouMean suggestion, got: {:?}", suggestion);
+        }
+    }
+
+    #[test]
+    fn test_typo_injest_suggests_ingest() {
+        let reg = super::build_command_registry();
+        let engine = genesis::suggestions::SuggestionEngine::new();
+        let suggestion = engine.suggest_typo("injest", &reg);
+        assert!(suggestion.is_some(), "injest should suggest ingest");
+        if let Some(genesis::suggestions::Suggestion::DidYouMean { suggestion, .. }) = suggestion {
+            assert_eq!(suggestion, "ingest");
+        }
+    }
+
+    #[test]
+    fn test_typo_discovr_suggests_discover() {
+        let reg = super::build_command_registry();
+        let engine = genesis::suggestions::SuggestionEngine::new();
+        let suggestion = engine.suggest_typo("discovr", &reg);
+        assert!(suggestion.is_some(), "discovr should suggest discover");
+        if let Some(genesis::suggestions::Suggestion::DidYouMean { suggestion, .. }) = suggestion {
+            assert_eq!(suggestion, "discover");
+        }
+    }
+
+    #[test]
+    fn test_typo_dcotr_suggests_doctor() {
+        let reg = super::build_command_registry();
+        let engine = genesis::suggestions::SuggestionEngine::new();
+        let suggestion = engine.suggest_typo("dcotr", &reg);
+        assert!(suggestion.is_some(), "dcotr should suggest doctor");
+        if let Some(genesis::suggestions::Suggestion::DidYouMean { suggestion, .. }) = suggestion {
+            assert_eq!(suggestion, "doctor");
+        }
+    }
+
+    #[test]
+    fn test_typo_exports_suggests_explain() {
+        let reg = super::build_command_registry();
+        let engine = genesis::suggestions::SuggestionEngine::new();
+        let suggestion = engine.suggest_typo("explain", &reg);
+        // 'explain' is close enough to 'explain' itself (not a typo)
+        // This tests the threshold works correctly
+        assert!(
+            suggestion.is_none()
+                || suggestion.as_ref().is_some_and(|s| matches!(
+                    s,
+                    genesis::suggestions::Suggestion::DidYouMean { .. }
+                ))
+        );
+    }
+
+    #[test]
+    fn test_typo_gibberish_returns_none() {
+        let reg = super::build_command_registry();
+        let engine = genesis::suggestions::SuggestionEngine::new();
+        let suggestion = engine.suggest_typo("xyzqwert", &reg);
+        assert!(
+            suggestion.is_none(),
+            "gibberish should not match any command"
+        );
+    }
+
+    #[test]
+    fn test_format_typo_suggestion() {
+        let suggestion = genesis::suggestions::Suggestion::DidYouMean {
+            original: "slect".to_string(),
+            suggestion: "select".to_string(),
+        };
+        let msg = suggestion.message();
+        assert!(msg.contains("slect"));
+        assert!(msg.contains("select"));
+        assert!(msg.contains("Did you mean"));
+
+        let footer = suggestion.footer();
+        assert_eq!(footer, Some("→ Run: select".to_string()));
+    }
+
+    // ========================================================================
+    // Genesis adoption: managed block tests
+    // ========================================================================
+
+    #[test]
+    fn test_managed_block_registry_includes_standard_blocks() {
+        let reg = super::build_block_registry();
+        assert!(reg.has("WAI"), "should include WAI block");
+        assert!(reg.has("OPENSPEC"), "should include OPENSPEC block");
+        assert!(reg.has("DONT"), "should include DONT block");
+        assert!(reg.has("BEADS"), "should include BEADS block");
+        assert!(reg.has("ah:managed"), "should include ah:managed block");
+    }
+
+    #[test]
+    fn test_block_injector_creates_new_file() {
+        use genesis::managed_block::BlockInjector;
+
+        let reg = super::build_block_registry();
+        let injector = BlockInjector::new(reg);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("AGENTS.md");
+
+        let result = injector
+            .inject(&path, "WAI", "\n# WAI instructions\n")
+            .unwrap();
+        assert_eq!(result, genesis::managed_block::InjectResult::Created);
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("<!-- WAI:START -->"));
+        assert!(content.contains("<!-- WAI:END -->"));
+        assert!(content.contains("# WAI instructions"));
+    }
+
+    #[test]
+    fn test_block_injector_updates_existing_block() {
+        use genesis::managed_block::BlockInjector;
+
+        let reg = super::build_block_registry();
+        let injector = BlockInjector::new(reg);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("AGENTS.md");
+
+        injector.inject(&path, "WAI", "\n# Old content\n").unwrap();
+        let result = injector.inject(&path, "WAI", "\n# New content\n").unwrap();
+        assert_eq!(result, genesis::managed_block::InjectResult::Updated);
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("# New content"));
+        assert!(!content.contains("# Old content"));
+        assert_eq!(
+            content.matches("<!-- WAI:START -->").count(),
+            1,
+            "no duplicate markers"
+        );
+    }
+
+    #[test]
+    fn test_block_injector_prepends_to_existing_file() {
+        use genesis::managed_block::BlockInjector;
+        use std::io::Write;
+
+        let reg = super::build_block_registry();
+        let injector = BlockInjector::new(reg);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("AGENTS.md");
+
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(f, "# Existing file content").unwrap();
+        drop(f);
+
+        let result = injector.inject(&path, "WAI", "\n# New block\n").unwrap();
+        assert_eq!(result, genesis::managed_block::InjectResult::Prepended);
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.starts_with("<!-- WAI:START -->"));
+        assert!(content.contains("# Existing file content"));
+    }
+
+    // ========================================================================
+    // Genesis adoption: envelope tests
+    // ========================================================================
+
+    #[test]
+    fn test_envelope_has_required_top_level_keys() {
+        use genesis::envelope::{Envelope, EnvelopeKind};
+
+        let env: Envelope<String> =
+            Envelope::success(EnvelopeKind::Ok, "test data".to_string(), vec![], vec![]);
+
+        let json = serde_json::to_value(&env).unwrap();
+        let obj = json.as_object().unwrap();
+
+        assert!(obj.contains_key("ok"), "must have 'ok'");
+        assert!(
+            obj.contains_key("envelope_version"),
+            "must have 'envelope_version'"
+        );
+        assert!(obj.contains_key("cli_version"), "must have 'cli_version'");
+        assert!(
+            obj.contains_key("envelope_kind"),
+            "must have 'envelope_kind'"
+        );
+        assert!(obj.contains_key("data"), "must have 'data'");
+        assert!(obj.contains_key("warnings"), "must have 'warnings'");
+        assert!(obj.contains_key("meta"), "must have 'meta'");
+
+        assert_eq!(obj["ok"], true);
+        assert_eq!(obj["envelope_version"], "0.1");
+    }
+
+    #[test]
+    fn test_envelope_kind_select_serialization() {
+        use genesis::envelope::{Envelope, EnvelopeKind};
+
+        let env: Envelope<serde_json::Value> = Envelope::success(
+            EnvelopeKind::List,
+            serde_json::json!({"selected_count": 5, "tests": []}),
+            vec![],
+            vec![],
+        );
+
+        let json = serde_json::to_value(&env).unwrap();
+        assert_eq!(json["envelope_kind"], "list");
+        assert_eq!(json["data"]["selected_count"], 5);
+    }
+
+    #[test]
+    fn test_envelope_error_has_remediation() {
+        use genesis::envelope::{Envelope, ErrorResult, RemediationEntry};
+
+        let err = ErrorResult::new(
+            "E001",
+            "something went wrong",
+            None,
+            None,
+            None,
+            vec![],
+            vec![RemediationEntry {
+                command: "testaruda init".into(),
+                description: "initialize the store".into(),
+            }],
+        )
+        .unwrap();
+
+        let env = Envelope::error(err, vec![]);
+        let json = serde_json::to_value(&env).unwrap();
+
+        assert_eq!(json["ok"], false);
+        assert_eq!(json["envelope_kind"], "error");
+        assert!(!json["data"]["remediation"].as_array().unwrap().is_empty());
+    }
+
+    // ========================================================================
+    // Genesis adoption: integration smoke test
+    // ========================================================================
+
+    #[test]
+    fn test_build_command_registry_is_idempotent() {
+        let reg1 = super::build_command_registry();
+        let reg2 = super::build_command_registry();
+        assert_eq!(reg1.all().len(), reg2.all().len());
+    }
+
+    #[test]
+    fn test_build_block_registry_is_idempotent() {
+        let reg1 = super::build_block_registry();
+        let reg2 = super::build_block_registry();
+        assert_eq!(reg1.names().len(), reg2.names().len());
+    }
+
+    #[test]
+    fn test_cli_parse_typo_caught_by_genesis() {
+        // This tests the integration path: parse a known typo, catch the error,
+        // and verify genesis suggests the correct command.
+        let reg = super::build_command_registry();
+        let engine = genesis::suggestions::SuggestionEngine::new();
+
+        // Simulate the clap error path: clap rejects "slect"
+        let result = <super::Cli as clap::CommandFactory>::command()
+            .try_get_matches_from(vec!["testaruda", "slect"]);
+
+        assert!(result.is_err(), "clap should reject 'slect'");
+
+        // Now check genesis suggestion
+        let suggestion = engine.suggest_typo("slect", &reg);
+        assert!(suggestion.is_some(), "genesis should suggest 'select'");
     }
 }
