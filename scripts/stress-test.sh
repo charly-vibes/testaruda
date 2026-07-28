@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 #
-# stress-test.sh — Python adapter stress-test harness.
+# stress-test.sh — Multi-language adapter stress-test harness.
 #
-# Runs the Python adapter pipeline against a real-world Python codebase
-# and reports structured results for analysis.
+# Runs the adapter pipeline against a real-world codebase and reports
+# structured results for analysis. Supports Python, Rust, Julia,
+# TypeScript, and Clojure adapters via auto-detection.
 #
 # Usage:
 #   ./scripts/stress-test.sh [options] <repo-url-or-path>
@@ -13,21 +14,24 @@
 #   --head REF         Git head ref for changed files (default: HEAD)
 #   --sample N         Max test items to fetch run-args for (default: 10)
 #   --output PATH      Write JSON results to file (default: stdout)
-#   --adapter PATH     Path to adapter binary (default: testaruda-adapter-python)
+#   --adapter PATH     Adapter binary (default: auto-detect from repo)
 #   --timeout SECS     Timeout per adapter command in seconds (default: 30)
 #   --help             Show this help
 #
 # The script:
 #   1. Clones (if URL) or uses the provided repo path
-#   2. Runs all 6 adapter commands: handshake, discover, fingerprint,
+#   2. Auto-detects the adapter from project markers (or --adapter)
+#   3. Runs all 6 adapter commands: handshake, discover, fingerprint,
 #      static-deps, run-args, ingest
-#   3. Times each command and reports errors gracefully
-#   4. Outputs structured JSON to stdout
+#   4. Times each command and reports errors gracefully
+#   5. Outputs structured JSON to stdout
 #
 # Examples:
-#   ./scripts/stress-test.sh https://github.com/pallets/click.git
-#   ./scripts/stress-test.sh --base HEAD~5 --head HEAD /path/to/repo
+#   ./scripts/stress-test.sh target/scratch/click
+#   ./scripts/stress-test.sh target/scratch/tokei
+#   ./scripts/stress-test.sh --base HEAD~5 --head HEAD target/scratch/httpx
 #   ./scripts/stress-test.sh --sample 50 --output results.json .
+#   for d in target/scratch/*/; do ./scripts/stress-test.sh "$d"; done
 #
 # Dependencies: jq, git, testaruda-adapter-python (on PATH or --adapter)
 set -euo pipefail
@@ -38,7 +42,7 @@ set -euo pipefail
 BASE="HEAD~1"
 HEAD="HEAD"
 SAMPLE=10
-ADAPTER="testaruda-adapter-python"
+ADAPTER=""
 TIMEOUT=30
 OUTPUT=""
 TEST_DIR=""
@@ -93,13 +97,26 @@ json_num() {
     if [[ -z "$1" ]]; then echo "0"; else echo "$1"; fi
 }
 
-# Check if the adapter binary is available
-check_adapter() {
-    if ! command -v "$ADAPTER" &>/dev/null; then
-        echo "Error: adapter binary not found on PATH: $ADAPTER" >&2
-        echo "  Install it or specify --adapter <path>" >&2
-        exit 1
-    fi
+# Auto-detect adapter from repo contents
+detect_adapter() {
+    local dir="$1"
+    if [[ -f "$dir/Cargo.toml" ]]; then echo "testaruda-adapter-rust"
+    elif [[ -f "$dir/pyproject.toml" || -f "$dir/setup.py" || -f "$dir/setup.cfg" || -f "$dir/requirements.txt" || -f "$dir/Pipfile" ]]; then echo "testaruda-adapter-python"
+    elif [[ -f "$dir/Project.toml" ]]; then echo "testaruda-adapter-julia"
+    elif [[ -f "$dir/vitest.config.ts" || -f "$dir/vitest.config.js" || -f "$dir/jest.config.ts" || -f "$dir/jest.config.js" ]]; then echo "testaruda-adapter-typescript"
+    elif [[ -f "$dir/deps.edn" || -f "$dir/project.clj" ]]; then echo "testaruda-adapter-clojure"
+    else echo ""; fi
+}
+
+# Resolve adapter binary path
+resolve_adapter() {
+    local bin="$1"
+    if command -v "$bin" &>/dev/null; then echo "$bin"; return 0; fi
+    if [[ -x "$bin" ]]; then echo "$bin"; return 0; fi
+    if [[ -x "target/debug/$bin" ]]; then echo "target/debug/$bin"; return 0; fi
+    if [[ -x "target/release/$bin" ]]; then echo "target/release/$bin"; return 0; fi
+    echo "$bin"
+    return 1
 }
 
 # Get the repo slug from URL or path
@@ -136,8 +153,6 @@ clone_repo() {
 # Main
 # ============================================================================
 
-check_adapter
-
 # Resolve repo path
 WORK_DIR=""
 if [[ "$REPO" == https://* ]] || [[ "$REPO" == git@* ]]; then
@@ -153,7 +168,25 @@ if [[ ! -d "$WORK_DIR" ]]; then
     exit 1
 fi
 
-echo "=== Stress-testing Python adapter against: $SLUG ===" >&2
+# Detect adapter if not specified
+if [[ -z "$ADAPTER" ]]; then
+    DETECTED="$(detect_adapter "$WORK_DIR")"
+    if [[ -z "$DETECTED" ]]; then
+        echo "Error: cannot auto-detect adapter for $SLUG. Specify --adapter <binary>" >&2
+        exit 1
+    fi
+    ADAPTER="$DETECTED"
+fi
+
+RESOLVED="$(resolve_adapter "$ADAPTER")" || true
+if [[ -z "$RESOLVED" ]] || ! command -v "$RESOLVED" &>/dev/null && [[ ! -x "$RESOLVED" ]]; then
+    echo "Error: adapter binary not found: $ADAPTER" >&2
+    echo "  Build it: cargo build --bin $ADAPTER" >&2
+    exit 1
+fi
+ADAPTER="$RESOLVED"
+
+echo "=== Stress-testing $ADAPTER against: $SLUG ===" >&2
 
 # ============================================================================
 # Phase 1: Handshake
