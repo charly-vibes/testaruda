@@ -375,7 +375,7 @@ impl AdapterConfig {
 /// ```
 ///
 /// If the config is already canonical, or if parsing fails, returns the original content.
-fn normalize_adapters_config(content: &str) -> String {
+pub fn normalize_adapters_config(content: &str) -> String {
     // Strategy: parse the raw TOML, detect flat format, then string-manipulate
     // to move extension keys under [adapters.extensions].
     // We don't use toml::Value::to_string() because its Display output

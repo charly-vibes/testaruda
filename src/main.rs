@@ -1,5 +1,7 @@
 //! CLI entry point for testaruda.
 
+mod doctor;
+
 use clap::{Parser, Subcommand};
 use std::io::IsTerminal;
 #[cfg(unix)]
@@ -31,6 +33,7 @@ pub fn build_command_registry() -> genesis::suggestions::CommandRegistry {
             "discover".to_string(),
             "metrics".to_string(),
             "doctor".to_string(),
+            "feedback".to_string(),
             "completions".to_string(),
         ],
     );
@@ -146,8 +149,23 @@ enum Command {
     Discover {},
     /// Show operational metrics
     Metrics {},
-    /// Validate project configuration (testaruda.toml)
-    Doctor,
+    /// Validate project configuration via genesis suite_linter
+    Doctor {
+        /// Apply safe fixes
+        #[arg(long)]
+        fix: bool,
+    },
+    /// Submit a feedback issue about an error
+    Feedback {
+        /// Kind of issue (bug|feature|question)
+        kind: String,
+        /// Use the last error from scratch (--from-last-error)
+        #[arg(long)]
+        from_last_error: bool,
+        /// Dry run — print what would be submitted
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Generate CLI documentation in markdown (internal use)
     #[command(hide = true)]
     GenCliDocs,
@@ -189,6 +207,7 @@ fn main() -> miette::Result<()> {
         "discover",
         "metrics",
         "doctor",
+        "feedback",
         "completions",
     ];
     let guide = genesis::guide::Guide::builder("testaruda", env!("CARGO_PKG_VERSION"))
@@ -880,61 +899,126 @@ fn main() -> miette::Result<()> {
 
             Ok(())
         }
-        Command::Doctor => {
+        Command::Doctor { fix } => {
             let project_root = find_project_root()?;
-            let config_path = project_root.join("testaruda.toml");
+            match doctor::run_doctor(&project_root, fix) {
+                Ok(true) => Ok(()),
+                Ok(false) => std::process::exit(1),
+                Err(e) => Err(miette::miette!("Doctor failed: {}", e)),
+            }
+        }
+        Command::Feedback {
+            kind,
+            from_last_error,
+            dry_run,
+        } => {
+            let project_root = find_project_root()?;
 
-            if !config_path.exists() {
-                eprintln!("⚠️  No testaruda.toml found at {}", config_path.display());
-                eprintln!("   Run `testaruda init` to create one.");
+            // Build the issue body
+            let mut body = String::new();
+            let mut title = format!("[{}] ", kind);
+
+            if from_last_error {
+                // Read the last error from genesis scratch
+                if let Some(record) = genesis::feedback::scratch::read_last_error("testaruda") {
+                    title.push_str(&format!("Error: {}", record.argv.join(" ")));
+                    body.push_str("## Error\n\n");
+                    body.push_str(&format!("Exit code: {}\n\n", record.exit));
+                    if let Some(ref footer) = record.footer {
+                        body.push_str(&format!("Footer: {}\n\n", footer));
+                    }
+                } else {
+                    eprintln!("No previous error found in scratch.");
+                    eprintln!("  Run a command with `genesis` error handling first.");
+                    std::process::exit(1);
+                }
+            } else {
+                eprintln!("Please provide issue details or use --from-last-error");
                 std::process::exit(1);
             }
 
-            let content = std::fs::read_to_string(&config_path)
-                .map_err(|e| miette::miette!("Failed to read {}: {}", config_path.display(), e))?;
+            // Append environment context
+            let context = genesis::feedback::context::gather_context(
+                "testaruda",
+                env!("CARGO_PKG_VERSION"),
+                None,
+                None,
+                None,
+                &project_root,
+            );
+            body.push_str(&genesis::feedback::context::format_context_bundle(&context));
 
-            let shape = testaruda::config::AdapterConfig::detect_shape(&content);
-            match shape {
-                testaruda::config::AdaptersConfigShape::Canonical => {
-                    println!("✅ Config is canonical: extensions under [adapters.extensions]");
+            // Redact sensitive info
+            let home = std::env::var("HOME").ok().map(std::path::PathBuf::from);
+            let git_remote = std::process::Command::new("git")
+                .args(["config", "--get", "remote.origin.url"])
+                .current_dir(&project_root)
+                .output()
+                .ok()
+                .and_then(|o| {
+                    if o.status.success() {
+                        String::from_utf8(o.stdout)
+                            .ok()
+                            .map(|s| s.trim().to_string())
+                    } else {
+                        None
+                    }
+                });
+            let redacted =
+                genesis::feedback::redactor::redact(&body, home.as_deref(), git_remote.as_deref());
+
+            // Determine target repo
+            let repo = env!("CARGO_PKG_REPOSITORY")
+                .trim_start_matches("https://")
+                .to_string();
+
+            // Resolve labels
+            let labels: Vec<String> = match kind.as_str() {
+                "bug" => vec!["bug".into()],
+                "feature" => vec!["enhancement".into()],
+                "question" => vec!["question".into()],
+                _ => vec![kind.clone()],
+            };
+
+            if dry_run {
+                println!("--- DRY RUN ---");
+                println!("Repo: {}", repo);
+                println!("Title: {}", title);
+                println!("Labels: {:?}", labels);
+                println!("Body (redacted):\n{}", redacted);
+                return Ok(());
+            }
+
+            // Submit via genesis::feedback::gh
+            let opts = genesis::feedback::gh::CreateIssueOptions {
+                repo,
+                title,
+                body: redacted,
+                labels,
+                dry_run: false,
+            };
+
+            match genesis::feedback::gh::create_issue(&opts) {
+                Ok(genesis::feedback::gh::GhResult::Created { url, number }) => {
+                    println!("✅ Created issue #{}: {}", number, url);
+                    Ok(())
                 }
-                testaruda::config::AdaptersConfigShape::Flat => {
-                    eprintln!(
-                        "❌ Config uses deprecated format: extension keys at top-level [adapters]"
-                    );
-                    eprintln!();
-                    eprintln!("   The canonical format puts extension mappings under [adapters.extensions]:");
-                    eprintln!();
-                    eprintln!("     [adapters]");
-                    eprintln!("     default = \"testaruda-adapter-rust\"");
-                    eprintln!();
-                    eprintln!("     [adapters.extensions]");
-                    eprintln!("     \".rs\" = \"testaruda-adapter-rust\"");
-                    eprintln!("     \".py\" = \"testaruda-adapter-python\"");
-                    eprintln!();
-                    eprintln!("   To fix: move extension entries under [adapters.extensions] in");
-                    eprintln!("   {}", config_path.display());
-                    std::process::exit(1);
+                Ok(genesis::feedback::gh::GhResult::FallbackUrl(url)) => {
+                    eprintln!("⚠️  Could not create issue directly.");
+                    eprintln!("   Open this URL to create the issue manually:");
+                    eprintln!("   {}", url);
+                    Ok(())
                 }
-                testaruda::config::AdaptersConfigShape::Missing => {
-                    eprintln!("⚠️  No [adapters] section found in testaruda.toml");
-                    eprintln!("   Run `testaruda init` to regenerate with defaults.");
+                Ok(genesis::feedback::gh::GhResult::LocalFile(path)) => {
+                    eprintln!("⚠️  Network unavailable. Issue saved to:");
+                    eprintln!("   {}", path.display());
+                    Ok(())
+                }
+                Err(msg) => {
+                    eprintln!("❌ Failed to create issue: {}", msg);
                     std::process::exit(1);
                 }
             }
-
-            // Also validate that the config parses correctly
-            match testaruda::config::Config::load(&project_root) {
-                Ok(_) => {
-                    println!("✅ Config parses correctly");
-                }
-                Err(e) => {
-                    eprintln!("❌ Config parse error: {}", e);
-                    std::process::exit(1);
-                }
-            }
-
-            Ok(())
         }
         Command::GenCliDocs => {
             let markdown = clap_markdown::help_markdown::<Cli>();
