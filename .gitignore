@@ -19,7 +19,6 @@
 Thumbs.db
 
 # Cargo
-Cargo.lock
 
 # ruff (if present)
 .ruff_cache/
