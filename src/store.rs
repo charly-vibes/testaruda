@@ -675,20 +675,42 @@ impl Store {
             confidence_threshold: ONE,
         };
 
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id, fingerprint FROM content_units WHERE component = ?1 AND path = ?2")
-            .map_err(|e| miette::miette!("Query prep failed: {}", e))?;
-
         // Load config early for environment (needed by edge query below)
         let config = Config::load_or_default(&self.project_root);
         if !config.environment.name.is_empty() {
             ctx.current_environment = config.environment.name.clone();
         }
 
+        self.process_file_fingerprints(delta, &mut ctx)?;
+        self.load_dependency_edges(&mut ctx)?;
+        self.load_failed_tests(&mut ctx)?;
+        self.load_no_history_tests(&mut ctx)?;
+        self.load_quarantined_tests(&mut ctx)?;
+        ctx.invocation_quality = self.compute_invocation_quality();
+
+        let threshold = config.confidence_threshold;
+        ctx.confidence_threshold = (threshold * ONE as f64) as u32;
+
+        self.apply_must_run_rules(&config, delta, &mut ctx);
+        self.check_periodic_full_run(&config, &mut ctx)?;
+
+        Ok(ctx)
+    }
+
+    /// Process file fingerprints: compare stored vs current fingerprints
+    /// and populate ctx.changed / ctx.unresolved accordingly.
+    fn process_file_fingerprints(
+        &self,
+        delta: &ChangeSet,
+        ctx: &mut SelectionContext,
+    ) -> miette::Result<()> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, fingerprint FROM content_units WHERE component = ?1 AND path = ?2")
+            .map_err(|e| miette::miette!("Query prep failed: {}", e))?;
+
         for path in &delta.files {
             let component = "default";
-            // Resolve relative paths against the project root
             let abs_path = if Path::new(path).is_absolute() {
                 Path::new(path).to_path_buf()
             } else {
@@ -702,16 +724,11 @@ impl Store {
             });
             match (result, current_fp) {
                 (Ok((id, stored_fp)), Ok(fp)) if stored_fp == "unknown" || stored_fp != fp => {
-                    // Cold-start (stored_fp == "unknown"): first observed content unit
-                    // with no prior real fingerprint → unresolved per TIA-CHG-009
                     if stored_fp == "unknown" {
                         ctx.unresolved.push(id);
                     } else {
-                        // Fingerprint changed → include in Δ per TIA-CHG-003
                         ctx.changed.push(id);
                     }
-                    // Update stored fingerprint (even for cold-start: record the
-                    // real fingerprint so next invocation knows it's not unknown)
                     self.conn
                         .execute(
                             "UPDATE content_units SET fingerprint = ?1 WHERE id = ?2",
@@ -719,16 +736,11 @@ impl Store {
                         )
                         .map_err(|e| miette::miette!("Failed to update fingerprint: {}", e))?;
                 }
-                (Ok((_id, _stored_fp)), Ok(_fp)) => {
-                    // Fingerprint matches → unchanged, skip this file
-                    // (TIA-CHG-003: matching fingerprints → excluded from Δ)
-                }
+                (Ok((_id, _stored_fp)), Ok(_fp)) => {}
                 (Ok((id, _stored_fp)), Err(_)) => {
-                    // File doesn't exist or can't be read → unresolved fallback
                     ctx.unresolved.push(id);
                 }
                 (Err(_), Ok(fp)) => {
-                    // New content unit: create and store fingerprint
                     let id = self
                         .ensure_content_unit(component, path, None, "source")
                         .map_err(|e| miette::miette!("Failed to create content unit: {}", e))?;
@@ -738,10 +750,9 @@ impl Store {
                             rusqlite::params![fp, id],
                         )
                         .map_err(|e| miette::miette!("Failed to set fingerprint: {}", e))?;
-                    ctx.unresolved.push(id); // Cold-start per TIA-CHG-009
+                    ctx.unresolved.push(id);
                 }
                 (Err(_), Err(_)) => {
-                    // Neither in store nor readable — create placeholder
                     let id = self
                         .ensure_content_unit(component, path, None, "source")
                         .map_err(|e| miette::miette!("Failed to create content unit: {}", e))?;
@@ -749,7 +760,11 @@ impl Store {
                 }
             }
         }
+        Ok(())
+    }
 
+    /// Load dependency edges for all changed and unresolved content units.
+    fn load_dependency_edges(&self, ctx: &mut SelectionContext) -> miette::Result<()> {
         let mut edge_stmt = self
             .conn
             .prepare(
@@ -780,8 +795,11 @@ impl Store {
                 ctx.test_deps.push(row);
             }
         }
+        Ok(())
+    }
 
-        // Previously-failed tests (TIA-SAFE-007: always-run category 1)
+    /// Load previously-failed tests (TIA-SAFE-007: always-run category 1).
+    fn load_failed_tests(&self, ctx: &mut SelectionContext) -> miette::Result<()> {
         let mut ar_stmt = self
             .conn
             .prepare(
@@ -798,12 +816,11 @@ impl Store {
         for row in rows.flatten() {
             ctx.always_run.push(row);
         }
+        Ok(())
+    }
 
-        // Tests with no recorded history (TIA-SAFE-007: no-history + newly-added)
-        // Covers both newly added tests and tests that have never been run.
-        // For environment-scoped queries, only consider run_history in current env.
-        // A test that never ran in this environment but ran elsewhere is treated
-        // as having no history for scoping purposes.
+    /// Load tests with no recorded history (TIA-SAFE-007: no-history + newly-added).
+    fn load_no_history_tests(&self, ctx: &mut SelectionContext) -> miette::Result<()> {
         let mut nh_stmt = self
             .conn
             .prepare(
@@ -821,8 +838,11 @@ impl Store {
         for row in nh_rows.flatten() {
             ctx.always_run.push(row);
         }
+        Ok(())
+    }
 
-        // Quarantined tests (TIA-SAFE-010: always-run category 4)
+    /// Load quarantined tests (TIA-SAFE-010: always-run category 4).
+    fn load_quarantined_tests(&self, ctx: &mut SelectionContext) -> miette::Result<()> {
         let mut q_stmt = self
             .conn
             .prepare("SELECT id FROM test_items WHERE quarantined = 1")
@@ -835,20 +855,15 @@ impl Store {
             ctx.always_run.push(row);
             ctx.quarantined.push(row);
         }
+        Ok(())
+    }
 
-        // ── Invocation-level quality computation (TIA-CONF-002) ────────────
-        //
-        // Computes four quality signals and combines them multiplicatively
-        // into a single multiplier (invocation_quality) in ppm. This multiplier
-        // is applied to all path-based confidence computations in the engine.
-        //
-        // Stored edge weights are NEVER mutated (TIA-REL-001).
-
+    /// Compute invocation-level quality score (TIA-CONF-002).
+    /// Combines four quality signals multiplicatively into a single ppm value.
+    fn compute_invocation_quality(&self) -> u32 {
         let mut quality_score: f64 = 1.0;
 
-        // 1. Coverage freshness — how recent are the dependency observations?
-        //    Queries most recent ingested_at; linearly decays from 1.0 (now)
-        //    to 0.5 (72 hours stale), clamped at 0.5.
+        // 1. Coverage freshness — linearly decays from 1.0 (now) to 0.5 (72h stale)
         if let Ok(age_hours) = self.conn.query_row::<f64, _, _>(
             "SELECT COALESCE((julianday('now') - julianday(MAX(ingested_at))) * 24, 0.0) FROM run_history",
             [],
@@ -860,8 +875,7 @@ impl Store {
             }
         }
 
-        // 2. Adapter resolution ratio — fraction of content units with
-        //    real fingerprints vs 'unknown' (unresolved).
+        // 2. Adapter resolution ratio — fraction of content units with real fingerprints
         if let (Ok(total), Ok(unknown)) = (
             self.conn
                 .query_row("SELECT COUNT(*) FROM content_units", [], |row| {
@@ -879,8 +893,7 @@ impl Store {
             }
         }
 
-        // 3. History depth — average number of runs per test item.
-        //    Saturates at 5 runs (score = 1.0). Minimum 0.5 at 0 runs.
+        // 3. History depth — average runs per test item, saturates at 5
         if let (Ok(test_count), Ok(run_count)) = (
             self.conn
                 .query_row("SELECT COUNT(*) FROM test_items", [], |row| {
@@ -898,8 +911,7 @@ impl Store {
             }
         }
 
-        // 4. Environment match — compare current environment's fingerprint
-        //    with the most recent one stored. If none stored, assume match.
+        // 4. Environment match — compare current with most recent stored
         if let Ok(most_recent_env) = self.conn.query_row::<String, _, _>(
             "SELECT environment FROM run_history ORDER BY id DESC LIMIT 1",
             [],
@@ -911,17 +923,13 @@ impl Store {
             }
         }
 
-        // Clamp to [0.1, 1.0] and convert to ppm
         quality_score = quality_score.clamp(0.1, 1.0);
-        ctx.invocation_quality = (quality_score * ONE as f64) as u32;
+        (quality_score * ONE as f64) as u32
+    }
 
-        // Threshold and must-run rules (config already loaded above for env)
-        let threshold = config.confidence_threshold;
-        ctx.confidence_threshold = (threshold * ONE as f64) as u32;
-
-        // Must-run rules (TIA-SAFE-009): check if any changed files match
-        // must-run patterns. If so, resolve the mapped test IDs and add
-        // them to always_run.
+    /// Apply must-run rules (TIA-SAFE-009): check if changed files match
+    /// must-run patterns and add resolved test IDs to always_run.
+    fn apply_must_run_rules(&self, config: &Config, delta: &ChangeSet, ctx: &mut SelectionContext) {
         for (pattern_str, test_node_ids) in &config.must_run.rules {
             let Ok(pattern) = glob::Pattern::new(pattern_str) else {
                 eprintln!("  ⚠️  Invalid must-run pattern: {}", pattern_str);
@@ -929,55 +937,63 @@ impl Store {
             };
             for file in &delta.files {
                 if pattern.matches(file) {
-                    // Resolve test node IDs to test_item IDs
-                    for node_id in test_node_ids {
-                        if let Ok(tid) = self.conn.query_row(
-                            "SELECT id FROM test_items WHERE node_id = ?1 LIMIT 1",
-                            rusqlite::params![node_id],
-                            |row| row.get::<_, u32>(0),
-                        ) {
-                            if !ctx.always_run.contains(&tid) {
-                                ctx.always_run.push(tid);
-                            }
-                        }
-                    }
+                    self.resolve_must_run_tests(test_node_ids, ctx);
                 }
             }
         }
+    }
 
-        // ── Periodic full run (TIA-SAFE-006) ───────────────────────────────
-        // If configured, check the most recent run history timestamp.
-        // If the interval has elapsed, select all tests.
-        if config.periodic_full_run.interval_hours > 0 {
-            let interval_secs = (config.periodic_full_run.interval_hours * 3600) as i64;
-            let due: bool = self
+    /// Resolve test node IDs to test_item IDs and add to always_run.
+    fn resolve_must_run_tests(&self, test_node_ids: &[String], ctx: &mut SelectionContext) {
+        for node_id in test_node_ids {
+            if let Ok(tid) = self.conn.query_row(
+                "SELECT id FROM test_items WHERE node_id = ?1 LIMIT 1",
+                rusqlite::params![node_id],
+                |row| row.get::<_, u32>(0),
+            ) {
+                if !ctx.always_run.contains(&tid) {
+                    ctx.always_run.push(tid);
+                }
+            }
+        }
+    }
+
+    /// Check and apply periodic full run (TIA-SAFE-006).
+    fn check_periodic_full_run(
+        &self,
+        config: &Config,
+        ctx: &mut SelectionContext,
+    ) -> miette::Result<()> {
+        if config.periodic_full_run.interval_hours == 0 {
+            return Ok(());
+        }
+
+        let interval_secs = (config.periodic_full_run.interval_hours * 3600) as i64;
+        let due: bool = self
+            .conn
+            .query_row(
+                "SELECT (julianday('now') - julianday(MAX(ingested_at))) * 86400 >= ?1
+                 FROM run_history",
+                rusqlite::params![interval_secs],
+                |row| row.get::<_, bool>(0),
+            )
+            .unwrap_or(true);
+
+        if due {
+            let mut all_stmt = self
                 .conn
-                .query_row(
-                    "SELECT (julianday('now') - julianday(MAX(ingested_at))) * 86400 >= ?1
-                     FROM run_history",
-                    rusqlite::params![interval_secs],
-                    |row| row.get::<_, bool>(0),
-                )
-                .unwrap_or(true); // if no history, run is due
-
-            if due {
-                // Select all tests — add every test item ID to always_run
-                let mut all_stmt = self
-                    .conn
-                    .prepare("SELECT id FROM test_items")
-                    .map_err(|e| miette::miette!("Failed to query test items: {}", e))?;
-                let all_rows = all_stmt
-                    .query_map([], |row| row.get::<_, u32>(0))
-                    .map_err(|e| miette::miette!("Failed to exec test items query: {}", e))?;
-                for row in all_rows.flatten() {
-                    if !ctx.always_run.contains(&row) {
-                        ctx.always_run.push(row);
-                    }
+                .prepare("SELECT id FROM test_items")
+                .map_err(|e| miette::miette!("Failed to query test items: {}", e))?;
+            let all_rows = all_stmt
+                .query_map([], |row| row.get::<_, u32>(0))
+                .map_err(|e| miette::miette!("Failed to exec test items query: {}", e))?;
+            for row in all_rows.flatten() {
+                if !ctx.always_run.contains(&row) {
+                    ctx.always_run.push(row);
                 }
             }
         }
-
-        Ok(ctx)
+        Ok(())
     }
 
     /// Ingest run results (TIA-RUN-005, TIA-REL-002).
@@ -1381,7 +1397,16 @@ impl Store {
             ));
         }
 
-        // Import content units
+        self.import_graph_content_units(graph)?;
+        self.import_graph_test_items(graph)?;
+        self.import_graph_edges(graph)?;
+        self.import_graph_run_history(graph)?;
+
+        Ok(())
+    }
+
+    /// Import content units from a graph export.
+    fn import_graph_content_units(&self, graph: &serde_json::Value) -> miette::Result<()> {
         if let Some(units) = graph["content_units"].as_array() {
             for unit in units {
                 let component = unit["component"].as_str().unwrap_or("default");
@@ -1391,15 +1416,17 @@ impl Store {
                 let fingerprint = unit["fingerprint"].as_str().unwrap_or("unknown");
                 self.ensure_content_unit(component, path, symbol, kind)
                     .map_err(|e| miette::miette!("Failed to import content unit: {}", e))?;
-                // Update fingerprint
                 self.conn.execute(
                     "UPDATE content_units SET fingerprint = ?1 WHERE component = ?2 AND path = ?3",
                     rusqlite::params![fingerprint, component, path],
                 ).map_err(|e| miette::miette!("Failed to set fingerprint: {}", e))?;
             }
         }
+        Ok(())
+    }
 
-        // Import test items
+    /// Import test items from a graph export.
+    fn import_graph_test_items(&self, graph: &serde_json::Value) -> miette::Result<()> {
         if let Some(items) = graph["test_items"].as_array() {
             for item in items {
                 let component = item["component"].as_str().unwrap_or("default");
@@ -1414,8 +1441,11 @@ impl Store {
                 ).map_err(|e| miette::miette!("Failed to import test item: {}", e))?;
             }
         }
+        Ok(())
+    }
 
-        // Import dependency edges
+    /// Import dependency edges from a graph export.
+    fn import_graph_edges(&self, graph: &serde_json::Value) -> miette::Result<()> {
         if let Some(edges) = graph["edges"].as_array() {
             for edge in edges {
                 let from_node_id = edge["from_node_id"].as_str();
@@ -1424,48 +1454,55 @@ impl Store {
                 let origin = edge["origin"].as_str().unwrap_or("static");
                 let k = edge["k"].as_u64().unwrap_or(1000000) as u32;
 
-                // Resolve test_item_id by node_id
-                let from = match from_node_id {
-                    Some(nid) => self
-                        .conn
-                        .query_row::<u32, _, _>(
-                            "SELECT id FROM test_items WHERE node_id = ?1 LIMIT 1",
-                            rusqlite::params![nid],
-                            |row| row.get(0),
-                        )
-                        .map_err(|e| miette::miette!("Failed to resolve test '{}': {}", nid, e))?,
-                    None => return Err(miette::miette!("Edge missing 'from_node_id'")),
-                };
-
-                // Resolve content_unit_id by path
-                let to = match to_path {
-                    Some(p) => self
-                        .conn
-                        .query_row::<u32, _, _>(
-                            "SELECT id FROM content_units WHERE path = ?1 LIMIT 1",
-                            rusqlite::params![p],
-                            |row| row.get(0),
-                        )
-                        .map_err(|e| {
-                            miette::miette!("Failed to resolve content unit '{}': {}", p, e)
-                        })?,
-                    None => return Err(miette::miette!("Edge missing 'to_path'")),
-                };
+                let from = self.resolve_edge_from(from_node_id)?;
+                let to = self.resolve_edge_to(to_path)?;
 
                 self.conn.execute(
                     "INSERT OR IGNORE INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
                      VALUES (?1, ?2, ?3, ?4, ?5)",
                     rusqlite::params![from, to, environment, origin, k],
                 ).map_err(|e| miette::miette!("Failed to import edge: {}", e))?;
-                // Also maintain reverse index
                 self.conn.execute(
                     "INSERT OR IGNORE INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
                     rusqlite::params![to, from],
                 ).map_err(|e| miette::miette!("Failed to update reverse index: {}", e))?;
             }
         }
+        Ok(())
+    }
 
-        // Import run history
+    /// Resolve a test_item_id from a node_id string.
+    fn resolve_edge_from(&self, from_node_id: Option<&str>) -> miette::Result<u32> {
+        match from_node_id {
+            Some(nid) => self
+                .conn
+                .query_row::<u32, _, _>(
+                    "SELECT id FROM test_items WHERE node_id = ?1 LIMIT 1",
+                    rusqlite::params![nid],
+                    |row| row.get(0),
+                )
+                .map_err(|e| miette::miette!("Failed to resolve test '{}': {}", nid, e)),
+            None => Err(miette::miette!("Edge missing 'from_node_id'")),
+        }
+    }
+
+    /// Resolve a content_unit_id from a path string.
+    fn resolve_edge_to(&self, to_path: Option<&str>) -> miette::Result<u32> {
+        match to_path {
+            Some(p) => self
+                .conn
+                .query_row::<u32, _, _>(
+                    "SELECT id FROM content_units WHERE path = ?1 LIMIT 1",
+                    rusqlite::params![p],
+                    |row| row.get(0),
+                )
+                .map_err(|e| miette::miette!("Failed to resolve content unit '{}': {}", p, e)),
+            None => Err(miette::miette!("Edge missing 'to_path'")),
+        }
+    }
+
+    /// Import run history from a graph export.
+    fn import_graph_run_history(&self, graph: &serde_json::Value) -> miette::Result<()> {
         if let Some(runs) = graph["run_history"].as_array() {
             for run in runs {
                 let node_id = run["node_id"].as_str();
@@ -1474,7 +1511,6 @@ impl Store {
                 let duration_ms = run["duration_ms"].as_u64();
                 let environment = run["environment"].as_str().unwrap_or("default");
 
-                // Resolve test_item_id by node_id
                 let test_item_id = match node_id {
                     Some(nid) => self
                         .conn
@@ -1500,7 +1536,6 @@ impl Store {
                 ).map_err(|e| miette::miette!("Failed to import run history: {}", e))?;
             }
         }
-
         Ok(())
     }
 
@@ -2725,8 +2760,40 @@ mod tests {
         let store = Store::open(dir.path().join(".testaruda")).unwrap();
         store.initialize().unwrap();
 
-        let conn = store.conn();
+        let (_cu_id, tid_failed, tid_nohist, tid_quar, tid_passed) =
+            setup_always_run_fixture(&dir, store.conn());
 
+        // Change the file to trigger selection
+        let file_path = dir.path().join("src/lib.rs");
+        std::fs::write(&file_path, b"fn bar() {}").unwrap();
+
+        let engine = crate::engine::Engine::new(&store);
+        let delta = crate::change::ChangeSet {
+            files: vec![file_path.to_string_lossy().to_string()],
+            base: None,
+            head: None,
+        };
+        let sel = engine.select(&delta).unwrap();
+        let ids: std::collections::HashSet<u32> = sel.tests.iter().map(|t| t.id).collect();
+
+        assert!(
+            ids.contains(&tid_failed),
+            "previously-failed should be selected"
+        );
+        assert!(ids.contains(&tid_nohist), "no-history should be selected");
+        assert!(ids.contains(&tid_quar), "quarantined should be selected");
+        assert!(
+            !ids.contains(&tid_passed),
+            "passed-with-history should NOT be selected"
+        );
+    }
+
+    /// Set up test fixture for always-run categories.
+    /// Returns (cu_id, tid_failed, tid_nohist, tid_quar, tid_passed).
+    fn setup_always_run_fixture(
+        dir: &tempfile::TempDir,
+        conn: &rusqlite::Connection,
+    ) -> (u32, u32, u32, u32, u32) {
         // Insert content unit so fingerprint matching works
         let file_path = dir.path().join("src/lib.rs");
         std::fs::create_dir_all(file_path.parent().unwrap()).unwrap();
@@ -2742,8 +2809,7 @@ mod tests {
             .query_row("SELECT id FROM content_units", [], |row| row.get(0))
             .unwrap();
 
-        // 4 test items, one for each always-run category:
-        // cat 1: previously-failed (run_history with 'failed')
+        // cat 1: previously-failed
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'failed')",
             [],
@@ -2821,31 +2887,7 @@ mod tests {
             rusqlite::params![tid_failed, cu_id],
         ).unwrap();
 
-        // Change the file to trigger selection
-        std::fs::write(&file_path, b"fn bar() {}").unwrap();
-
-        let engine = crate::engine::Engine::new(&store);
-        let delta = crate::change::ChangeSet {
-            files: vec![file_path.to_string_lossy().to_string()],
-            base: None,
-            head: None,
-        };
-        let sel = engine.select(&delta).unwrap();
-        let ids: std::collections::HashSet<u32> = sel.tests.iter().map(|t| t.id).collect();
-
-        assert!(
-            ids.contains(&tid_failed),
-            "previously-failed should be selected"
-        );
-        assert!(ids.contains(&tid_nohist), "no-history should be selected");
-        assert!(ids.contains(&tid_quar), "quarantined should be selected");
-        // passed-with-history test is NOT in always-run — only included if
-        // it's in the transitive closure of the change. Since it has no
-        // dependency edges, it should NOT be selected.
-        assert!(
-            !ids.contains(&tid_passed),
-            "passed-with-history should NOT be selected"
-        );
+        (cu_id, tid_failed, tid_nohist, tid_quar, tid_passed)
     }
 
     #[test]

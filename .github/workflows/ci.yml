@@ -35,6 +35,10 @@ jobs:
       - name: Install just
         uses: extractions/setup-just@v2
 
+      - name: Install gate tools
+        run: |
+          cargo install pretender espectacular-cli
+
       # Run the exact same command as local development
       - name: Run CI pipeline
         run: just ci

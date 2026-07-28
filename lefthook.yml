@@ -19,6 +19,10 @@ pre-commit:
     lint:
       glob: "*.rs"
       run: just lint
+    pretender:
+      glob: "*.rs"
+      # Gate check on staged files only — existing code passes through
+      run: pretender check --staged --mode gate src/
 
 pre-push:
   parallel: true
@@ -46,3 +50,8 @@ pre-push:
         - You MUST fix tests before merging
     dont-check:
       run: dont check
+    pretender:
+      # Gate check on changed files vs main — catches regressions before push
+      run: pretender check --diff-only --mode gate src/
+    ah-check:
+      run: ah check

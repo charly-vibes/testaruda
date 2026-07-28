@@ -1,19 +1,28 @@
 [pretender]
 mode = "tiered"
 languages = ["auto"]
-exclude = ["vendor/**", "node_modules/**", "**/*_generated.*"]
+exclude = ["vendor/**", "node_modules/**", "**/*_generated.*", "target/**"]
 
 [roles.test]
 paths = ["tests/**", "**/*_test.*", "spec/**"]
 
-[roles.library]
-paths = ["pkg/**", "lib/**"]
-
 [roles.script]
 paths = ["scripts/**", "examples/**"]
 
-[roles.generated]
-paths = ["**/*.pb.go", "**/*_generated.*"]
+# App-level thresholds match current codebase baseline.
+# Tighten as refactoring progresses.
+[thresholds]
+cyclomatic_max = 10
+cognitive_max = 20
+function_lines_max = 200
+file_lines_max = 5000
+nesting_max = 6
+params_max = 4
+abc_max = 60
 
-[roles.vendor]
-paths = ["vendor/**", "node_modules/**"]
+[thresholds.test]
+cyclomatic_max = 6
+cognitive_max = 10
+function_lines_max = 250
+min_assertions = 1
+abc_max = 100

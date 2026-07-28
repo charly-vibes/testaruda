@@ -35,11 +35,11 @@ fmt-check:
     cargo fmt --check
 
 # Pre-push checks (fast gate)
-pre-push: fmt-check lint test
+pre-push: fmt-check lint test gate
     @echo "✅ Pre-push checks passed"
 
-# Full CI gate: fmt + lint + test + build
-ci: fmt-check lint test build-release
+# Full CI gate: fmt + lint + test + build + gate
+ci: fmt-check lint test build-release gate
     @echo "✅ CI checks passed"
 
 
@@ -47,13 +47,18 @@ ci: fmt-check lint test build-release
 fmt:
     cargo fmt
 
-# Run pretender code quality checks
+# Run pretender code quality checks (staged/diff only — see lefthook.yml)
 check:
     pretender check src/
 
 # Validate specs against tests with espectacular
 ah:
     ah check
+
+# Gate checks: pretender (src/ only) + ah
+# Runs full scan in tiered mode (advisory for existing issues, catches regressions)
+gate: check ah
+    @echo "✅ Gate checks passed"
 
 # Initialize testaruda store
 init:

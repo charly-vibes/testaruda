@@ -1,71 +1,16 @@
 <!-- OPENSPEC:START -->
-# OpenSpec Instructions
-
-These instructions are for AI assistants working in this project.
-
-Always open `@/openspec/AGENTS.md` when the request:
-- Mentions planning or proposals (words like proposal, spec, change, plan)
-- Introduces new capabilities, breaking changes, architecture shifts, or big performance/security work
-- Sounds ambiguous and you need the authoritative spec before coding
-
-Use `@/openspec/AGENTS.md` to learn:
-- How to create and apply change proposals
-- Spec format and conventions
-- Project structure and guidelines
-
-Keep this managed block so 'openspec update' can refresh the instructions.
-
+<!-- openspec: managed block -->
+See openspec/ for spec-driven development.
 <!-- OPENSPEC:END -->
 
 <!-- DONT:START -->
-# DONT MANAGED BLOCK — DO NOT EDIT
-
-This project uses `dont` for grounded-claim workflow.
-
-At session start run `dont prime --json`.
-
-Canonical agent instructions: `.dont/AGENTS.md`.
-
-Edits inside this managed block will be overwritten by `dont doctor --fix`.
+<!-- dont: managed block -->
+See .dont/ for grounded-claim workflow.
 <!-- DONT:END -->
 
 <!-- WAI:START -->
-# Workflow Tools
-
-This project uses **wai** to track the *why* behind decisions — research,
-reasoning, and design choices that shaped the code. Run `wai status` first
-to orient yourself.
-
-## Quick Start
-
-1. `wai sync` — ensure agent tools are projected
-2. `wai status` — see active projects, phase, and suggestions
-
-When context reaches ~40%: stop and tell the user — responses degrade past
-this point. Recommend `wai close` then `/clear` to resume cleanly.
-Do NOT skip `wai close` — it enables resume detection.
-
-## Autonomous Work Policy
-
-Proceed without routine confirmation when the next step is clear.
-Do not ask to continue, fix, or commit — just do it.
-
-**Stop and ask** only when:
-- Conflicting requirements or ambiguous intent
-- Destructive actions (data loss, force-push, drop table)
-- Credentials, secrets, or external services not yet authorized
-- Unresolved test failures after two attempts
-- Push, deploy, or release — always get explicit authorization
-- Context approaching 40% — recommend `wai close` then `/clear`
-
-## Detailed Instructions
-
-Full workflow reference — session lifecycle, capturing work, command cheat
-sheets, cross-tool sync, and PARA structure — lives in **`.wai/AGENTS.md`**.
-Read it at the start of your first session or when you need detailed guidance.
-
-Keep this managed block so `wai init` can refresh the instructions.
-
+<!-- wai: managed block -->
+Run `wai status` to orient yourself.
 <!-- WAI:END -->
 
 <!-- WAI:REFLECT:REF:START -->
