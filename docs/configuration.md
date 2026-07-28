@@ -23,6 +23,12 @@ default = "testaruda-adapter-rust"
 ".clj" = "testaruda-adapter-clojure"
 ".cljs" = "testaruda-adapter-clojure"
 ".cljc" = "testaruda-adapter-clojure"
+".cs" = "titi testaruda-adapter"         # command string: shell-split into (titi, testaruda-adapter)
+".fs" = "titi testaruda-adapter"         # see TIA-ADAPT-024
+".vb" = "titi testaruda-adapter"
+".csproj" = "titi testaruda-adapter"
+".sln" = "titi testaruda-adapter"
+".slnx" = "titi testaruda-adapter"
 
 [must_run]
 # Map a changed-path glob to test node IDs that must run.
@@ -59,6 +65,22 @@ provided by [Testimonial.jl](https://github.com/sashakile/Testimonial.jl); see
 The Julia adapter currently discovers `@testitem` tests through
 ReTestItems/TestItems. In a project that mixes `@testitem` with plain `@test`
 blocks, only the `@testitem` tests participate in testaruda selection.
+
+### .NET adapter (titi)
+
+The .NET adapter is provided by [titi](https://github.com/charly-vibes/titi).
+Unlike the language-native adapters, titi is invoked through a multi-token
+command string: `titi testaruda-adapter`. This is configured by setting the
+adapter binary to `"titi testaruda-adapter"` in the extension mapping.
+testaruda's shell-split infrastructure (TIA-ADAPT-024) automatically splits the
+command string into the binary (`titi`) and its argument (`testaruda-adapter`).
+
+```toml
+[adapters.extensions]".cs" = "titi testaruda-adapter"
+```
+
+When `titi` is not on `PATH`, testaruda falls back to full-suite selection per
+TIA-ADAPT-012. The .NET adapter is opt-in — no automatic detection is attempted.
 
 ## Defaults
 

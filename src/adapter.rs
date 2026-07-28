@@ -627,9 +627,126 @@ pub enum AdapterError {
     Json(#[from] serde_json::Error),
 }
 
+// ===== Command-string adapter invocation =====
+
+/// Shell-split a command string into a binary path and argument list.
+///
+/// Returns the binary as an owned String and args as owned Vec<String> so the
+/// result can be inspected in tests without lifetime issues.
+///
+/// # Errors
+///
+/// Returns `AdapterError::Io` with `InvalidInput` kind for:
+/// - Empty command strings
+/// - Malformed quoting (via `shell_words::split`)
+pub fn parse_command_string(command_string: &str) -> Result<(String, Vec<String>), AdapterError> {
+    if command_string.is_empty() {
+        return Err(AdapterError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "empty command string in adapter extension mapping — configure a valid adapter binary"
+                .to_string(),
+        )));
+    }
+
+    let words = shell_words::split(command_string).map_err(|e| {
+        AdapterError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "failed to shell-split adapter command string '{}': {}",
+                command_string, e
+            ),
+        ))
+    })?;
+
+    let mut words = words;
+    if words.is_empty() {
+        return Err(AdapterError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "empty result after shell-splitting adapter command string '{}'",
+                command_string
+            ),
+        )));
+    }
+
+    let binary = words.remove(0);
+    Ok((binary, words))
+}
+
+/// Spawn an adapter from a command string, shell-splitting into `(binary, args)`.
+///
+/// This is the single entry point for all adapter spawns. It replaces direct calls
+/// to `AdapterIO::spawn(binary, &[], None)` which only work for bare-binary adapters.
+///
+/// The shell-split (TIA-ADAPT-024) supports:
+/// - Bare binaries: `"testaruda-adapter-rust"` → `("testaruda-adapter-rust", [])`
+/// - Subcommand adapters: `"titi testaruda-adapter"` → `("titi", ["testaruda-adapter"])`
+/// - Quoted-arg adapters: `"julia --project=. -e '...'"` → quoted body preserved as one arg
+/// - Windows paths: `"\"C:\\Program Files\\titi\\titi.exe\" testaruda-adapter"` → path with spaces
+///
+/// Empty command strings produce a config-error diagnostic and return `AdapterError::Io`
+/// so the caller falls back per TIA-ADAPT-012.
+pub fn spawn_adapter(
+    command_string: &str,
+    timeout_ms: Option<u64>,
+) -> Result<AdapterIO, AdapterError> {
+    let (binary, args) = parse_command_string(command_string)?;
+    let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    AdapterIO::spawn(&binary, &args_refs, timeout_ms)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_command_string_bare_binary() {
+        let (binary, args) = parse_command_string("testaruda-adapter-rust").unwrap();
+        assert_eq!(binary, "testaruda-adapter-rust");
+        assert!(args.is_empty());
+    }
+
+    #[test]
+    fn test_parse_command_string_subcommand() {
+        let (binary, args) = parse_command_string("titi testaruda-adapter").unwrap();
+        assert_eq!(binary, "titi");
+        assert_eq!(args, vec!["testaruda-adapter"]);
+    }
+
+    #[test]
+    fn test_parse_command_string_julia_quoted() {
+        let cmd =
+            "julia --project=. -e 'using Testimonial; Testimonial.Protocol.run_adapter_protocol()'";
+        let (binary, args) = parse_command_string(cmd).unwrap();
+        assert_eq!(binary, "julia");
+        assert_eq!(
+            args,
+            vec![
+                "--project=.",
+                "-e",
+                "using Testimonial; Testimonial.Protocol.run_adapter_protocol()"
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_command_string_empty() {
+        let err = parse_command_string("").unwrap_err();
+        match &err {
+            AdapterError::Io(e) => {
+                assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput);
+            }
+            _ => panic!("expected Io error"),
+        }
+    }
+
+    #[test]
+    fn test_parse_command_string_windows_path() {
+        let cmd = "\"C:\\Program Files\\titi\\titi.exe\" testaruda-adapter";
+        let (binary, args) = parse_command_string(cmd).unwrap();
+        assert_eq!(binary, "C:\\Program Files\\titi\\titi.exe");
+        assert_eq!(args, vec!["testaruda-adapter"]);
+    }
 
     #[test]
     fn test_adapter_registry_resolve() {

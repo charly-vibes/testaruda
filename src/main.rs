@@ -598,7 +598,7 @@ fn main() -> miette::Result<()> {
                         .unwrap_or("testaruda-adapter-python");
 
                     let mut adapter =
-                        match testaruda::adapter::AdapterIO::spawn(adapter_binary, &[], None) {
+                        match testaruda::adapter::spawn_adapter(adapter_binary, None) {
                             Ok(a) => a,
                             Err(e) => {
                                 eprintln!(
@@ -729,7 +729,7 @@ fn main() -> miette::Result<()> {
                         .unwrap_or_else(|| "testaruda-adapter-python".to_string())
                 };
 
-                let mut adapter = testaruda::adapter::AdapterIO::spawn(&adapter_binary, &[], None)
+                let mut adapter = testaruda::adapter::spawn_adapter(&adapter_binary, None)
                     .map_err(|e| {
                         miette::miette!("Failed to spawn adapter {}: {}", adapter_binary, e)
                     })?;
@@ -1126,10 +1126,14 @@ pub fn run_adapter_pipeline(
 
     // Step 2: For each adapter, run discover + static-deps on all files
     for (binary, files) in &adapter_files {
-        let mut adapter = match testaruda::adapter::AdapterIO::spawn(binary, &[], None) {
+        let mut adapter = match testaruda::adapter::spawn_adapter(binary, None) {
             Ok(a) => a,
             Err(e) => {
-                eprintln!("  ⚠️  Failed to spawn {}: {}", binary, e);
+                // Extract just the resolved binary name for the diagnostic (TIA-ADAPT-024)
+                let binary_name = testaruda::adapter::parse_command_string(binary)
+                    .map(|(b, _)| b)
+                    .unwrap_or_else(|_| binary.to_string());
+                eprintln!("  ⚠️  Failed to spawn adapter {}: {}", binary_name, e);
                 continue;
             }
         };
@@ -1181,10 +1185,14 @@ pub fn run_adapter_pipeline(
                 continue; // already processed in the full walk
             }
             // Edge case: a changed file for an adapter not seen in the full walk
-            let mut adapter = match testaruda::adapter::AdapterIO::spawn(binary, &[], None) {
+            let mut adapter = match testaruda::adapter::spawn_adapter(binary, None) {
                 Ok(a) => a,
                 Err(e) => {
-                    eprintln!("  ⚠️  Failed to spawn {}: {}", binary, e);
+                    // Extract just the resolved binary name for the diagnostic (TIA-ADAPT-024)
+                    let binary_name = testaruda::adapter::parse_command_string(binary)
+                        .map(|(b, _)| b)
+                        .unwrap_or_else(|_| binary.to_string());
+                    eprintln!("  ⚠️  Failed to spawn adapter {}: {}", binary_name, e);
                     continue;
                 }
             };
@@ -1227,7 +1235,7 @@ pub fn run_discover_pipeline(
                 continue;
             }
 
-            let mut adapter = match testaruda::adapter::AdapterIO::spawn(binary, &[], None) {
+            let mut adapter = match testaruda::adapter::spawn_adapter(binary, None) {
                 Ok(a) => a,
                 Err(e) => {
                     eprintln!("  ⚠️  Failed to spawn {}: {}", binary, e);

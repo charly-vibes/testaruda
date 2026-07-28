@@ -22,6 +22,25 @@ The Julia adapter discovers `@testitem` tests through ReTestItems/TestItems. If
 a project mixes `@testitem` and plain `@test` blocks, only the `@testitem` tests
 are available for selection.
 
+### Optional: .NET adapter (titi)
+
+To use testaruda with .NET projects, you additionally need:
+
+- [titi](https://github.com/charly-vibes/titi) — a .NET monorepo orchestrator
+  that speaks testaruda's adapter protocol via its `testaruda-adapter` subcommand
+
+```bash
+# Follow the titi installation instructions at the link above
+# Then configure the extension mapping in testaruda.toml:
+# [adapters.extensions]
+# ".cs" = "titi testaruda-adapter"
+```
+
+The .NET adapter is an external binary (not a workspace crate) and is opt-in
+(not auto-detected), following the same pattern as the Julia adapter. See the
+[Configuration Guide](configuration.md#net-adapter-titi) for the full list of
+.NET extension mappings.
+
 ## Installation
 
 ```bash
