@@ -29,7 +29,7 @@
 ## 4. Tests
 - [ ] 4.1 Integration test (gated on titi being installed): `testaruda select` against a synthetic .NET monorepo with a changed `.cs` file returns a non-empty selection with `static` edges sourced from titi's `MonorepoGraph`
 - [ ] 4.2 Integration test (gated on titi being installed): a changed `.fs` file is routed to titi and returns a non-empty selection (verifies F# source routing)
-- [ ] 4.3 Integration test (titi NOT installed): `testaruda select` with a titi mapping falls back to full-suite selection and records the missing-binary failure
+- [x] 4.3 Integration test (titi NOT installed): `testaruda select` with a titi mapping falls back to full-suite selection and records the missing-binary failure
 - [ ] 4.4 Integration test (Julia smoke): with the shell-split in place, the Julia adapter's command-string config form spawns correctly (this validates the shared infrastructure; coordinate with the Julia change to avoid duplicate fixtures)
 - [ ] 4.5 Integration test (polyglot): a `.cs` file outside titi's `MonorepoGraph` is routed to titi, returned as `unresolved`, and testaruda applies the over-approximation fallback (TIA-SAFE-004) — verifies the polyglot-routing edge case
 

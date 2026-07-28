@@ -1,0 +1,356 @@
+//! .NET adapter integration tests (testaruda-8k5).
+//!
+//! Verifies:
+//! - 4.3: When `titi` is NOT installed, `testaruda select` with a titi mapping
+//!   falls back gracefully and does not crash (TIA-ADAPT-012).
+//! - Registry resolution: `.cs` / `.fs` / `.vb` / `.csproj` / `.sln` / `.slnx`
+//!   resolve to `titi testaruda-adapter`.
+//! - `spawn_adapter` returns a helpful error when `titi` is not on PATH.
+
+use std::path::PathBuf;
+
+/// Cwd guard: changes to a temp directory, restores on drop.
+struct CwdGuard {
+    saved: PathBuf,
+}
+
+impl CwdGuard {
+    fn enter(temp: &std::path::Path) -> Self {
+        let saved = std::env::current_dir().unwrap();
+        std::env::set_current_dir(temp).unwrap();
+        Self { saved }
+    }
+}
+
+impl Drop for CwdGuard {
+    fn drop(&mut self) {
+        let _ = std::env::set_current_dir(&self.saved);
+    }
+}
+
+/// Check if `titi` is available on PATH.
+fn titi_available() -> bool {
+    std::process::Command::new("which")
+        .arg("titi")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Create a minimal .NET test project in the given directory.
+fn create_dotnet_project(dir: &std::path::Path) {
+    let src = dir.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+
+    // Create a .cs file (the main source extension)
+    std::fs::write(
+        src.join("Program.cs"),
+        r#"using System;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        Console.WriteLine("Hello, .NET!");
+    }
+}
+"#,
+    )
+    .unwrap();
+}
+
+/// Write a testaruda.toml with a .NET titi mapping.
+fn write_dotnet_config(dir: &std::path::Path) {
+    let config = r#"[adapters]
+default = "testaruda-adapter-rust"
+
+[adapters.extensions]
+".rs" = "testaruda-adapter-rust"
+".cs" = "titi testaruda-adapter"
+".fs" = "titi testaruda-adapter"
+".vb" = "titi testaruda-adapter"
+".csproj" = "titi testaruda-adapter"
+".sln" = "titi testaruda-adapter"
+".slnx" = "titi testaruda-adapter"
+"#;
+    std::fs::write(dir.join("testaruda.toml"), config).unwrap();
+}
+
+// ===== Registry resolution tests =====
+
+#[test]
+fn dotnet_extension_resolves_cs() {
+    let mut reg = testaruda::adapter::AdapterRegistry::new();
+    reg.register(".cs", "titi testaruda-adapter");
+    assert_eq!(
+        reg.resolve("src/Program.cs"),
+        Some("titi testaruda-adapter")
+    );
+}
+
+#[test]
+fn dotnet_extension_resolves_fs() {
+    let mut reg = testaruda::adapter::AdapterRegistry::new();
+    reg.register(".fs", "titi testaruda-adapter");
+    assert_eq!(
+        reg.resolve("src/Library.fs"),
+        Some("titi testaruda-adapter")
+    );
+}
+
+#[test]
+fn dotnet_extension_resolves_vb() {
+    let mut reg = testaruda::adapter::AdapterRegistry::new();
+    reg.register(".vb", "titi testaruda-adapter");
+    assert_eq!(reg.resolve("src/Module.vb"), Some("titi testaruda-adapter"));
+}
+
+#[test]
+fn dotnet_extension_resolves_csproj() {
+    let mut reg = testaruda::adapter::AdapterRegistry::new();
+    reg.register(".csproj", "titi testaruda-adapter");
+    assert_eq!(
+        reg.resolve("src/MyApp.csproj"),
+        Some("titi testaruda-adapter")
+    );
+}
+
+#[test]
+fn dotnet_extension_resolves_sln() {
+    let mut reg = testaruda::adapter::AdapterRegistry::new();
+    reg.register(".sln", "titi testaruda-adapter");
+    assert_eq!(reg.resolve("MyApp.sln"), Some("titi testaruda-adapter"));
+}
+
+#[test]
+fn dotnet_extension_resolves_slnx() {
+    let mut reg = testaruda::adapter::AdapterRegistry::new();
+    reg.register(".slnx", "titi testaruda-adapter");
+    assert_eq!(reg.resolve("MyApp.slnx"), Some("titi testaruda-adapter"));
+}
+
+#[test]
+fn dotnet_extension_does_not_leak_to_rs() {
+    let mut reg = testaruda::adapter::AdapterRegistry::new();
+    reg.register(".cs", "titi testaruda-adapter");
+    reg.register(".rs", "testaruda-adapter-rust");
+    // .rs files should still resolve to the Rust adapter
+    assert_eq!(reg.resolve("src/lib.rs"), Some("testaruda-adapter-rust"));
+}
+
+// ===== Spawn-failure tests =====
+
+#[test]
+fn spawn_titi_fails_when_not_on_path() {
+    // Skip if titi IS available — this test verifies the NOT-installed case
+    if titi_available() {
+        eprintln!("titi is installed — skipping spawn-failure test");
+        return;
+    }
+
+    let result = testaruda::adapter::spawn_adapter("titi testaruda-adapter", None);
+    assert!(
+        result.is_err(),
+        "expected spawn_adapter to fail when titi is not on PATH"
+    );
+}
+
+// ===== Config-level tests =====
+
+#[test]
+fn dotnet_config_round_trips_via_normalize() {
+    let config = r#"[adapters]
+default = "testaruda-adapter-rust"
+
+[adapters.extensions]
+".cs" = "titi testaruda-adapter"
+".fs" = "titi testaruda-adapter"
+".vb" = "titi testaruda-adapter"
+".csproj" = "titi testaruda-adapter"
+".sln" = "titi testaruda-adapter"
+".slnx" = "titi testaruda-adapter"
+".rs" = "testaruda-adapter-rust"
+"#;
+
+    let parsed: testaruda::config::Config = toml::from_str(config).unwrap();
+    assert_eq!(
+        parsed.adapters.extensions.get(".cs").map(String::as_str),
+        Some("titi testaruda-adapter")
+    );
+    assert_eq!(
+        parsed.adapters.extensions.get(".fs").map(String::as_str),
+        Some("titi testaruda-adapter")
+    );
+    assert_eq!(
+        parsed.adapters.extensions.get(".vb").map(String::as_str),
+        Some("titi testaruda-adapter")
+    );
+    assert_eq!(
+        parsed
+            .adapters
+            .extensions
+            .get(".csproj")
+            .map(String::as_str),
+        Some("titi testaruda-adapter")
+    );
+    assert_eq!(
+        parsed.adapters.extensions.get(".sln").map(String::as_str),
+        Some("titi testaruda-adapter")
+    );
+    assert_eq!(
+        parsed.adapters.extensions.get(".slnx").map(String::as_str),
+        Some("titi testaruda-adapter")
+    );
+    assert_eq!(
+        parsed.adapters.extensions.get(".rs").map(String::as_str),
+        Some("testaruda-adapter-rust")
+    );
+    assert_eq!(
+        parsed.adapters.default.as_deref(),
+        Some("testaruda-adapter-rust")
+    );
+}
+
+// ===== CLI integration tests (task 4.3) =====
+
+/// Test that `testaruda select` with a titi mapping does NOT crash
+/// when titi is not installed. It should fall back gracefully
+/// (TIA-ADAPT-012) and produce a valid selection.
+#[test]
+fn select_falls_back_when_titi_not_installed() {
+    // Skip if titi IS available — this test verifies the NOT-installed path
+    if titi_available() {
+        eprintln!("⚠️  titi is installed — skipping fallback-grace test");
+        eprintln!("    This test verifies the case when titi is NOT on PATH.");
+        eprintln!(
+            "    To run it, temporarily remove titi from PATH or run on a machine without titi."
+        );
+        return;
+    }
+
+    let project = tempfile::tempdir().unwrap();
+    let _guard = CwdGuard::enter(project.path());
+
+    // Create a .NET-like project structure
+    create_dotnet_project(project.path());
+
+    // Write config with titi mapping
+    write_dotnet_config(project.path());
+
+    // Create a .git directory so testaruda doesn't error on git operations
+    let git_dir = project.path().join(".git");
+    std::fs::create_dir_all(&git_dir).unwrap();
+    // Write a minimal HEAD ref so git commands don't fail
+    std::fs::write(git_dir.join("HEAD"), b"ref: refs/heads/main\n").unwrap();
+
+    // Create a Cargo.toml so the language detector picks Rust (for the default adapter)
+    std::fs::write(
+        project.path().join("Cargo.toml"),
+        r#"[package]
+name = "test-project"
+version = "0.1.0"
+edition = "2021"
+"#,
+    )
+    .unwrap();
+
+    // Create a .rs file so the Rust adapter has something to discover
+    let src = project.path().join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(
+        src.join("lib.rs"),
+        r#"pub fn greet() -> &'static str { "hello" }
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_greet() { assert_eq!(super::greet(), "hello"); }
+}
+"#,
+    )
+    .unwrap();
+
+    // Run `testaruda init` first
+    let init_output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
+        .arg("init")
+        .output()
+        .expect("failed to run testaruda init");
+
+    assert!(
+        init_output.status.success(),
+        "testaruda init should succeed: stdout={}, stderr={}",
+        String::from_utf8_lossy(&init_output.stdout),
+        String::from_utf8_lossy(&init_output.stderr),
+    );
+
+    // Run `testaruda select` — this should not crash even though titi is not installed
+    let select_output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
+        .arg("select")
+        .arg("--json")
+        .output()
+        .expect("failed to run testaruda select");
+
+    let stderr = String::from_utf8_lossy(&select_output.stderr);
+
+    // The select command should not crash
+    assert!(
+        select_output.status.success(),
+        "testaruda select should not crash when titi is not installed.\nstderr: {}",
+        stderr,
+    );
+
+    // Should print a warning about the missing adapter (TIA-ADAPT-024 diagnostic)
+    assert!(
+        stderr.contains("Failed to spawn adapter") || stderr.contains("titi"),
+        "Expected a diagnostic message about the missing titi adapter.\nstderr: {}",
+        stderr,
+    );
+
+    // The JSON output should be valid envelope format
+    let stdout = String::from_utf8_lossy(&select_output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("select --json output should be valid JSON");
+
+    // Should be an envelope with data containing the selection
+    assert!(
+        parsed.get("data").and_then(|d| d.get("tests")).is_some(),
+        "Expected an envelope with data.tests selection array.\nstdout: {}",
+        stdout,
+    );
+
+    let tests = parsed["data"]["tests"].as_array().unwrap();
+    // Should have at least the Rust test items (selected via default adapter)
+    assert!(
+        !tests.is_empty(),
+        "Expected at least one test selected.\nstdout: {}",
+        stdout,
+    );
+}
+
+/// Test that the flat config format also works with .NET extensions.
+#[test]
+fn dotnet_flat_format_normalizes() {
+    let flat = r#"[adapters]
+".cs" = "titi testaruda-adapter"
+".fs" = "titi testaruda-adapter"
+default = "testaruda-adapter-rust"
+"#;
+
+    // Normalize via the config module
+    let normalized = testaruda::config::normalize_adapters_config(flat);
+
+    let parsed: testaruda::config::Config = toml::from_str(&normalized).unwrap();
+    assert_eq!(
+        parsed.adapters.extensions.get(".cs").map(String::as_str),
+        Some("titi testaruda-adapter")
+    );
+    assert_eq!(
+        parsed.adapters.extensions.get(".fs").map(String::as_str),
+        Some("titi testaruda-adapter")
+    );
+    assert_eq!(
+        parsed.adapters.default.as_deref(),
+        Some("testaruda-adapter-rust")
+    );
+}
