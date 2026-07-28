@@ -87,12 +87,13 @@ fn cmd_handshake() -> serde_json::Value {
 
 /// Static-deps: extract dependency edges from changed files (TIA-ADAPT-019).
 ///
-/// Takes `{"files": ["path/to/file.clj", ...]}` and returns edges from
-/// test files to source files based on `:require/:use/:import` analysis.
+/// Takes `{"params": {"changed_files": ["path/to/file.clj", ...]}}` and returns edges
+/// from test files to source files based on `:require/:use/:import` analysis.
 fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
-    let files = match cmd["args"]["files"].as_array() {
+    let params = &cmd["params"];
+    let files = match params["changed_files"].as_array() {
         Some(f) => f,
-        None => return json_err("missing args.files"),
+        None => return json_err("missing 'params.changed_files'"),
     };
 
     // Phase 1: Parse every changed file to get its namespace name and deps.
@@ -270,45 +271,66 @@ fn cmd_discover() -> serde_json::Value {
 }
 
 /// Fingerprint: blake3 hash of file contents (TIA-ADAPT-002).
+///
+/// Standard protocol: `{"command":"fingerprint","params":{"files":[...]}}`.
+/// Returns array of `{"file": path, "fingerprint": hex_hash}`.
 fn cmd_fingerprint(cmd: &serde_json::Value) -> serde_json::Value {
-    let file_path = match cmd["args"]["file"].as_str() {
-        Some(f) => f,
-        None => return json_err("missing args.file"),
+    let params = &cmd["params"];
+    let files: Vec<String> = match params["files"].as_array() {
+        Some(arr) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect(),
+        None => return json_err("missing 'params.files'"),
     };
 
-    let content = match std::fs::read_to_string(file_path) {
-        Ok(c) => c,
-        Err(e) => return json_err(&format!("cannot read {}: {}", file_path, e)),
-    };
+    let mut fingerprints = Vec::new();
+    for file in &files {
+        let content = match std::fs::read_to_string(file) {
+            Ok(c) => c,
+            Err(e) => return json_err(&format!("cannot read {}: {}", file, e)),
+        };
+        let hash = blake3::hash(content.as_bytes());
+        fingerprints.push(serde_json::json!({
+            "file": file,
+            "fingerprint": hash.to_hex().to_string()
+        }));
+    }
 
-    let hash = blake3::hash(content.as_bytes());
     json_ok(serde_json::json!({
-        "fingerprints": {
-            file_path: hash.to_hex().to_string()
-        }
+        "fingerprints": fingerprints
     }))
 }
 
 /// Run-args: build CLI args for the test runner (TIA-ADAPT-002).
+///
+/// Standard protocol: `{"command":"run-args","params":{"selected":[...]}}`.
 fn cmd_run_args(cmd: &serde_json::Value) -> serde_json::Value {
-    let files = match cmd["args"]["files"].as_array() {
-        Some(f) => f,
-        None => return json_err("missing args.files"),
+    let params = &cmd["params"];
+    let selected: Vec<String> = match params["selected"].as_array() {
+        Some(arr) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect(),
+        None => return json_err("missing 'params.selected'"),
     };
+
+    if selected.is_empty() {
+        return json_err("no tests selected");
+    }
 
     // Use project config to determine runner
     let config = project::ProjectConfig::detect(std::path::Path::new("."));
 
     // Extract test names from node_ids (format: <namespace>::<test-name>(Test))
     let mut test_names: Vec<String> = Vec::new();
-    for file_val in files {
-        let node_id = file_val.as_str().unwrap_or("");
+    for node_id in &selected {
         // Format: my-project.core-test::test-greet(Test) → test-greet
         if let Some(test_part) = node_id.split("::").nth(1) {
             let name = test_part.trim_end_matches("(Test)");
             test_names.push(name.to_string());
         } else {
-            // Fallback: treat file as namespace
+            // Fallback: treat node_id as namespace
             test_names.push(node_id.to_string());
         }
     }
@@ -354,28 +376,60 @@ fn cmd_run_args(cmd: &serde_json::Value) -> serde_json::Value {
 
 /// Ingest: parse JUnit XML output from Cognitect runner or Leiningen stdout
 /// and return runtime edges and per-test results (TIA-ADAPT-002).
+/// Ingest: parse test runner output and return runtime edges + per-test results.
+///
+/// Standard protocol: `{"command":"ingest","params":{"run_output":"..."}}`.
 fn cmd_ingest(cmd: &serde_json::Value) -> serde_json::Value {
-    let collection_path = match cmd["args"]["collection_path"].as_str() {
-        Some(path) => path.to_string(),
-        None => "target/test-results.xml".to_string(),
-    };
+    let params = &cmd["params"];
 
-    let content = match std::fs::read_to_string(&collection_path) {
-        Ok(c) => c,
-        Err(_) => {
-            // If no JUnit XML, try Leiningen-style stdout from the args
-            let stdout = cmd["args"]["stdout"].as_str().unwrap_or("");
-            if stdout.is_empty() {
-                return json_ok(serde_json::json!({
-                    "edges": [],
-                    "results": []
+    // Try run_output as a string (newline-delimited JSON lines)
+    if let Some(run_output) = params["run_output"].as_str() {
+        if run_output.is_empty() {
+            return json_ok(serde_json::json!({
+                "per_test_results": [],
+                "runtime_edges": [],
+                "external_inputs": []
+            }));
+        }
+
+        // Parse each line as a JSON test result
+        let mut results = Vec::new();
+        for line in run_output.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if let Ok(entry) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                let test_id = entry["test_id"].as_str().unwrap_or("").to_string();
+                let outcome = entry["outcome"].as_str().unwrap_or("passed").to_string();
+                let duration_ms = entry["duration_ms"].as_i64().unwrap_or(0);
+                results.push(serde_json::json!({
+                    "test_id": test_id,
+                    "outcome": outcome,
+                    "duration_ms": duration_ms
                 }));
             }
-            return parse_lein_stdout(stdout);
         }
-    };
 
-    parse_junit_xml(&content)
+        return json_ok(serde_json::json!({
+            "per_test_results": results,
+            "runtime_edges": [],
+            "external_inputs": []
+        }));
+    }
+
+    // Fallback: try JUnit XML from target/test-results.xml
+    let collection_path = params["collection_path"]
+        .as_str()
+        .unwrap_or("target/test-results.xml");
+    match std::fs::read_to_string(collection_path) {
+        Ok(content) => parse_junit_xml(&content),
+        Err(_) => json_ok(serde_json::json!({
+            "per_test_results": [],
+            "runtime_edges": [],
+            "external_inputs": []
+        })),
+    }
 }
 
 /// Parse JUnit XML content and return runtime edges and per-test results.
@@ -438,60 +492,4 @@ fn extract_attr(tag: &str, attr: &str) -> Option<String> {
     let start = tag.find(&search)? + search.len();
     let end = tag[start..].find('"')?;
     Some(tag[start..start + end].to_string())
-}
-
-/// Parse Leiningen-style test output from stdout.
-fn parse_lein_stdout(stdout: &str) -> serde_json::Value {
-    let mut results: Vec<serde_json::Value> = Vec::new();
-    let edges: Vec<serde_json::Value> = Vec::new();
-
-    for line in stdout.lines() {
-        let trimmed = line.trim();
-        // Leiningen output: "ERROR in test-name (namespace.clj:42)"
-        if let Some(rest) = trimmed.strip_prefix("ERROR in ") {
-            #[allow(clippy::manual_pattern_char_comparison)]
-            let parts: Vec<&str> = rest
-                .splitn(3, |c| c == '(' || c == ')' || c == ':')
-                .collect();
-            if parts.len() >= 2 {
-                let test_name = parts[0].trim().to_string();
-                results.push(serde_json::json!({
-                    "test_id": test_name,
-                    "passed": false,
-                    "time": 0.0,
-                    "failure_message": ""
-                }));
-            }
-        }
-        // "FAIL in test-name (namespace.clj:42)"
-        else if let Some(rest) = trimmed.strip_prefix("FAIL in ") {
-            #[allow(clippy::manual_pattern_char_comparison)]
-            let parts: Vec<&str> = rest
-                .splitn(3, |c| c == '(' || c == ')' || c == ':')
-                .collect();
-            if parts.len() >= 2 {
-                let test_name = parts[0].trim().to_string();
-                results.push(serde_json::json!({
-                    "test_id": test_name,
-                    "passed": false,
-                    "time": 0.0,
-                    "failure_message": ""
-                }));
-            }
-        }
-        // "OK test-name"
-        else if let Some(rest) = trimmed.strip_prefix("OK ") {
-            results.push(serde_json::json!({
-                "test_id": rest.trim().to_string(),
-                "passed": true,
-                "time": 0.0,
-                "failure_message": ""
-            }));
-        }
-    }
-
-    json_ok(serde_json::json!({
-        "edges": edges,
-        "results": results
-    }))
 }

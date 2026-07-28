@@ -88,10 +88,10 @@ fn discover_returns_results() {
 fn static_deps_returns_not_implemented() {
     // static-deps now returns ok:true even with no files; the stub test is
     // still valid to verify the command doesn't error out.
-    let resp = send_command(r#"{"command":"static-deps","args":{"files":[]}}"#);
+    let resp = send_command(r#"{"command":"static-deps","params":{"changed_files":[]}}"#);
     assert_eq!(
         resp["ok"], true,
-        "static-deps should succeed with empty files: {resp}"
+        "static-deps should succeed with empty changed_files: {resp}"
     );
 }
 
@@ -103,25 +103,24 @@ fn fingerprint_returns_results() {
     let mut binary = Command::cargo_bin("testaruda-adapter-clojure").unwrap();
     let assert = binary
         .current_dir(dir.path())
-        .write_stdin(r#"{"command":"fingerprint","args":{"file":"test.clj"}}"#)
+        .write_stdin(r#"{"command":"fingerprint","params":{"files":["test.clj"]}}"#)
         .assert()
         .success();
     let output = assert.get_output();
     let stdout = std::str::from_utf8(&output.stdout).unwrap();
     let resp: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
     assert_eq!(resp["ok"], true, "fingerprint should succeed: {resp}");
-    let fps = resp["result"]["fingerprints"].as_object().unwrap();
-    assert!(
-        fps.contains_key("test.clj"),
-        "should have test.clj fingerprint"
-    );
-    let hash = fps["test.clj"].as_str().unwrap();
+    let fps = resp["result"]["fingerprints"].as_array().unwrap();
+    assert_eq!(fps.len(), 1, "should have 1 fingerprint");
+    assert_eq!(fps[0]["file"], "test.clj", "should be for test.clj");
+    let hash = fps[0]["fingerprint"].as_str().unwrap();
     assert_eq!(hash.len(), 64, "blake3 hash should be 64 hex chars");
 }
 
 #[test]
 fn run_args_returns_results() {
-    let resp = send_command(r#"{"command":"run-args","args":{"files":["test/core_test.clj"]}}"#);
+    let resp =
+        send_command(r#"{"command":"run-args","params":{"selected":["test/core_test.clj"]}}"#);
     assert_eq!(resp["ok"], true, "run-args should succeed: {resp}");
     assert!(resp["result"]["args"].is_array(), "should have args array");
 }
@@ -129,10 +128,10 @@ fn run_args_returns_results() {
 #[test]
 fn ingest_returns_results() {
     // Without collection_path or stdout, ingest returns empty results
-    let resp = send_command(r#"{"command":"ingest","args":{}}"#);
+    let resp = send_command(r#"{"command":"ingest","params":{}}"#);
     assert_eq!(resp["ok"], true, "ingest should succeed: {resp}");
     assert!(
-        resp["result"]["results"].is_array(),
-        "should have results array"
+        resp["result"]["per_test_results"].is_array(),
+        "should have per_test_results array"
     );
 }

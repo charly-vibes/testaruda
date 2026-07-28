@@ -70,7 +70,7 @@ fn static_deps_edges_for_changed_source() {
     let root = project.path();
 
     let resp = send_command(
-        r#"{"command":"static-deps","args":{"files":["src/core.clj"]}}"#,
+        r#"{"command":"static-deps","params":{"changed_files":["src/core.clj"]}}"#,
         root,
     );
 
@@ -103,7 +103,7 @@ fn static_deps_ignores_non_clojure_files() {
     let root = project.path();
 
     let resp = send_command(
-        r#"{"command":"static-deps","args":{"files":["src/other.rs"]}}"#,
+        r#"{"command":"static-deps","params":{"changed_files":["src/other.rs"]}}"#,
         root,
     );
 
@@ -128,7 +128,7 @@ fn static_deps_deduplicates_edges() {
     .unwrap();
 
     let resp = send_command(
-        r#"{"command":"static-deps","args":{"files":["src/core.clj"]}}"#,
+        r#"{"command":"static-deps","params":{"changed_files":["src/core.clj"]}}"#,
         root,
     );
 
@@ -163,7 +163,7 @@ fn static_deps_unresolved_require_still_emits_edge() {
     .unwrap();
 
     let resp = send_command(
-        r#"{"command":"static-deps","args":{"files":["src/core.clj"]}}"#,
+        r#"{"command":"static-deps","params":{"changed_files":["src/core.clj"]}}"#,
         root,
     );
 
@@ -190,7 +190,7 @@ fn static_deps_handles_multiple_source_files() {
     let root = project.path();
 
     let resp = send_command(
-        r#"{"command":"static-deps","args":{"files":["src/core.clj", "src/utils.clj"]}}"#,
+        r#"{"command":"static-deps","params":{"changed_files":["src/core.clj", "src/utils.clj"]}}"#,
         root,
     );
 
