@@ -1,0 +1,14 @@
+[project]
+name = "dont-project"
+mode = "permissive"
+
+[output]
+default_format = "json"
+
+[storage]
+busy_retry_attempts = 5
+busy_retry_base_ms = 100
+
+[harness]
+managed_docs = ["AGENTS.md", "CLAUDE.md"]
+spawn_timeout_hours = 24
