@@ -292,14 +292,164 @@ fn cmd_discover(_cmd: &serde_json::Value) -> serde_json::Value {
 }
 
 /// Static deps: extract import/require expressions from changed files.
-/// (Stub for scaffolding — will be implemented with tree-sitter queries.)
-fn cmd_static_deps(_cmd: &serde_json::Value) -> serde_json::Value {
-    json_ok(serde_json::json!({
-        "edges": [],
-        "warnings": ["static-deps not yet implemented"]
-    }))
+fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
+    let params = &cmd["params"];
+    let changed_files: Vec<String> = match params["changed_files"].as_array() {
+        Some(arr) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect(),
+        None => return json_err("missing 'params.changed_files'"),
+    };
+
+    let mut unresolved = Vec::new();
+    let mut edges = Vec::new();
+
+    // Discover all test items
+    let discover_all = cmd_discover(&serde_json::json!({}));
+    let test_files: Vec<(String, String)> = if let Some(results) = discover_all["result"].as_array()
+    {
+        results
+            .iter()
+            .filter_map(|t| {
+                let node_id = t["node_id"].as_str()?;
+                let file = t["file"].as_str()?;
+                Some((node_id.to_string(), file.to_string()))
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    // Build a map: import path -> list of (test_node_id, test_file_path)
+    // For each test file, parse its imports
+    let mut import_to_tests: std::collections::HashMap<String, Vec<(String, String)>> =
+        std::collections::HashMap::new();
+    for (node_id, file) in &test_files {
+        if let Ok(content) = std::fs::read_to_string(file) {
+            let ext = file.rsplit_once('.').map(|(_, e)| e).unwrap_or("");
+            let imports = parse_imports_from_source(&content, ext);
+            for imp in imports {
+                import_to_tests
+                    .entry(imp)
+                    .or_default()
+                    .push((node_id.clone(), file.clone()));
+            }
+        }
+    }
+
+    // For each changed file, check if any test file imports from it
+    for file in &changed_files {
+        // Derive the import path from the file path
+        // e.g., "src/component.ts" -> "./component" or "../component"
+        let file_stem = std::path::Path::new(file)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string();
+
+        // Check if any test file imports this file
+        // Try matching by stem (simple heuristic)
+        let matching_tests = import_to_tests.get(&file_stem).cloned().or_else(|| {
+            // Also try matching by path without extension
+            let path_no_ext = file
+                .rsplit_once('.')
+                .map(|(p, _)| p.to_string())
+                .unwrap_or_default();
+            import_to_tests.get(&path_no_ext).cloned()
+        });
+
+        if let Some(tests) = matching_tests {
+            for (test_node_id, _test_file) in &tests {
+                edges.push(serde_json::json!({
+                    "from": test_node_id,
+                    "to": file,
+                    "weight": 1_000_000,
+                    "origin": "static",
+                }));
+            }
+        } else {
+            // If the changed file is itself a test file, create self-edge
+            let is_test = test_files.iter().any(|(_, f)| f == file);
+            if is_test {
+                if let Some(node_id) = test_files.iter().find(|(_, f)| f == file).map(|(n, _)| n) {
+                    edges.push(serde_json::json!({
+                        "from": node_id,
+                        "to": file,
+                        "weight": 1_000_000,
+                        "origin": "static",
+                    }));
+                }
+            } else {
+                unresolved.push(file.clone());
+            }
+        }
+    }
+
+    // Candidate tests: all discovered test node IDs
+    let candidates: Vec<String> = test_files.iter().map(|(n, _)| n.clone()).collect();
+
+    serde_json::json!({
+        "ok": true,
+        "candidates": candidates,
+        "edges": edges,
+        "unresolved": unresolved,
+        "symbol_edges": [],
+    })
 }
 
+/// Parse import sources from a TypeScript source file using imports.scm.
+fn parse_imports_from_source(source: &str, ext: &str) -> Vec<String> {
+    use streaming_iterator::StreamingIterator;
+
+    let lang = match grammar_for_extension(ext) {
+        Some(l) => l,
+        None => return Vec::new(),
+    };
+
+    let mut parser = tree_sitter::Parser::new();
+    if parser.set_language(&lang).is_err() {
+        return Vec::new();
+    }
+    let tree = match parser.parse(source, None) {
+        Some(t) => t,
+        None => return Vec::new(),
+    };
+
+    let query_source = include_str!("../queries/imports.scm");
+    let query = match tree_sitter::Query::new(&lang, query_source) {
+        Ok(q) => q,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut cursor = tree_sitter::QueryCursor::new();
+    let mut matches = cursor.matches(&query, tree.root_node(), source.as_bytes());
+
+    let mut sources = Vec::new();
+    while let Some(m) = matches.next() {
+        for capture in m.captures {
+            let name = query.capture_names()[capture.index as usize].to_string();
+            match name.as_str() {
+                "import_source" | "require_source" | "dynamic_import_source" => {
+                    let text = capture
+                        .node
+                        .utf8_text(source.as_bytes())
+                        .unwrap_or("")
+                        .to_string();
+                    if !sources.contains(&text) {
+                        sources.push(text);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    sources
+}
+
+/// Static deps: extract import/require expressions from changed files.
+/// (Stub for scaffolding — will be implemented with tree-sitter queries.)
 /// Fingerprint: compute blake3 hash of file contents.
 fn cmd_fingerprint(cmd: &serde_json::Value) -> serde_json::Value {
     let path = match cmd["path"].as_str() {
@@ -879,5 +1029,55 @@ mod tests {
         let source = "const x = 1;\n";
         let tests = super::parse_test_file("foo.js", source, "js");
         assert_eq!(tests.len(), 0, "unsupported extension returns empty");
+    }
+
+    // ========================================================================
+    // static-deps tests
+    // ========================================================================
+
+    #[test]
+    fn parse_imports_es_module() {
+        let source = "import React from \"react\";\nimport { useState } from \"react\";\n";
+        let imports = super::parse_imports_from_source(source, "ts");
+        assert_eq!(
+            imports.len(),
+            1,
+            "both imports from 'react' should deduplicate: {:?}",
+            imports
+        );
+        assert!(imports.contains(&"react".to_string()));
+    }
+
+    #[test]
+    fn parse_imports_relative_and_package() {
+        let source = "import { Button } from \"./components/Button\";\nimport fs from \"fs\";\nimport { greet } from \"../utils\";\n";
+        let imports = super::parse_imports_from_source(source, "ts");
+        assert_eq!(imports.len(), 3, "should find all 3 imports: {:?}", imports);
+    }
+
+    #[test]
+    fn parse_imports_require_and_dynamic() {
+        let source = "const x = require(\"./utils\");\nconst y = import(\"./dynamic\");\n";
+        let imports = super::parse_imports_from_source(source, "ts");
+        assert_eq!(
+            imports.len(),
+            2,
+            "should find require and dynamic import: {:?}",
+            imports
+        );
+    }
+
+    #[test]
+    fn parse_imports_no_imports() {
+        let source = "const x = 1;\nfunction foo() { return x; }\n";
+        let imports = super::parse_imports_from_source(source, "ts");
+        assert_eq!(imports.len(), 0, "no imports found");
+    }
+
+    #[test]
+    fn parse_imports_unsupported_extension() {
+        let source = "import React from \"react\";\n";
+        let imports = super::parse_imports_from_source(source, "js");
+        assert_eq!(imports.len(), 0, "unsupported extension returns empty");
     }
 }
