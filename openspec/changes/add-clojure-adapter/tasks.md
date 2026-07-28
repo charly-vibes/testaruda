@@ -49,14 +49,14 @@
 - [x] 3.5 Update `testaruda.toml` default template to include `.clj`/`.cljs`
 
 ## 4. Testing
-- [ ] 4.1 Create a fixture Clojure project under
+- [x] 4.1 Create a fixture Clojure project under
       `adapter-clojure/tests/fixtures/clojure/` with `deps.edn`, `src/`,
       `test/`, and sample `deftest` tests
-- [ ] 4.2 Write integration tests for the full adapter pipeline:
+- [x] 4.2 Write integration tests for the full adapter pipeline:
       handshake → discover → static-deps → fingerprint → run-args → ingest
-- [ ] 4.3 Write seeded-fault recall test: change a source file and confirm
+- [x] 4.3 Write seeded-fault recall test: change a source file and confirm
       the dependent test is selected
-- [ ] 4.4 Write project detection tests for `deps.edn` and `project.clj`
+- [x] 4.4 Write project detection tests for `deps.edn` and `project.clj`
 - [ ] 4.5 Write espectacular contracts covering ADAPT-017, ADAPT-018, ADAPT-019
 - [ ] 4.6 Run `ah check` to validate spec-contract correspondence
 
