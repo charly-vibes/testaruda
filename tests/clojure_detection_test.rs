@@ -1,4 +1,3 @@
-use std::path::Path;
 use testaruda::config::detect_project_language;
 
 #[test]

@@ -16,6 +16,8 @@ pub struct Capture {
     pub line: usize,
     /// 0-indexed byte offset from start of the line.
     pub column: usize,
+    /// The source text of the captured node.
+    pub text: String,
 }
 
 /// Run a compiled tree-sitter [`query`] against a parsed [`tree`] and return
@@ -34,10 +36,12 @@ pub fn run_query(
             let name = query.capture_names()[cap.index as usize].to_string();
             let node = cap.node;
             let start = node.start_position();
+            let text = node.utf8_text(source_bytes).unwrap_or("").to_string();
             results.push(Capture {
                 name,
                 line: start.row,
                 column: start.column,
+                text,
             });
         }
     }
@@ -65,9 +69,67 @@ pub fn compile_query(query_source: &str) -> tree_sitter::Query {
     tree_sitter::Query::new(clojure_language(), query_source).unwrap()
 }
 
+/// Extract the namespace name from a dep_entry capture text.
+///
+/// Handles both:
+/// - vec_lit: `[my-project.core :as core]` → extracts `my-project.core`
+/// - sym_lit: `my-project.core` → returns as-is
+pub fn extract_namespace_from_dep_entry(entry: &str) -> String {
+    let trimmed = entry.trim();
+    if trimmed.starts_with('[') {
+        // vec_lit: [namespace :as alias] or [namespace :refer [...]]
+        let inner = trimmed.trim_start_matches('[');
+        // Take the first symbol after brackets
+        for token in inner.split_whitespace() {
+            // Skip keywords (:as, :refer, etc.)
+            if !token.starts_with(':') {
+                return token.to_string();
+            }
+        }
+        trimmed.trim_end_matches(']').to_string()
+    } else {
+        // sym_lit: bare namespace
+        trimmed.split_whitespace().next().unwrap_or("").to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── helper function tests ─────────────────────────────────────────────────
+
+    #[test]
+    fn extract_ns_from_vec_lit() {
+        assert_eq!(
+            extract_namespace_from_dep_entry("[clojure.string :as str]"),
+            "clojure.string"
+        );
+    }
+
+    #[test]
+    fn extract_ns_from_vec_lit_with_refer() {
+        assert_eq!(
+            extract_namespace_from_dep_entry("[clojure.test :refer [deftest is]]"),
+            "clojure.test"
+        );
+    }
+
+    #[test]
+    fn extract_ns_from_sym_lit() {
+        assert_eq!(
+            extract_namespace_from_dep_entry("clojure.string"),
+            "clojure.string"
+        );
+    }
+
+    #[test]
+    fn extract_ns_from_vec_lit_refer_all() {
+        assert_eq!(
+            extract_namespace_from_dep_entry("[clojure.test :refer :all]"),
+            "clojure.test"
+        );
+    }
 
     // ── discover query (embedded via include_str!) ──────────────────────────
 
@@ -214,12 +276,10 @@ mod tests {
         let tree = parse(src);
         let caps = run_query(&deps_query(), &tree, src.as_bytes());
         let dep_entries: Vec<&Capture> = caps.iter().filter(|c| c.name == "dep_entry").collect();
-        // Only the first dep_entry after the keyword is captured per match
-        // (due to the `.` anchor in the query). The runner layer iterates
-        // dep_form children for full resolution.
+        // With the + quantifier, both entries are captured
         assert!(
-            dep_entries.len() >= 1,
-            "expected at least 1 dep_entry, got: {dep_entries:?}"
+            dep_entries.len() >= 2,
+            "expected at least 2 dep_entries, got: {dep_entries:?}"
         );
     }
 
