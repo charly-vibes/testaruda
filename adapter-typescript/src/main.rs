@@ -56,6 +56,123 @@ fn json_err(msg: &str) -> serde_json::Value {
     serde_json::json!({"ok": false, "error": msg})
 }
 
+/// Directories to exclude during file discovery.
+const EXCLUDED_DIRS: &[&str] = &[
+    "node_modules",
+    "dist",
+    "build",
+    ".next",
+    ".git",
+    "target",
+    ".cache",
+    ".nyc_output",
+    "coverage",
+    "__pycache__",
+    ".venv",
+];
+
+/// Test file name suffixes for TypeScript projects.
+fn is_test_file(name: &str) -> bool {
+    name.ends_with(".test.ts")
+        || name.ends_with(".spec.ts")
+        || name.ends_with(".test.tsx")
+        || name.ends_with(".spec.tsx")
+        || name.ends_with(".test.mts")
+        || name.ends_with(".spec.mts")
+        || name.ends_with(".test.cts")
+        || name.ends_with(".spec.cts")
+}
+
+/// Check if a path is inside a __tests__ or __test__ directory.
+fn is_in_test_dir(path: &std::path::Path) -> bool {
+    path.components().any(|c| {
+        let name = c.as_os_str().to_string_lossy();
+        name == "__tests__" || name == "__test__"
+    })
+}
+
+/// Parse a TypeScript/TSX source file and return test items from discover.scm.
+fn parse_test_file(path: &str, source: &str, ext: &str) -> Vec<serde_json::Value> {
+    use streaming_iterator::StreamingIterator;
+
+    let lang = match grammar_for_extension(ext) {
+        Some(l) => l,
+        None => return Vec::new(),
+    };
+
+    let mut parser = tree_sitter::Parser::new();
+    if parser.set_language(&lang).is_err() {
+        return Vec::new();
+    }
+    let tree = match parser.parse(source, None) {
+        Some(t) => t,
+        None => return Vec::new(),
+    };
+
+    let query_source = include_str!("../queries/discover.scm");
+    let query = match tree_sitter::Query::new(&lang, query_source) {
+        Ok(q) => q,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut cursor = tree_sitter::QueryCursor::new();
+    let mut matches = cursor.matches(&query, tree.root_node(), source.as_bytes());
+
+    // Build a stack of describe chains. Each match gives us test_declaration + test_name.
+    // We track the current nesting depth by the position of each declaration.
+    let mut tests = Vec::new();
+    let mut chain: Vec<String> = Vec::new();
+    let mut chain_depth: Vec<usize> = Vec::new(); // depth of each chain element
+
+    while let Some(m) = matches.next() {
+        let mut test_name: Option<String> = None;
+        let mut depth: Option<usize> = None;
+
+        for capture in m.captures {
+            let name = query.capture_names()[capture.index as usize].to_string();
+            match name.as_str() {
+                "test_name" => {
+                    let text = capture
+                        .node
+                        .utf8_text(source.as_bytes())
+                        .unwrap_or("")
+                        .to_string();
+                    test_name = Some(text);
+                    depth = Some(capture.node.start_position().row);
+                }
+                "test_declaration" => {
+                    // declaration marker — name is attached via test_name
+                }
+                _ => {}
+            }
+        }
+
+        if let Some(name) = test_name {
+            let row = depth.unwrap_or(0);
+
+            // Pop chain elements that are deeper than current row
+            while !chain_depth.is_empty() && *chain_depth.last().unwrap() >= row {
+                chain.pop();
+                chain_depth.pop();
+            }
+
+            // Push the current test name
+            chain.push(name.clone());
+            chain_depth.push(row);
+
+            // Emit a test item
+            let node_id = format!("{}::{}", path, chain.join("::"));
+            tests.push(serde_json::json!({
+                "node_id": node_id,
+                "suite_kind": "unit",
+                "file": path,
+            }));
+        }
+    }
+
+    tests
+}
+
 /// Select the tree-sitter grammar for a given file extension.
 pub fn grammar_for_extension(ext: &str) -> Option<tree_sitter::Language> {
     match ext {
@@ -67,13 +184,13 @@ pub fn grammar_for_extension(ext: &str) -> Option<tree_sitter::Language> {
 
 /// Run a tree-sitter query against a parsed tree and return captured nodes.
 ///
-/// Returns a list of (capture_name, row, column) tuples for each captured node.
+/// Returns a list of (capture_name, row, column, text) tuples for each captured node.
 pub fn run_query_with_lang(
     query_source: &str,
     tree: &tree_sitter::Tree,
     source: &str,
     lang: &tree_sitter::Language,
-) -> Vec<(String, usize, usize)> {
+) -> Vec<(String, usize, usize, String)> {
     use streaming_iterator::StreamingIterator;
 
     let query = match tree_sitter::Query::new(lang, query_source) {
@@ -89,7 +206,8 @@ pub fn run_query_with_lang(
             let name = query.capture_names()[capture.index as usize].to_string();
             let node = capture.node;
             let start = node.start_position();
-            results.push((name, start.row, start.column));
+            let text = node.utf8_text(source.as_bytes()).unwrap_or("").to_string();
+            results.push((name, start.row, start.column, text));
         }
     }
     results
@@ -112,12 +230,65 @@ fn cmd_handshake() -> serde_json::Value {
 }
 
 /// Discover: find test files by convention and parse test declarations.
-/// (Stub for scaffolding — will be implemented with tree-sitter queries.)
 fn cmd_discover(_cmd: &serde_json::Value) -> serde_json::Value {
-    json_ok(serde_json::json!({
-        "tests": [],
-        "warnings": ["discover not yet implemented"]
-    }))
+    let mut tests = Vec::new();
+
+    for entry in walkdir::WalkDir::new(".")
+        .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy();
+            !EXCLUDED_DIRS.contains(&name.as_ref())
+        })
+        .filter_map(|e| e.ok())
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path().to_string_lossy().to_string();
+        let clean_path = path.strip_prefix("./").unwrap_or(&path).to_string();
+        let fname = entry.file_name().to_string_lossy().to_string();
+
+        // Determine extension
+        let ext = match path.rsplit_once('.') {
+            Some((_, e)) => e,
+            None => continue,
+        };
+
+        let is_test_by_name = is_test_file(&fname) || is_in_test_dir(entry.path());
+
+        if !is_test_by_name {
+            continue;
+        }
+
+        // Read the file content
+        let contents = match std::fs::read_to_string(entry.path()) {
+            Ok(c) => c,
+            Err(_) => {
+                // Add file-level fallback
+                tests.push(serde_json::json!({
+                    "node_id": clean_path,
+                    "suite_kind": "unit",
+                    "file": clean_path,
+                }));
+                continue;
+            }
+        };
+
+        // Parse with tree-sitter and discover test declarations
+        let parsed = parse_test_file(&clean_path, &contents, ext);
+        if parsed.is_empty() {
+            // No test declarations found — add file-level fallback
+            tests.push(serde_json::json!({
+                "node_id": clean_path,
+                "suite_kind": "unit",
+                "file": clean_path,
+            }));
+        } else {
+            tests.extend(parsed);
+        }
+    }
+
+    json_ok(serde_json::Value::Array(tests))
 }
 
 /// Static deps: extract import/require expressions from changed files.
@@ -212,7 +383,7 @@ mod tests {
         query_source: &str,
         tree: &tree_sitter::Tree,
         source: &str,
-    ) -> Vec<(String, usize, usize)> {
+    ) -> Vec<(String, usize, usize, String)> {
         let lang = tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into();
         run_query_with_lang(query_source, tree, source, &lang)
     }
@@ -231,12 +402,12 @@ mod tests {
         let results = run_query_test(DISCOVER_QUERY, &tree, source);
 
         assert!(
-            results.iter().any(|(n, _, _)| n == "test_declaration"),
+            results.iter().any(|(n, _, _, _)| n == "test_declaration"),
             "should capture describe block: {:?}",
             results
         );
         assert!(
-            results.iter().any(|(n, _, _)| n == "test_name"),
+            results.iter().any(|(n, _, _, _)| n == "test_name"),
             "should capture test name: {:?}",
             results
         );
@@ -250,7 +421,7 @@ mod tests {
 
         let names: Vec<&str> = results
             .iter()
-            .filter(|(n, _, _)| n == "test_name")
+            .filter(|(n, _, _, _)| n == "test_name")
             .map(|_| "")
             .collect();
         assert_eq!(names.len(), 2, "should find 2 test names: {:?}", results);
@@ -264,7 +435,7 @@ mod tests {
 
         let decls: Vec<&str> = results
             .iter()
-            .filter(|(n, _, _)| n == "test_declaration")
+            .filter(|(n, _, _, _)| n == "test_declaration")
             .map(|_| "")
             .collect();
         assert!(
@@ -282,7 +453,7 @@ mod tests {
 
         let decls: Vec<&str> = results
             .iter()
-            .filter(|(n, _, _)| n == "test_declaration")
+            .filter(|(n, _, _, _)| n == "test_declaration")
             .map(|_| "")
             .collect();
         assert_eq!(
@@ -301,7 +472,7 @@ mod tests {
 
         let decls: Vec<&str> = results
             .iter()
-            .filter(|(n, _, _)| n == "test_declaration")
+            .filter(|(n, _, _, _)| n == "test_declaration")
             .map(|_| "")
             .collect();
         assert_eq!(
@@ -320,7 +491,7 @@ mod tests {
 
         let names: Vec<&str> = results
             .iter()
-            .filter(|(n, _, _)| n == "test_name")
+            .filter(|(n, _, _, _)| n == "test_name")
             .map(|_| "")
             .collect();
         assert_eq!(names.len(), 3, "should capture all 3 names: {:?}", results);
@@ -339,7 +510,7 @@ mod tests {
         let results = run_query_test(IMPORTS_QUERY, &tree, source);
 
         assert!(
-            results.iter().any(|(n, _, _)| n == "import_source"),
+            results.iter().any(|(n, _, _, _)| n == "import_source"),
             "should capture import source: {:?}",
             results
         );
@@ -354,7 +525,7 @@ mod tests {
 
         let sources: Vec<&str> = results
             .iter()
-            .filter(|(n, _, _)| n == "import_source")
+            .filter(|(n, _, _, _)| n == "import_source")
             .map(|_| "")
             .collect();
         assert_eq!(
@@ -373,7 +544,7 @@ mod tests {
 
         let sources: Vec<&str> = results
             .iter()
-            .filter(|(n, _, _)| n == "import_source")
+            .filter(|(n, _, _, _)| n == "import_source")
             .map(|_| "")
             .collect();
         assert_eq!(
@@ -392,7 +563,7 @@ mod tests {
 
         let sources: Vec<&str> = results
             .iter()
-            .filter(|(n, _, _)| n == "import_source")
+            .filter(|(n, _, _, _)| n == "import_source")
             .map(|_| "")
             .collect();
         assert_eq!(
@@ -411,7 +582,7 @@ mod tests {
 
         let sources: Vec<&str> = results
             .iter()
-            .filter(|(n, _, _)| n == "require_source")
+            .filter(|(n, _, _, _)| n == "require_source")
             .map(|_| "")
             .collect();
         assert_eq!(
@@ -430,7 +601,7 @@ mod tests {
 
         let sources: Vec<&str> = results
             .iter()
-            .filter(|(n, _, _)| n == "dynamic_import_source")
+            .filter(|(n, _, _, _)| n == "dynamic_import_source")
             .map(|_| "")
             .collect();
         assert_eq!(
@@ -449,7 +620,7 @@ mod tests {
 
         let sources: Vec<&str> = results
             .iter()
-            .filter(|(n, _, _)| n == "import_source")
+            .filter(|(n, _, _, _)| n == "import_source")
             .map(|_| "")
             .collect();
         assert_eq!(
@@ -487,12 +658,12 @@ mod tests {
         let results = run_query_test(EXPORTS_QUERY, &tree, source);
 
         assert!(
-            results.iter().any(|(n, _, _)| n == "export_name"),
+            results.iter().any(|(n, _, _, _)| n == "export_name"),
             "should capture export name: {:?}",
             results
         );
         assert!(
-            results.iter().any(|(n, _, _)| n == "export_decl"),
+            results.iter().any(|(n, _, _, _)| n == "export_decl"),
             "should capture export declaration: {:?}",
             results
         );
@@ -506,7 +677,7 @@ mod tests {
         let results = run_query_test(EXPORTS_QUERY, &tree, source);
 
         assert!(
-            results.iter().any(|(n, _, _)| n == "export_name"),
+            results.iter().any(|(n, _, _, _)| n == "export_name"),
             "should capture function export name: {:?}",
             results
         );
@@ -519,7 +690,7 @@ mod tests {
         let results = run_query_test(EXPORTS_QUERY, &tree, source);
 
         assert!(
-            results.iter().any(|(n, _, _)| n == "export_name"),
+            results.iter().any(|(n, _, _, _)| n == "export_name"),
             "should capture class export name: {:?}",
             results
         );
@@ -533,7 +704,7 @@ mod tests {
 
         let names: Vec<&str> = results
             .iter()
-            .filter(|(n, _, _)| n == "export_name")
+            .filter(|(n, _, _, _)| n == "export_name")
             .map(|_| "")
             .collect();
         assert_eq!(
@@ -543,7 +714,7 @@ mod tests {
             results
         );
         assert!(
-            results.iter().any(|(n, _, _)| n == "export_clause"),
+            results.iter().any(|(n, _, _, _)| n == "export_clause"),
             "should capture export clause: {:?}",
             results
         );
@@ -556,7 +727,7 @@ mod tests {
         let results = run_query_test(EXPORTS_QUERY, &tree, source);
 
         assert!(
-            results.iter().any(|(n, _, _)| n == "export_default"),
+            results.iter().any(|(n, _, _, _)| n == "export_default"),
             "should capture default export: {:?}",
             results
         );
@@ -569,12 +740,12 @@ mod tests {
         let results = run_query_test(EXPORTS_QUERY, &tree, source);
 
         assert!(
-            results.iter().any(|(n, _, _)| n == "re_export_stmt"),
+            results.iter().any(|(n, _, _, _)| n == "re_export_stmt"),
             "should capture re-export statement: {:?}",
             results
         );
         assert!(
-            results.iter().any(|(n, _, _)| n == "re_export_source"),
+            results.iter().any(|(n, _, _, _)| n == "re_export_source"),
             "should capture re-export source: {:?}",
             results
         );
@@ -587,12 +758,12 @@ mod tests {
         let results = run_query_test(EXPORTS_QUERY, &tree, source);
 
         assert!(
-            results.iter().any(|(n, _, _)| n == "re_export_name"),
+            results.iter().any(|(n, _, _, _)| n == "re_export_name"),
             "should capture re-export namespace name: {:?}",
             results
         );
         assert!(
-            results.iter().any(|(n, _, _)| n == "re_export_source"),
+            results.iter().any(|(n, _, _, _)| n == "re_export_source"),
             "should capture re-export source: {:?}",
             results
         );
@@ -622,7 +793,7 @@ mod tests {
         let results = run_query_with_lang(DISCOVER_QUERY, &tree, source, &lang);
 
         assert!(
-            results.iter().any(|(n, _, _)| n == "test_declaration"),
+            results.iter().any(|(n, _, _, _)| n == "test_declaration"),
             "should discover tests in TSX: {:?}",
             results
         );
@@ -639,5 +810,74 @@ mod tests {
             0,
             "invalid query should return empty results"
         );
+    }
+
+    // ========================================================================
+    // discover helper tests
+    // ========================================================================
+
+    #[test]
+    fn is_test_file_various_patterns() {
+        assert!(super::is_test_file("foo.test.ts"));
+        assert!(super::is_test_file("foo.spec.ts"));
+        assert!(super::is_test_file("foo.test.tsx"));
+        assert!(super::is_test_file("foo.spec.tsx"));
+        assert!(super::is_test_file("foo.test.mts"));
+        assert!(super::is_test_file("foo.spec.mts"));
+        assert!(super::is_test_file("foo.test.cts"));
+        assert!(super::is_test_file("foo.spec.cts"));
+        assert!(!super::is_test_file("foo.ts"));
+        assert!(!super::is_test_file("foo.tsx"));
+        assert!(!super::is_test_file("foo.utils.ts"));
+    }
+
+    #[test]
+    fn is_in_test_dir_various_paths() {
+        use std::path::Path;
+        assert!(super::is_in_test_dir(Path::new("src/__tests__/foo.ts")));
+        assert!(super::is_in_test_dir(Path::new("src/__test__/foo.ts")));
+        assert!(super::is_in_test_dir(Path::new("__tests__/foo.ts")));
+        assert!(!super::is_in_test_dir(Path::new("src/tests/foo.ts")));
+        assert!(!super::is_in_test_dir(Path::new("src/foo.ts")));
+    }
+
+    #[test]
+    fn parse_test_file_simple_describe() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("test.ts");
+        let mut f = std::fs::File::create(&file_path).unwrap();
+        write!(
+            f,
+            "describe(\"suite\", () => {{ it(\"test\", () => {{}}); }});\n"
+        )
+        .unwrap();
+        drop(f);
+
+        let path = file_path.to_string_lossy();
+        let source = std::fs::read_to_string(&file_path).unwrap();
+        let tests = super::parse_test_file(&path, &source, "ts");
+
+        assert!(!tests.is_empty(), "should find tests in describe block");
+        let has_test = tests.iter().any(|t| {
+            t["node_id"]
+                .as_str()
+                .map_or(false, |id| id.contains("test"))
+        });
+        assert!(has_test, "should contain test name in node_id");
+    }
+
+    #[test]
+    fn parse_test_file_no_tests() {
+        let source = "const x = 1;\nfunction foo() { return x; }\n";
+        let tests = super::parse_test_file("foo.ts", source, "ts");
+        assert_eq!(tests.len(), 0, "no test declarations found");
+    }
+
+    #[test]
+    fn parse_test_file_unsupported_extension() {
+        let source = "const x = 1;\n";
+        let tests = super::parse_test_file("foo.js", source, "js");
+        assert_eq!(tests.len(), 0, "unsupported extension returns empty");
     }
 }
