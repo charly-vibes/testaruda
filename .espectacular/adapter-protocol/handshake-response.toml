@@ -12,3 +12,7 @@ timeout_seconds = 60
 [[tests.shell]]
 command = "cargo test --package adapter-clojure -- handshake_returns_ok handshake_languages_is_clojure handshake_granularity_is_file handshake_capabilities_correct handshake_protocol_version handshake_has_name_and_version"
 timeout_seconds = 60
+
+[[tests.shell]]
+command = "cargo test --test adapter_typescript -- adapter_typescript_handshake"
+timeout_seconds = 60

@@ -12,3 +12,7 @@ timeout_seconds = 60
 [[tests.shell]]
 command = "cargo test --package adapter-clojure -- discover_returns_results"
 timeout_seconds = 60
+
+[[tests.shell]]
+command = "cargo test --test adapter_typescript -- adapter_typescript_discover_fixture"
+timeout_seconds = 60

@@ -12,3 +12,7 @@ timeout_seconds = 60
 [[tests.shell]]
 command = "cargo test --package adapter-clojure -- static_deps_edges_for_changed_source static_deps_deduplicates_edges static_deps_handles_multiple_source_files static_deps_ignores_non_clojure_files static_deps_unresolved_require_still_emits_edge"
 timeout_seconds = 60
+
+[[tests.shell]]
+command = "cargo test --test adapter_typescript -- adapter_typescript_static_deps_fixture"
+timeout_seconds = 60
