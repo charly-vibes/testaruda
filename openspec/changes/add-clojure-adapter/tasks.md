@@ -42,11 +42,11 @@
 - [x] 3.1 Add `adapter-clojure` to the root `Cargo.toml` workspace members
 - [x] 3.2 Pin `tree-sitter = "0.25"` and `tree-sitter-clojure = "0.1"`
       in `adapter-clojure/Cargo.toml` (matching pretender's versions)
-- [ ] 3.3 Add `.clj` and `.cljs` extension mappings to `config.rs` defaults
-- [ ] 3.3 Add `deps.edn` and `project.clj` to `detect_project_language()` in
+- [x] 3.3 Add `.clj` and `.cljs` extension mappings to `config.rs` defaults
+- [x] 3.3 Add `deps.edn` and `project.clj` to `detect_project_language()` in
       `config.rs` → returns `"testaruda-adapter-clojure"`
-- [ ] 3.4 Update `main.rs` CLI messages to mention Clojure adapter
-- [ ] 3.5 Update `testaruda.toml` default template to include `.clj`/`.cljs`
+- [x] 3.4 Update `main.rs` CLI messages to mention Clojure adapter
+- [x] 3.5 Update `testaruda.toml` default template to include `.clj`/`.cljs`
 
 ## 4. Testing
 - [ ] 4.1 Create a fixture Clojure project under

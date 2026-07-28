@@ -274,6 +274,9 @@ fn main() -> miette::Result<()> {
                     Some(ref adapter) if adapter.contains("typescript") => {
                         println!("  🟦 TypeScript project detected — default adapter set to testaruda-adapter-typescript");
                     }
+                    Some(ref adapter) if adapter.contains("clojure") => {
+                        println!("  🟢 Clojure project detected — default adapter set to testaruda-adapter-clojure");
+                    }
                     _ => {
                         println!("  📁 Project language not detected — default adapter set to testaruda-adapter-rust");
                     }

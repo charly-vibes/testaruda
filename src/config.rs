@@ -183,6 +183,9 @@ default = "{}"
 ".tsx" = "testaruda-adapter-typescript"
 ".mts" = "testaruda-adapter-typescript"
 ".cts" = "testaruda-adapter-typescript"
+".clj" = "testaruda-adapter-clojure"
+".cljs" = "testaruda-adapter-clojure"
+".cljc" = "testaruda-adapter-clojure"
 
 [discover]
 # Directory/file names to exclude from discover walks.
@@ -293,6 +296,10 @@ pub fn detect_project_language(project_root: &Path) -> Option<String> {
                 }
             }
         }
+    }
+    // Check Clojure (deps.edn or project.clj)
+    if project_root.join("deps.edn").exists() || project_root.join("project.clj").exists() {
+        return Some("testaruda-adapter-clojure".to_string());
     }
     None
 }
