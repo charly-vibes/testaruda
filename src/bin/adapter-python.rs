@@ -133,93 +133,19 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
     let mut unresolved = Vec::new();
     let mut edges = Vec::new();
 
-    // Discover all test files
-    let discover_all = cmd_discover();
-    let test_files: Vec<(String, String)> = if let Some(results) = discover_all["result"].as_array()
-    {
-        results
-            .iter()
-            .filter_map(|t| {
-                let node_id = t["node_id"].as_str()?;
-                let file = t["file"].as_str()?;
-                Some((node_id.to_string(), file.to_string()))
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let test_files = discover_test_files();
+    let import_to_tests = build_import_map(&test_files);
 
-    // Build a map: imported module name → list of (test_node_id, test_file_path)
-    // For each test file, parse its imports to find which source files it depends on.
-    let mut import_to_tests: std::collections::HashMap<String, Vec<(String, String)>> =
-        std::collections::HashMap::new();
-    for (node_id, file) in &test_files {
-        if let Ok(content) = std::fs::read_to_string(file) {
-            let imports = parse_python_imports(&content, file);
-            for imp in imports {
-                import_to_tests
-                    .entry(imp)
-                    .or_default()
-                    .push((node_id.clone(), file.clone()));
-            }
-        }
-    }
-
-    // For each changed file, derive its module name and look up test files
-    // that import from it.
     for file in &changed_files {
-        // Derive module name from the file path
-        // e.g., "src/cositos/model.py" → "src.cositos.model"
-        let module_name = file_path_to_module(file);
-
-        // Check if any test file imports this module
-        // Try exact match first, then try matching just the file stem
-        let matching_tests = import_to_tests.get(&module_name).cloned().or_else(|| {
-            // Fallback: match by just the file stem (without package path)
-            // to handle imports like 'from model import X' where 'model'
-            // is imported directly without a package prefix.
-            // This is a heuristic; the full solution (complete import
-            // graph at discover time) is tracked in testaruda-16f.
-            let stem = module_name
-                .rsplit('.')
-                .next()
-                .unwrap_or(&module_name)
-                .to_string();
-            import_to_tests.get(&stem).cloned()
-        });
-
-        if let Some(tests) = matching_tests {
-            for (test_node_id, _test_file) in &tests {
-                edges.push(serde_json::json!({
-                    "from": test_node_id,
-                    "to": file,
-                    "weight": 1_000_000,
-                    "origin": "static",
-                }));
-            }
-        } else {
-            // If the changed file is itself a test file, create self-referential
-            // edges (test→source = itself) so the file is included in selection
-            if file.ends_with("_test.py") || file.contains("/test_") || file.starts_with("test_") {
-                if let Some(test_tuples) = test_files.iter().find(|(_, f)| f == file) {
-                    let (test_node_id, _) = test_tuples;
-                    edges.push(serde_json::json!({
-                        "from": test_node_id,
-                        "to": file,
-                        "weight": 1_000_000,
-                        "origin": "static",
-                    }));
-                }
-            }
-
-            // File could not be matched to any test — add to unresolved
-            if std::fs::read_to_string(file).is_err() {
-                unresolved.push(file.clone());
-            }
-        }
+        resolve_changed_file_deps(
+            file,
+            &import_to_tests,
+            &test_files,
+            &mut edges,
+            &mut unresolved,
+        );
     }
 
-    // Collect all discovered test node IDs as candidates
     let candidates: Vec<String> = test_files
         .iter()
         .map(|(node_id, _)| node_id.clone())
@@ -232,6 +158,103 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
         "unresolved": unresolved,
         "symbol_edges": [],
     })
+}
+
+/// Discover all test files by running cmd_discover.
+fn discover_test_files() -> Vec<(String, String)> {
+    let discover_all = cmd_discover();
+    if let Some(results) = discover_all["result"].as_array() {
+        results
+            .iter()
+            .filter_map(|t| {
+                let node_id = t["node_id"].as_str()?;
+                let file = t["file"].as_str()?;
+                Some((node_id.to_string(), file.to_string()))
+            })
+            .collect()
+    } else {
+        Vec::new()
+    }
+}
+
+/// Build a map: imported module name → list of (test_node_id, test_file_path).
+fn build_import_map(
+    test_files: &[(String, String)],
+) -> std::collections::HashMap<String, Vec<(String, String)>> {
+    let mut import_to_tests: std::collections::HashMap<String, Vec<(String, String)>> =
+        std::collections::HashMap::new();
+    for (node_id, file) in test_files {
+        if let Ok(content) = std::fs::read_to_string(file) {
+            let imports = parse_python_imports(&content, file);
+            for imp in imports {
+                import_to_tests
+                    .entry(imp)
+                    .or_default()
+                    .push((node_id.clone(), file.clone()));
+            }
+        }
+    }
+    import_to_tests
+}
+
+/// Resolve dependencies for a single changed file, populating edges and unresolved.
+fn resolve_changed_file_deps(
+    file: &str,
+    import_to_tests: &std::collections::HashMap<String, Vec<(String, String)>>,
+    test_files: &[(String, String)],
+    edges: &mut Vec<serde_json::Value>,
+    unresolved: &mut Vec<String>,
+) {
+    let module_name = file_path_to_module(file);
+    let matching_tests = find_matching_tests(import_to_tests, &module_name);
+
+    if let Some(tests) = matching_tests {
+        for (test_node_id, _test_file) in &tests {
+            edges.push(serde_json::json!({
+                "from": test_node_id,
+                "to": file,
+                "weight": 1_000_000,
+                "origin": "static",
+            }));
+        }
+    } else {
+        // Check if this is a test file itself — create self-referential edge
+        if is_python_test_file(file) {
+            if let Some(test_tuples) = test_files.iter().find(|(_, f)| f == file) {
+                let (test_node_id, _) = test_tuples;
+                edges.push(serde_json::json!({
+                    "from": test_node_id,
+                    "to": file,
+                    "weight": 1_000_000,
+                    "origin": "static",
+                }));
+            }
+        }
+
+        if std::fs::read_to_string(file).is_err() {
+            unresolved.push(file.to_string());
+        }
+    }
+}
+
+/// Find matching tests for a module name, trying exact match then stem fallback.
+fn find_matching_tests(
+    import_to_tests: &std::collections::HashMap<String, Vec<(String, String)>>,
+    module_name: &str,
+) -> Option<Vec<(String, String)>> {
+    import_to_tests.get(module_name).cloned().or_else(|| {
+        let stem = module_name
+            .rsplit('.')
+            .next()
+            .unwrap_or(module_name)
+            .to_string();
+        import_to_tests.get(&stem).cloned()
+    })
+}
+
+/// Check if a file path looks like a Python test file.
+fn is_python_test_file(file: &str) -> bool {
+    file.ends_with("_test.py") || file.contains("/test_") || file.starts_with("test_")
 }
 
 // ===== JUnit XML parsing (TIA-RUN-001) =====
@@ -338,8 +361,6 @@ fn parse_junit_xml(content: &str) -> Vec<serde_json::Value> {
 fn parse_python_imports(content: &str, file_path: &str) -> Vec<String> {
     let mut deps = Vec::new();
 
-    // Derive the base package from the file path.
-    // e.g., "src/package/test_module.py" → base package is "src.package"
     let base_module = file_path_to_module(file_path);
     let base_package: Vec<&str> = base_module
         .rsplit('.')
@@ -351,65 +372,84 @@ fn parse_python_imports(content: &str, file_path: &str) -> Vec<String> {
 
     for line in content.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("import ") {
-            let module = trimmed
-                .strip_prefix("import ")
-                .map(|s| s.split(" as ").next().unwrap_or(s).trim().to_string());
-            if let Some(m) = module {
-                deps.push(m);
-            }
-        } else if trimmed.starts_with("from ") {
-            let rest = trimmed.strip_prefix("from ").unwrap_or("");
-
-            // Check for relative imports (starts with one or more dots)
-            if rest.starts_with('.') {
-                let dot_count = rest.chars().take_while(|c| *c == '.').count();
-                let after_dots = rest[dot_count..].trim();
-
-                // Split the remaining part: "module_path import X" or just "import X"
-                let after_dots = after_dots.trim();
-                let module_part = if after_dots.starts_with("import") {
-                    // from . import X — no module path after the dots
-                    ""
-                } else {
-                    after_dots
-                        .split(" import ")
-                        .next()
-                        .map(|s| s.trim())
-                        .unwrap_or("")
-                };
-
-                // Resolve: go up (dot_count - 1) levels from the base package
-                let mut parts = base_package.clone();
-                if dot_count > 0 {
-                    let levels_up = dot_count.saturating_sub(1);
-                    let len = parts.len();
-                    if levels_up < len {
-                        parts.truncate(len - levels_up);
-                    } else {
-                        // Can't resolve above the project root — skip
-                        continue;
-                    }
-                }
-
-                if !module_part.is_empty() {
-                    parts.push(module_part);
-                }
-
-                let resolved = parts.join(".");
-                if !resolved.is_empty() {
-                    deps.push(resolved);
-                }
-            } else {
-                // Absolute import: from foo.bar import baz
-                let module = rest.split(" import ").next().map(|s| s.trim().to_string());
-                if let Some(m) = module {
-                    deps.push(m);
-                }
-            }
+        if let Some(dep) = parse_import_line(trimmed, &base_package) {
+            deps.push(dep);
         }
     }
     deps
+}
+
+/// Parse a single import line and return the resolved module name if applicable.
+fn parse_import_line(trimmed: &str, base_package: &[&str]) -> Option<String> {
+    if trimmed.starts_with("import ") {
+        return parse_absolute_import(trimmed);
+    }
+    if trimmed.starts_with("from ") {
+        return parse_from_import(trimmed, base_package);
+    }
+    None
+}
+
+/// Parse 'import X' statements.
+fn parse_absolute_import(trimmed: &str) -> Option<String> {
+    trimmed
+        .strip_prefix("import ")
+        .map(|s| s.split(" as ").next().unwrap_or(s).trim().to_string())
+}
+
+/// Parse 'from X import Y' statements, handling relative imports.
+fn parse_from_import(trimmed: &str, base_package: &[&str]) -> Option<String> {
+    let rest = trimmed.strip_prefix("from ").unwrap_or("");
+
+    if rest.starts_with('.') {
+        resolve_relative_import(rest, base_package)
+    } else {
+        resolve_absolute_from_import(rest)
+    }
+}
+
+/// Resolve a relative import like 'from ..module import X' into an absolute module path.
+fn resolve_relative_import(rest: &str, base_package: &[&str]) -> Option<String> {
+    let dot_count = rest.chars().take_while(|c| *c == '.').count();
+    let after_dots = rest[dot_count..].trim();
+
+    let after_dots = after_dots.trim();
+    let module_part = if after_dots.starts_with("import") {
+        ""
+    } else {
+        after_dots
+            .split(" import ")
+            .next()
+            .map(|s| s.trim())
+            .unwrap_or("")
+    };
+
+    let mut parts = base_package.to_vec();
+    if dot_count > 0 {
+        let levels_up = dot_count.saturating_sub(1);
+        let len = parts.len();
+        if levels_up < len {
+            parts.truncate(len - levels_up);
+        } else {
+            return None;
+        }
+    }
+
+    if !module_part.is_empty() {
+        parts.push(module_part);
+    }
+
+    let resolved = parts.join(".");
+    if resolved.is_empty() {
+        None
+    } else {
+        Some(resolved)
+    }
+}
+
+/// Resolve an absolute 'from foo.bar import baz' statement.
+fn resolve_absolute_from_import(rest: &str) -> Option<String> {
+    rest.split(" import ").next().map(|s| s.trim().to_string())
 }
 
 /// Convert a Python file path to its module name.
@@ -495,66 +535,77 @@ fn cmd_ingest(cmd: &serde_json::Value) -> serde_json::Value {
         return json_err("empty run output");
     }
 
-    let mut per_test_results: Vec<serde_json::Value> = Vec::new();
-
-    // Detect JUnit XML format (starts with XML declaration or <testsuite)
     let trimmed_input = run_output.trim();
-    if trimmed_input.starts_with("<?xml")
+    let per_test_results = if is_junit_xml(trimmed_input) {
+        parse_junit_xml(run_output)
+    } else {
+        parse_pytest_output(run_output).unwrap_or_else(|| parse_json_lines_output(run_output))
+    };
+
+    let runtime_edges = build_runtime_edges(&per_test_results);
+
+    json_ok(serde_json::json!({
+        "runtime_edges": runtime_edges,
+        "per_test_results": per_test_results,
+        "external_inputs": [],
+    }))
+}
+
+/// Check if the output looks like JUnit XML.
+fn is_junit_xml(trimmed_input: &str) -> bool {
+    trimmed_input.starts_with("<?xml")
         || trimmed_input.starts_with("<testsuites")
         || trimmed_input.starts_with("<testsuite")
-    {
-        per_test_results = parse_junit_xml(run_output);
-    }
+}
 
-    // If no JUnit results, try parsing as pytest verbose output
-    // Lines look like: "test_file.py::test_name PASSED" or "FAILED"
-    if per_test_results.is_empty() {
-        for line in run_output.lines() {
-            let trimmed = line.trim();
-
-            if trimmed.ends_with(" PASSED") {
-                let test_id = trimmed
-                    .strip_suffix(" PASSED")
-                    .map(|s| s.trim().to_string())
-                    .unwrap_or_default();
-                if !test_id.is_empty() {
-                    per_test_results.push(serde_json::json!({
-                        "test_id": test_id,
-                        "outcome": "passed",
-                    }));
-                }
-            } else if trimmed.ends_with(" FAILED") {
-                let test_id = trimmed
-                    .strip_suffix(" FAILED")
-                    .map(|s| s.trim().to_string())
-                    .unwrap_or_default();
-                if !test_id.is_empty() {
-                    per_test_results.push(serde_json::json!({
-                        "test_id": test_id,
-                        "outcome": "failed",
-                    }));
-                }
+/// Parse pytest verbose output ("test_file.py::test_name PASSED" / "FAILED").
+fn parse_pytest_output(run_output: &str) -> Option<Vec<serde_json::Value>> {
+    let mut results = Vec::new();
+    for line in run_output.lines() {
+        let trimmed = line.trim();
+        if let Some(test_id) = trimmed.strip_suffix(" PASSED") {
+            let test_id = test_id.trim().to_string();
+            if !test_id.is_empty() {
+                results.push(serde_json::json!({
+                    "test_id": test_id,
+                    "outcome": "passed",
+                }));
+            }
+        } else if let Some(test_id) = trimmed.strip_suffix(" FAILED") {
+            let test_id = test_id.trim().to_string();
+            if !test_id.is_empty() {
+                results.push(serde_json::json!({
+                    "test_id": test_id,
+                    "outcome": "failed",
+                }));
             }
         }
     }
+    if results.is_empty() {
+        None
+    } else {
+        Some(results)
+    }
+}
 
-    // If no standard test output found, try to parse as JSON-line format
-    if per_test_results.is_empty() {
-        for line in run_output.lines() {
-            let trimmed = line.trim();
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
-                if val.get("test_id").is_some() && val.get("outcome").is_some() {
-                    per_test_results.push(val);
-                }
+/// Parse JSON-lines format where each line is a JSON object with test_id + outcome.
+fn parse_json_lines_output(run_output: &str) -> Vec<serde_json::Value> {
+    let mut results = Vec::new();
+    for line in run_output.lines() {
+        let trimmed = line.trim();
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            if val.get("test_id").is_some() && val.get("outcome").is_some() {
+                results.push(val);
             }
         }
     }
+    results
+}
 
-    // Build runtime edges: for each test result, create a self-edge from the
-    // test_id to its file path (e.g., "tests/test_model.py::test_something" →
-    // "tests/test_model.py"). The file path is the part before "::".
+/// Build runtime edges from test results: test_id → file path (before "::").
+fn build_runtime_edges(per_test_results: &[serde_json::Value]) -> Vec<serde_json::Value> {
     let mut runtime_edges: Vec<serde_json::Value> = Vec::new();
-    for test in &per_test_results {
+    for test in per_test_results {
         if let Some(test_id) = test["test_id"].as_str() {
             if let Some(file_path) = test_id.split("::").next() {
                 if !file_path.is_empty() {
@@ -568,12 +619,7 @@ fn cmd_ingest(cmd: &serde_json::Value) -> serde_json::Value {
             }
         }
     }
-
-    json_ok(serde_json::json!({
-        "runtime_edges": runtime_edges,
-        "per_test_results": per_test_results,
-        "external_inputs": [],
-    }))
+    runtime_edges
 }
 
 #[cfg(test)]
