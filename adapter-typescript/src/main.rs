@@ -56,6 +56,45 @@ fn json_err(msg: &str) -> serde_json::Value {
     serde_json::json!({"ok": false, "error": msg})
 }
 
+/// Select the tree-sitter grammar for a given file extension.
+pub fn grammar_for_extension(ext: &str) -> Option<tree_sitter::Language> {
+    match ext {
+        "ts" | "mts" | "cts" => Some(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()),
+        "tsx" => Some(tree_sitter_typescript::LANGUAGE_TSX.into()),
+        _ => None,
+    }
+}
+
+/// Run a tree-sitter query against a parsed tree and return captured nodes.
+///
+/// Returns a list of (capture_name, row, column) tuples for each captured node.
+pub fn run_query_with_lang(
+    query_source: &str,
+    tree: &tree_sitter::Tree,
+    source: &str,
+    lang: &tree_sitter::Language,
+) -> Vec<(String, usize, usize)> {
+    use streaming_iterator::StreamingIterator;
+
+    let query = match tree_sitter::Query::new(lang, query_source) {
+        Ok(q) => q,
+        Err(_) => return Vec::new(),
+    };
+    let mut cursor = tree_sitter::QueryCursor::new();
+    let mut matches = cursor.matches(&query, tree.root_node(), source.as_bytes());
+
+    let mut results = Vec::new();
+    while let Some(m) = matches.next() {
+        for capture in m.captures {
+            let name = query.capture_names()[capture.index as usize].to_string();
+            let node = capture.node;
+            let start = node.start_position();
+            results.push((name, start.row, start.column));
+        }
+    }
+    results
+}
+
 /// Handshake: declare capabilities (TIA-ADAPT-020).
 fn cmd_handshake() -> serde_json::Value {
     json_ok(serde_json::json!({
@@ -131,7 +170,8 @@ fn cmd_ingest(_cmd: &serde_json::Value) -> serde_json::Value {
 
 #[cfg(test)]
 mod tests {
-    use tree_sitter::{Parser, Query, QueryCursor};
+    use super::{grammar_for_extension, run_query_with_lang};
+    use tree_sitter::Parser;
 
     fn ts_language() -> tree_sitter::Language {
         tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()
@@ -143,27 +183,38 @@ mod tests {
         parser.parse(source, None).unwrap()
     }
 
-    fn run_query(
+    #[test]
+    fn grammar_selector_ts() {
+        let lang = grammar_for_extension("ts").unwrap();
+        assert!(lang.node_kind_count() > 100);
+    }
+
+    #[test]
+    fn grammar_selector_tsx() {
+        let lang = grammar_for_extension("tsx").unwrap();
+        assert!(lang.node_kind_count() > 0);
+    }
+
+    #[test]
+    fn grammar_selector_mts_cts() {
+        assert!(grammar_for_extension("mts").is_some());
+        assert!(grammar_for_extension("cts").is_some());
+    }
+
+    #[test]
+    fn grammar_selector_unsupported() {
+        assert!(grammar_for_extension("js").is_none());
+        assert!(grammar_for_extension("jsx").is_none());
+        assert!(grammar_for_extension("py").is_none());
+    }
+
+    fn run_query_test(
         query_source: &str,
         tree: &tree_sitter::Tree,
         source: &str,
     ) -> Vec<(String, usize, usize)> {
-        use streaming_iterator::StreamingIterator;
-
-        let query = Query::new(&ts_language(), query_source).unwrap();
-        let mut cursor = QueryCursor::new();
-        let mut matches = cursor.matches(&query, tree.root_node(), source.as_bytes());
-
-        let mut results = Vec::new();
-        while let Some(m) = matches.next() {
-            for capture in m.captures {
-                let name = query.capture_names()[capture.index as usize].to_string();
-                let node = capture.node;
-                let start = node.start_position();
-                results.push((name, start.row, start.column));
-            }
-        }
-        results
+        let lang = tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into();
+        run_query_with_lang(query_source, tree, source, &lang)
     }
 
     // ========================================================================
@@ -177,7 +228,7 @@ mod tests {
         let source =
             "describe(\"UserService\", () => {\n    it(\"returns user\", () => {});\n});\n";
         let tree = parse(source);
-        let results = run_query(DISCOVER_QUERY, &tree, source);
+        let results = run_query_test(DISCOVER_QUERY, &tree, source);
 
         assert!(
             results.iter().any(|(n, _, _)| n == "test_declaration"),
@@ -195,7 +246,7 @@ mod tests {
     fn discover_it_and_test() {
         let source = "it(\"should add\", () => { expect(1 + 1).toBe(2); });\ntest(\"should subtract\", () => { expect(2 - 1).toBe(1); });\n";
         let tree = parse(source);
-        let results = run_query(DISCOVER_QUERY, &tree, source);
+        let results = run_query_test(DISCOVER_QUERY, &tree, source);
 
         let names: Vec<&str> = results
             .iter()
@@ -209,7 +260,7 @@ mod tests {
     fn discover_each_parameterized() {
         let source = "describe.each([1, 2, 3])(\"number %d\", (n) => {\n    it(\"is positive\", () => { expect(n).toBeGreaterThan(0); });\n});\n";
         let tree = parse(source);
-        let results = run_query(DISCOVER_QUERY, &tree, source);
+        let results = run_query_test(DISCOVER_QUERY, &tree, source);
 
         let decls: Vec<&str> = results
             .iter()
@@ -227,7 +278,7 @@ mod tests {
     fn discover_skipped_not_captured() {
         let source = "describe.skip(\"skip suite\", () => {});\nit.skip(\"skip test\", () => {});\ntest.skip(\"skip test\", () => {});\n";
         let tree = parse(source);
-        let results = run_query(DISCOVER_QUERY, &tree, source);
+        let results = run_query_test(DISCOVER_QUERY, &tree, source);
 
         let decls: Vec<&str> = results
             .iter()
@@ -246,7 +297,7 @@ mod tests {
     fn discover_negative_non_test_functions() {
         let source = "function setup() {}\nconst x = compute(42);\nconsole.log(\"hello\");\n";
         let tree = parse(source);
-        let results = run_query(DISCOVER_QUERY, &tree, source);
+        let results = run_query_test(DISCOVER_QUERY, &tree, source);
 
         let decls: Vec<&str> = results
             .iter()
@@ -265,7 +316,7 @@ mod tests {
     fn discover_nested_describe() {
         let source = "describe(\"outer\", () => {\n    describe(\"inner\", () => {\n        it(\"works\", () => {});\n    });\n});\n";
         let tree = parse(source);
-        let results = run_query(DISCOVER_QUERY, &tree, source);
+        let results = run_query_test(DISCOVER_QUERY, &tree, source);
 
         let names: Vec<&str> = results
             .iter()
@@ -285,7 +336,7 @@ mod tests {
     fn imports_es_module_default() {
         let source = "import React from \"react\";\n";
         let tree = parse(source);
-        let results = run_query(IMPORTS_QUERY, &tree, source);
+        let results = run_query_test(IMPORTS_QUERY, &tree, source);
 
         assert!(
             results.iter().any(|(n, _, _)| n == "import_source"),
@@ -299,7 +350,7 @@ mod tests {
         let source =
             "import { useState, useEffect } from \"react\";\nimport * as Lodash from \"lodash\";\n";
         let tree = parse(source);
-        let results = run_query(IMPORTS_QUERY, &tree, source);
+        let results = run_query_test(IMPORTS_QUERY, &tree, source);
 
         let sources: Vec<&str> = results
             .iter()
@@ -318,7 +369,7 @@ mod tests {
     fn imports_relative_path() {
         let source = "import { Button } from \"./components/Button\";\nimport { greet } from \"../utils/helpers\";\nimport config from \"/absolute/path/config\";\n";
         let tree = parse(source);
-        let results = run_query(IMPORTS_QUERY, &tree, source);
+        let results = run_query_test(IMPORTS_QUERY, &tree, source);
 
         let sources: Vec<&str> = results
             .iter()
@@ -337,7 +388,7 @@ mod tests {
     fn imports_type_only() {
         let source = "import type { User } from \"./types\";\n";
         let tree = parse(source);
-        let results = run_query(IMPORTS_QUERY, &tree, source);
+        let results = run_query_test(IMPORTS_QUERY, &tree, source);
 
         let sources: Vec<&str> = results
             .iter()
@@ -356,7 +407,7 @@ mod tests {
     fn imports_require_call() {
         let source = "const fs = require(\"fs\");\nconst path = require(\"path\");\n";
         let tree = parse(source);
-        let results = run_query(IMPORTS_QUERY, &tree, source);
+        let results = run_query_test(IMPORTS_QUERY, &tree, source);
 
         let sources: Vec<&str> = results
             .iter()
@@ -375,7 +426,7 @@ mod tests {
     fn imports_dynamic_import() {
         let source = "const mod = import(\"./dynamic-module\");\n";
         let tree = parse(source);
-        let results = run_query(IMPORTS_QUERY, &tree, source);
+        let results = run_query_test(IMPORTS_QUERY, &tree, source);
 
         let sources: Vec<&str> = results
             .iter()
@@ -394,7 +445,7 @@ mod tests {
     fn imports_side_effect() {
         let source = "import \"./styles.css\";\n";
         let tree = parse(source);
-        let results = run_query(IMPORTS_QUERY, &tree, source);
+        let results = run_query_test(IMPORTS_QUERY, &tree, source);
 
         let sources: Vec<&str> = results
             .iter()
@@ -413,7 +464,7 @@ mod tests {
     fn imports_negative_no_imports() {
         let source = "const x = 42;\nfunction foo() { return x; }\n";
         let tree = parse(source);
-        let results = run_query(IMPORTS_QUERY, &tree, source);
+        let results = run_query_test(IMPORTS_QUERY, &tree, source);
 
         assert_eq!(
             results.len(),
@@ -433,7 +484,7 @@ mod tests {
     fn exports_named_const() {
         let source = "export const PI = 3.14;\n";
         let tree = parse(source);
-        let results = run_query(EXPORTS_QUERY, &tree, source);
+        let results = run_query_test(EXPORTS_QUERY, &tree, source);
 
         assert!(
             results.iter().any(|(n, _, _)| n == "export_name"),
@@ -452,7 +503,7 @@ mod tests {
         let source =
             "export function greet(name: string): string {\n    return `Hello, ${name}!`;\n}\n";
         let tree = parse(source);
-        let results = run_query(EXPORTS_QUERY, &tree, source);
+        let results = run_query_test(EXPORTS_QUERY, &tree, source);
 
         assert!(
             results.iter().any(|(n, _, _)| n == "export_name"),
@@ -465,7 +516,7 @@ mod tests {
     fn exports_class() {
         let source = "export class UserService {\n    constructor(private db: DB) {}\n}\n";
         let tree = parse(source);
-        let results = run_query(EXPORTS_QUERY, &tree, source);
+        let results = run_query_test(EXPORTS_QUERY, &tree, source);
 
         assert!(
             results.iter().any(|(n, _, _)| n == "export_name"),
@@ -478,7 +529,7 @@ mod tests {
     fn exports_export_list() {
         let source = "const foo = 1;\nconst bar = 2;\nexport { foo, bar };\n";
         let tree = parse(source);
-        let results = run_query(EXPORTS_QUERY, &tree, source);
+        let results = run_query_test(EXPORTS_QUERY, &tree, source);
 
         let names: Vec<&str> = results
             .iter()
@@ -502,7 +553,7 @@ mod tests {
     fn exports_default() {
         let source = "export default function() {\n    return 42;\n}\n";
         let tree = parse(source);
-        let results = run_query(EXPORTS_QUERY, &tree, source);
+        let results = run_query_test(EXPORTS_QUERY, &tree, source);
 
         assert!(
             results.iter().any(|(n, _, _)| n == "export_default"),
@@ -515,7 +566,7 @@ mod tests {
     fn exports_wildcard_re_export() {
         let source = "export * from \"./helpers\";\n";
         let tree = parse(source);
-        let results = run_query(EXPORTS_QUERY, &tree, source);
+        let results = run_query_test(EXPORTS_QUERY, &tree, source);
 
         assert!(
             results.iter().any(|(n, _, _)| n == "re_export_stmt"),
@@ -533,7 +584,7 @@ mod tests {
     fn exports_wildcard_as_re_export() {
         let source = "export * as Utils from \"./utils\";\n";
         let tree = parse(source);
-        let results = run_query(EXPORTS_QUERY, &tree, source);
+        let results = run_query_test(EXPORTS_QUERY, &tree, source);
 
         assert!(
             results.iter().any(|(n, _, _)| n == "re_export_name"),
@@ -551,13 +602,42 @@ mod tests {
     fn exports_negative_no_exports() {
         let source = "const x = 42;\nfunction foo() { return x; }\n";
         let tree = parse(source);
-        let results = run_query(EXPORTS_QUERY, &tree, source);
+        let results = run_query_test(EXPORTS_QUERY, &tree, source);
 
         assert_eq!(
             results.len(),
             0,
             "should not capture non-export code: {:?}",
             results
+        );
+    }
+
+    #[test]
+    fn run_query_with_lang_tsx() {
+        let source = "describe(\"tsx test\", () => { it(\"works\", () => {}); });\n";
+        let mut parser = tree_sitter::Parser::new();
+        let lang = tree_sitter_typescript::LANGUAGE_TSX.into();
+        parser.set_language(&lang).unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        let results = run_query_with_lang(DISCOVER_QUERY, &tree, source, &lang);
+
+        assert!(
+            results.iter().any(|(n, _, _)| n == "test_declaration"),
+            "should discover tests in TSX: {:?}",
+            results
+        );
+    }
+
+    #[test]
+    fn run_query_with_lang_error_handling() {
+        let source = "const x = 1;\n";
+        let tree = parse(source);
+        // Invalid query should return empty vec, not panic
+        let results = run_query_with_lang("invalid syntax (((", &tree, source, &ts_language());
+        assert_eq!(
+            results.len(),
+            0,
+            "invalid query should return empty results"
         );
     }
 }
