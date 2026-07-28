@@ -31,7 +31,7 @@
       (identical to existing adapters)
 - [x] 2.6 Implement `cmd_run_args()`: detect deps.edn vs project.clj, build
       runner args for selected test namespaces
-- [ ] 2.7 Implement `cmd_ingest()`: parse JUnit XML output from Cognitect
+- [x] 2.7 Implement `cmd_ingest()`: parse JUnit XML output from Cognitect
       runner or Leiningen stdout, return runtime edges and per-test results
 - [x] 2.8 Implement deps.edn reader: extract `:test-paths` and detect
       Cognitect test runner alias

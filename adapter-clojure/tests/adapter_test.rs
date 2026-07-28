@@ -127,7 +127,12 @@ fn run_args_returns_results() {
 }
 
 #[test]
-fn ingest_returns_not_implemented() {
-    let resp = send_command(r#"{"command":"ingest","args":{"file":"results.xml"}}"#);
-    assert_eq!(resp["ok"], false, "ingest not yet implemented: {resp}");
+fn ingest_returns_results() {
+    // Without collection_path or stdout, ingest returns empty results
+    let resp = send_command(r#"{"command":"ingest","args":{}}"#);
+    assert_eq!(resp["ok"], true, "ingest should succeed: {resp}");
+    assert!(
+        resp["result"]["results"].is_array(),
+        "should have results array"
+    );
 }

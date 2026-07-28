@@ -56,7 +56,7 @@ fn handle_command(input: &str) -> serde_json::Value {
         "static-deps" => cmd_static_deps(&cmd),
         "fingerprint" => cmd_fingerprint(&cmd),
         "run-args" => cmd_run_args(&cmd),
-        "ingest" => json_err("not implemented: ingest (see testaruda-fjj)"),
+        "ingest" => cmd_ingest(&cmd),
         _ => json_err(&format!("unknown command: {command}")),
     }
 }
@@ -349,5 +349,149 @@ fn cmd_run_args(cmd: &serde_json::Value) -> serde_json::Value {
         "command": "clojure",
         "args": args,
         "env": {}
+    }))
+}
+
+/// Ingest: parse JUnit XML output from Cognitect runner or Leiningen stdout
+/// and return runtime edges and per-test results (TIA-ADAPT-002).
+fn cmd_ingest(cmd: &serde_json::Value) -> serde_json::Value {
+    let collection_path = match cmd["args"]["collection_path"].as_str() {
+        Some(path) => path.to_string(),
+        None => "target/test-results.xml".to_string(),
+    };
+
+    let content = match std::fs::read_to_string(&collection_path) {
+        Ok(c) => c,
+        Err(_) => {
+            // If no JUnit XML, try Leiningen-style stdout from the args
+            let stdout = cmd["args"]["stdout"].as_str().unwrap_or("");
+            if stdout.is_empty() {
+                return json_ok(serde_json::json!({
+                    "edges": [],
+                    "results": []
+                }));
+            }
+            return parse_lein_stdout(stdout);
+        }
+    };
+
+    parse_junit_xml(&content)
+}
+
+/// Parse JUnit XML content and return runtime edges and per-test results.
+fn parse_junit_xml(content: &str) -> serde_json::Value {
+    let edges: Vec<serde_json::Value> = Vec::new();
+    let mut results: Vec<serde_json::Value> = Vec::new();
+
+    // Simple line-based JUnit XML parser
+    let mut in_testcase = false;
+    let mut test_name = String::new();
+    let mut class_name = String::new();
+    let mut test_time = 0.0f64;
+    let mut passed = true;
+    let mut failure_message = String::new();
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with("<testcase") {
+            in_testcase = true;
+            test_name = extract_attr(trimmed, "name").unwrap_or_default();
+            class_name = extract_attr(trimmed, "classname").unwrap_or_default();
+            test_time = extract_attr(trimmed, "time")
+                .and_then(|t| t.parse::<f64>().ok())
+                .unwrap_or(0.0);
+            passed = true;
+            failure_message.clear();
+        } else if trimmed.starts_with("<failure") {
+            passed = false;
+            failure_message = extract_attr(trimmed, "message").unwrap_or_default();
+        } else if trimmed.starts_with("</testcase>") && in_testcase {
+            let node_id = if class_name.is_empty() {
+                test_name.clone()
+            } else {
+                format!("{}::{}", class_name, test_name)
+            };
+
+            results.push(serde_json::json!({
+                "test_id": node_id,
+                "passed": passed,
+                "time": test_time,
+                "failure_message": if passed { "" } else { &failure_message }
+            }));
+
+            in_testcase = false;
+        } else if trimmed.starts_with("<testsuite") {
+            // Extract suite attributes if needed
+        }
+    }
+
+    json_ok(serde_json::json!({
+        "edges": edges,
+        "results": results
+    }))
+}
+
+/// Extract an XML attribute value by name from a tag string.
+fn extract_attr(tag: &str, attr: &str) -> Option<String> {
+    let search = format!("{}=\"", attr);
+    let start = tag.find(&search)? + search.len();
+    let end = tag[start..].find('"')?;
+    Some(tag[start..start + end].to_string())
+}
+
+/// Parse Leiningen-style test output from stdout.
+fn parse_lein_stdout(stdout: &str) -> serde_json::Value {
+    let mut results: Vec<serde_json::Value> = Vec::new();
+    let edges: Vec<serde_json::Value> = Vec::new();
+
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        // Leiningen output: "ERROR in test-name (namespace.clj:42)"
+        if let Some(rest) = trimmed.strip_prefix("ERROR in ") {
+            #[allow(clippy::manual_pattern_char_comparison)]
+            let parts: Vec<&str> = rest
+                .splitn(3, |c| c == '(' || c == ')' || c == ':')
+                .collect();
+            if parts.len() >= 2 {
+                let test_name = parts[0].trim().to_string();
+                results.push(serde_json::json!({
+                    "test_id": test_name,
+                    "passed": false,
+                    "time": 0.0,
+                    "failure_message": ""
+                }));
+            }
+        }
+        // "FAIL in test-name (namespace.clj:42)"
+        else if let Some(rest) = trimmed.strip_prefix("FAIL in ") {
+            #[allow(clippy::manual_pattern_char_comparison)]
+            let parts: Vec<&str> = rest
+                .splitn(3, |c| c == '(' || c == ')' || c == ':')
+                .collect();
+            if parts.len() >= 2 {
+                let test_name = parts[0].trim().to_string();
+                results.push(serde_json::json!({
+                    "test_id": test_name,
+                    "passed": false,
+                    "time": 0.0,
+                    "failure_message": ""
+                }));
+            }
+        }
+        // "OK test-name"
+        else if let Some(rest) = trimmed.strip_prefix("OK ") {
+            results.push(serde_json::json!({
+                "test_id": rest.trim().to_string(),
+                "passed": true,
+                "time": 0.0,
+                "failure_message": ""
+            }));
+        }
+    }
+
+    json_ok(serde_json::json!({
+        "edges": edges,
+        "results": results
     }))
 }
