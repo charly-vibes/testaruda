@@ -1,0 +1,11 @@
+id = "net-adapter-handshake"
+description = "Contract for: .NET adapter handshake — titi returns expected handshake fields"
+archetype = "PF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+# Requires titi binary installed. Gated on coordination task 6.1.
+# [[tests.shell]]
+# command = "cargo test --package adapter-dotnet -- handshake_returns_expected"
+# timeout_seconds = 120

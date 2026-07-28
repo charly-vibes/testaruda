@@ -1,0 +1,10 @@
+id = "quoted-arg-adapter-julia"
+description = "Contract for: Quoted-arg adapter (Julia -e '...') — quoted body preserved as one arg"
+archetype = "PF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+[[tests.shell]]
+command = "cargo test adapter::tests::test_parse_command_string_julia_quoted"
+timeout_seconds = 60

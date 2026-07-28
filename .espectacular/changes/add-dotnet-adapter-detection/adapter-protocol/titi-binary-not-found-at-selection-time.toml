@@ -1,0 +1,17 @@
+id = "titi-binary-not-found-at-selection-time"
+description = "Contract for: titi binary not found at selection time — full-suite fallback + diagnostic names resolved binary"
+archetype = "PF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+# The spawn failure path is tested via the AdapterIO::spawn NotFound error path
+# and the empty command-string config-error diagnostic.
+[[tests.shell]]
+command = "cargo test adapter::tests::test_parse_command_string_bare_binary adapter::tests::test_parse_command_string_empty"
+timeout_seconds = 60
+
+# Integration test gated on titi not being installed (task 4.3):
+# [[tests.shell]]
+# command = "cargo test --test dotnet_adapter -- dotnet_adapter_missing_titi_fallback"
+# timeout_seconds = 120

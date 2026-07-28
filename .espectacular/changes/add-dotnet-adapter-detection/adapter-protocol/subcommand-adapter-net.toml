@@ -1,0 +1,10 @@
+id = "subcommand-adapter-net"
+description = "Contract for: Subcommand adapter (titi testaruda-adapter) shell-split into (binary, args)"
+archetype = "PF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+[[tests.shell]]
+command = "cargo test adapter::tests::test_parse_command_string_subcommand"
+timeout_seconds = 60

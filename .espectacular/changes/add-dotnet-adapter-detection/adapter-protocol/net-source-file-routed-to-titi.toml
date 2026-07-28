@@ -1,0 +1,16 @@
+id = "net-source-file-routed-to-titi"
+description = "Contract for: .cs/.fs/.vb source file routed to titi adapter via extension mapping"
+archetype = "PF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+# Unit test verifies registry resolution by extension
+[[tests.shell]]
+command = "cargo test adapter::tests::test_adapter_registry_resolve"
+timeout_seconds = 60
+
+# Integration test gated on titi being installed (task 4.1-4.2):
+# [[tests.shell]]
+# command = "cargo test --test dotnet_adapter -- dotnet_adapter_select_cs"
+# timeout_seconds = 120

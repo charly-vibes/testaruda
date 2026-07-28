@@ -1,0 +1,11 @@
+id = "polyglot-file-misrouted-to-titi-is-handled-by-over-approximation"
+description = "Contract for: Polyglot .cs file outside titi's MonorepoGraph → unresolved → over-approximation (TIA-SAFE-004)"
+archetype = "PF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+# Integration test gated on titi being installed (task 4.5):
+# [[tests.shell]]
+# command = "cargo test --test dotnet_adapter -- dotnet_adapter_polyglot_unresolved_fallback"
+# timeout_seconds = 120

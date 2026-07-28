@@ -1,0 +1,10 @@
+id = "binary-path-with-spaces-windows-install-path"
+description = "Contract for: Windows path with spaces — shell-split handles backslash paths with spaces"
+archetype = "PF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+[[tests.shell]]
+command = "cargo test adapter::tests::test_parse_command_string_windows_path"
+timeout_seconds = 60
