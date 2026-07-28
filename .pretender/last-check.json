@@ -1,465 +1,15 @@
 {
   "files": [
     {
-      "path": "src/bin/adapter-python.rs",
+      "path": "src/engine.rs",
       "role": "app",
       "diagnostics": [],
       "file_violations": [],
       "units": [
         {
-          "name": "main",
+          "name": "fmt",
           "kind": "Function",
-          "start_line": 8,
-          "metrics": {
-            "cyclomatic": 3,
-            "cognitive": 3,
-            "assertions": 0,
-            "function_lines": 21,
-            "params": 0,
-            "nesting_max": 2,
-            "abc": 15.362291495737216
-          },
-          "violations": []
-        },
-        {
-          "name": "handle_command",
-          "kind": "Function",
-          "start_line": 30,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 17,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 11.180339887498949
-          },
-          "violations": []
-        },
-        {
-          "name": "json_ok",
-          "kind": "Function",
-          "start_line": 48,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 3,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 0.0
-          },
-          "violations": []
-        },
-        {
-          "name": "json_err",
-          "kind": "Function",
-          "start_line": 52,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 3,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 0.0
-          },
-          "violations": []
-        },
-        {
-          "name": "cmd_handshake",
-          "kind": "Function",
-          "start_line": 57,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 14,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 1.0
-          },
-          "violations": []
-        },
-        {
-          "name": "cmd_discover",
-          "kind": "Function",
-          "start_line": 74,
-          "metrics": {
-            "cyclomatic": 4,
-            "cognitive": 5,
-            "assertions": 0,
-            "function_lines": 43,
-            "params": 0,
-            "nesting_max": 2,
-            "abc": 26.851443164195103
-          },
-          "violations": []
-        },
-        {
-          "name": "cmd_static_deps",
-          "kind": "Function",
-          "start_line": 123,
-          "metrics": {
-            "cyclomatic": 2,
-            "cognitive": 1,
-            "assertions": 0,
-            "function_lines": 33,
-            "params": 0,
-            "nesting_max": 1,
-            "abc": 17.4928556845359
-          },
-          "violations": []
-        },
-        {
-          "name": "discover_test_files",
-          "kind": "Function",
-          "start_line": 158,
-          "metrics": {
-            "cyclomatic": 2,
-            "cognitive": 1,
-            "assertions": 0,
-            "function_lines": 15,
-            "params": 0,
-            "nesting_max": 2,
-            "abc": 11.445523142259598
-          },
-          "violations": []
-        },
-        {
-          "name": "build_import_map",
-          "kind": "Function",
-          "start_line": 175,
-          "metrics": {
-            "cyclomatic": 4,
-            "cognitive": 6,
-            "assertions": 0,
-            "function_lines": 18,
-            "params": 0,
-            "nesting_max": 3,
-            "abc": 8.774964387392123
-          },
-          "violations": []
-        },
-        {
-          "name": "resolve_changed_file_deps",
-          "kind": "Function",
-          "start_line": 195,
-          "metrics": {
-            "cyclomatic": 6,
-            "cognitive": 10,
-            "assertions": 0,
-            "function_lines": 38,
-            "params": 0,
-            "nesting_max": 3,
-            "abc": 12.449899597988733
-          },
-          "violations": []
-        },
-        {
-          "name": "find_matching_tests",
-          "kind": "Function",
-          "start_line": 235,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 16,
-            "params": 0,
-            "nesting_max": 1,
-            "abc": 9.055385138137417
-          },
-          "violations": []
-        },
-        {
-          "name": "is_python_test_file",
-          "kind": "Function",
-          "start_line": 253,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 3,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 3.0
-          },
-          "violations": []
-        },
-        {
-          "name": "parse_junit_testcase",
-          "kind": "Function",
-          "start_line": 260,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 13,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 12.806248474865697
-          },
-          "violations": []
-        },
-        {
-          "name": "extract_xml_attr",
-          "kind": "Function",
-          "start_line": 275,
-          "metrics": {
-            "cyclomatic": 7,
-            "cognitive": 12,
-            "assertions": 0,
-            "function_lines": 30,
-            "params": 0,
-            "nesting_max": 3,
-            "abc": 15.620499351813308
-          },
-          "violations": []
-        },
-        {
-          "name": "has_failure_element",
-          "kind": "Function",
-          "start_line": 307,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 3,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 2.0
-          },
-          "violations": []
-        },
-        {
-          "name": "parse_junit_xml",
-          "kind": "Function",
-          "start_line": 312,
-          "metrics": {
-            "cyclomatic": 7,
-            "cognitive": 18,
-            "assertions": 0,
-            "function_lines": 41,
-            "params": 0,
-            "nesting_max": 5,
-            "abc": 19.79898987322333
-          },
-          "violations": []
-        },
-        {
-          "name": "parse_python_imports",
-          "kind": "Function",
-          "start_line": 358,
-          "metrics": {
-            "cyclomatic": 3,
-            "cognitive": 3,
-            "assertions": 0,
-            "function_lines": 20,
-            "params": 0,
-            "nesting_max": 2,
-            "abc": 12.806248474865697
-          },
-          "violations": []
-        },
-        {
-          "name": "parse_import_line",
-          "kind": "Function",
-          "start_line": 380,
-          "metrics": {
-            "cyclomatic": 3,
-            "cognitive": 2,
-            "assertions": 0,
-            "function_lines": 9,
-            "params": 0,
-            "nesting_max": 1,
-            "abc": 4.47213595499958
-          },
-          "violations": []
-        },
-        {
-          "name": "parse_absolute_import",
-          "kind": "Function",
-          "start_line": 391,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 5,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 7.0
-          },
-          "violations": []
-        },
-        {
-          "name": "parse_from_import",
-          "kind": "Function",
-          "start_line": 398,
-          "metrics": {
-            "cyclomatic": 2,
-            "cognitive": 1,
-            "assertions": 0,
-            "function_lines": 9,
-            "params": 0,
-            "nesting_max": 1,
-            "abc": 5.196152422706632
-          },
-          "violations": []
-        },
-        {
-          "name": "resolve_relative_import",
-          "kind": "Function",
-          "start_line": 409,
-          "metrics": {
-            "cyclomatic": 6,
-            "cognitive": 6,
-            "assertions": 0,
-            "function_lines": 33,
-            "params": 0,
-            "nesting_max": 2,
-            "abc": 22.11334438749598
-          },
-          "violations": []
-        },
-        {
-          "name": "resolve_absolute_from_import",
-          "kind": "Function",
-          "start_line": 444,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 3,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 5.0
-          },
-          "violations": []
-        },
-        {
-          "name": "file_path_to_module",
-          "kind": "Function",
-          "start_line": 450,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 7,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 5.0
-          },
-          "violations": []
-        },
-        {
-          "name": "cmd_fingerprint",
-          "kind": "Function",
-          "start_line": 459,
-          "metrics": {
-            "cyclomatic": 2,
-            "cognitive": 1,
-            "assertions": 0,
-            "function_lines": 26,
-            "params": 0,
-            "nesting_max": 1,
-            "abc": 13.038404810405298
-          },
-          "violations": []
-        },
-        {
-          "name": "cmd_run_args",
-          "kind": "Function",
-          "start_line": 488,
-          "metrics": {
-            "cyclomatic": 2,
-            "cognitive": 1,
-            "assertions": 0,
-            "function_lines": 30,
-            "params": 0,
-            "nesting_max": 1,
-            "abc": 23.366642891095847
-          },
-          "violations": []
-        },
-        {
-          "name": "cmd_ingest",
-          "kind": "Function",
-          "start_line": 520,
-          "metrics": {
-            "cyclomatic": 3,
-            "cognitive": 2,
-            "assertions": 0,
-            "function_lines": 27,
-            "params": 0,
-            "nesting_max": 1,
-            "abc": 13.152946437965905
-          },
-          "violations": []
-        },
-        {
-          "name": "is_junit_xml",
-          "kind": "Function",
-          "start_line": 549,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 5,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 3.0
-          },
-          "violations": []
-        },
-        {
-          "name": "parse_pytest_output",
-          "kind": "Function",
-          "start_line": 556,
-          "metrics": {
-            "cyclomatic": 7,
-            "cognitive": 12,
-            "assertions": 0,
-            "function_lines": 24,
-            "params": 0,
-            "nesting_max": 3,
-            "abc": 16.64331697709324
-          },
-          "violations": []
-        },
-        {
-          "name": "parse_json_lines_output",
-          "kind": "Function",
-          "start_line": 582,
-          "metrics": {
-            "cyclomatic": 4,
-            "cognitive": 6,
-            "assertions": 0,
-            "function_lines": 12,
-            "params": 0,
-            "nesting_max": 3,
-            "abc": 9.695359714832659
-          },
-          "violations": []
-        },
-        {
-          "name": "build_runtime_edges",
-          "kind": "Function",
-          "start_line": 596,
-          "metrics": {
-            "cyclomatic": 5,
-            "cognitive": 10,
-            "assertions": 0,
-            "function_lines": 18,
-            "params": 0,
-            "nesting_max": 4,
-            "abc": 7.280109889280518
-          },
-          "violations": []
-        },
-        {
-          "name": "with_cwd",
-          "kind": "Function",
-          "start_line": 625,
+          "start_line": 38,
           "metrics": {
             "cyclomatic": 1,
             "cognitive": 0,
@@ -467,169 +17,19 @@
             "function_lines": 8,
             "params": 0,
             "nesting_max": 0,
-            "abc": 9.486832980505138
+            "abc": 0.0
           },
           "violations": []
         },
         {
-          "name": "test_parse_python_imports_absolute",
+          "name": "new",
           "kind": "Function",
-          "start_line": 635,
+          "start_line": 130,
           "metrics": {
             "cyclomatic": 1,
             "cognitive": 0,
             "assertions": 0,
-            "function_lines": 7,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 2.23606797749979
-          },
-          "violations": []
-        },
-        {
-          "name": "test_parse_python_imports_preserves_full_path",
-          "kind": "Function",
-          "start_line": 644,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 6,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 2.23606797749979
-          },
-          "violations": []
-        },
-        {
-          "name": "test_parse_python_imports_import_as",
-          "kind": "Function",
-          "start_line": 652,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 6,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 2.23606797749979
-          },
-          "violations": []
-        },
-        {
-          "name": "test_parse_python_imports_relative_current_package",
-          "kind": "Function",
-          "start_line": 660,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 10,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 2.23606797749979
-          },
-          "violations": []
-        },
-        {
-          "name": "test_parse_python_imports_relative_parent_package",
-          "kind": "Function",
-          "start_line": 672,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 10,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 2.23606797749979
-          },
-          "violations": []
-        },
-        {
-          "name": "test_parse_python_imports_relative_import_current_package_only",
-          "kind": "Function",
-          "start_line": 684,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 10,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 2.23606797749979
-          },
-          "violations": []
-        },
-        {
-          "name": "test_parse_python_imports_relative_from_double_dot",
-          "kind": "Function",
-          "start_line": 696,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 10,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 2.23606797749979
-          },
-          "violations": []
-        },
-        {
-          "name": "test_parse_python_imports_relative_deep",
-          "kind": "Function",
-          "start_line": 708,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 12,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 2.23606797749979
-          },
-          "violations": []
-        },
-        {
-          "name": "test_parse_python_imports_relative_above_root_skipped",
-          "kind": "Function",
-          "start_line": 722,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 9,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 2.23606797749979
-          },
-          "violations": []
-        },
-        {
-          "name": "test_parse_python_imports_mixed_absolute_and_relative",
-          "kind": "Function",
-          "start_line": 733,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 7,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 2.23606797749979
-          },
-          "violations": []
-        },
-        {
-          "name": "test_file_path_to_module",
-          "kind": "Function",
-          "start_line": 742,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 12,
+            "function_lines": 3,
             "params": 0,
             "nesting_max": 0,
             "abc": 0.0
@@ -637,249 +37,54 @@
           "violations": []
         },
         {
-          "name": "test_cmd_static_deps_source_changed_finds_importing_tests",
+          "name": "select",
           "kind": "Function",
-          "start_line": 756,
+          "start_line": 135,
           "metrics": {
             "cyclomatic": 1,
             "cognitive": 0,
             "assertions": 0,
-            "function_lines": 33,
-            "params": 0,
-            "nesting_max": 1,
-            "abc": 22.135943621178654
-          },
-          "violations": []
-        },
-        {
-          "name": "test_cmd_static_deps_test_file_changed_self_edge",
-          "kind": "Function",
-          "start_line": 791,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 28,
-            "params": 0,
-            "nesting_max": 1,
-            "abc": 15.231546211727817
-          },
-          "violations": []
-        },
-        {
-          "name": "test_cmd_static_deps_no_matching_tests",
-          "kind": "Function",
-          "start_line": 821,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 21,
-            "params": 0,
-            "nesting_max": 1,
-            "abc": 14.866068747318506
-          },
-          "violations": []
-        },
-        {
-          "name": "test_cmd_static_deps_unresolved_file",
-          "kind": "Function",
-          "start_line": 844,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 20,
-            "params": 0,
-            "nesting_max": 1,
-            "abc": 8.06225774829855
-          },
-          "violations": []
-        },
-        {
-          "name": "test_cmd_static_deps_multiple_source_files",
-          "kind": "Function",
-          "start_line": 866,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 41,
-            "params": 0,
-            "nesting_max": 1,
-            "abc": 37.8549864614954
-          },
-          "violations": []
-        },
-        {
-          "name": "test_cmd_discover_excludes_venv",
-          "kind": "Function",
-          "start_line": 909,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 39,
+            "function_lines": 3,
             "params": 0,
             "nesting_max": 0,
-            "abc": 27.65863337187866
+            "abc": 1.0
           },
           "violations": []
         },
         {
-          "name": "test_cmd_ingest_pytest_output_returns_runtime_edges",
+          "name": "select_with_ordering",
           "kind": "Function",
-          "start_line": 952,
+          "start_line": 140,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 8,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 2.23606797749979
+          },
+          "violations": []
+        },
+        {
+          "name": "select_with_context",
+          "kind": "Function",
+          "start_line": 154,
           "metrics": {
             "cyclomatic": 2,
             "cognitive": 1,
             "assertions": 0,
-            "function_lines": 30,
+            "function_lines": 26,
             "params": 0,
             "nesting_max": 1,
-            "abc": 10.862780491200215
+            "abc": 13.96424004376894
           },
           "violations": []
         },
         {
-          "name": "test_cmd_ingest_runtime_edges_self_edge_per_test",
+          "name": "build_ascent_program",
           "kind": "Function",
-          "start_line": 984,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 25,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 5.830951894845301
-          },
-          "violations": []
-        },
-        {
-          "name": "test_cmd_ingest_empty_output_returns_error",
-          "kind": "Function",
-          "start_line": 1011,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 11,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 2.23606797749979
-          },
-          "violations": []
-        },
-        {
-          "name": "test_cmd_ingest_missing_run_output_returns_error",
-          "kind": "Function",
-          "start_line": 1024,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 9,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 2.23606797749979
-          },
-          "violations": []
-        },
-        {
-          "name": "test_cmd_ingest_json_line_format",
-          "kind": "Function",
-          "start_line": 1035,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 19,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 6.4031242374328485
-          },
-          "violations": []
-        },
-        {
-          "name": "test_cmd_ingest_external_inputs_included",
-          "kind": "Function",
-          "start_line": 1056,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 11,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 2.23606797749979
-          },
-          "violations": []
-        },
-        {
-          "name": "test_cmd_ingest_junit_xml_parses_testcases",
-          "kind": "Function",
-          "start_line": 1071,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 32,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 7.0710678118654755
-          },
-          "violations": []
-        },
-        {
-          "name": "test_cmd_ingest_junit_xml_failure_outcome",
-          "kind": "Function",
-          "start_line": 1105,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 30,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 5.0
-          },
-          "violations": []
-        },
-        {
-          "name": "test_cmd_ingest_junit_xml_runtime_edges_from_file_attr",
-          "kind": "Function",
-          "start_line": 1137,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 37,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 5.0
-          },
-          "violations": []
-        },
-        {
-          "name": "test_cmd_ingest_junit_xml_duration_ms",
-          "kind": "Function",
-          "start_line": 1176,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 21,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 5.0
-          },
-          "violations": []
-        },
-        {
-          "name": "test_cmd_ingest_junit_xml_preserves_verbose_fallback",
-          "kind": "Function",
-          "start_line": 1199,
+          "start_line": 183,
           "metrics": {
             "cyclomatic": 1,
             "cognitive": 0,
@@ -887,22 +92,82 @@
             "function_lines": 17,
             "params": 0,
             "nesting_max": 0,
-            "abc": 4.242640687119285
+            "abc": 17.0
           },
           "violations": []
         },
         {
-          "name": "test_cmd_discover_excludes_cache_dirs",
+          "name": "compute_confidence_floor",
           "kind": "Function",
-          "start_line": 1218,
+          "start_line": 202,
+          "metrics": {
+            "cyclomatic": 7,
+            "cognitive": 10,
+            "assertions": 0,
+            "function_lines": 32,
+            "params": 0,
+            "nesting_max": 2,
+            "abc": 19.0
+          },
+          "violations": []
+        },
+        {
+          "name": "rerun_with_fallback",
+          "kind": "Function",
+          "start_line": 236,
+          "metrics": {
+            "cyclomatic": 3,
+            "cognitive": 3,
+            "assertions": 0,
+            "function_lines": 14,
+            "params": 0,
+            "nesting_max": 2,
+            "abc": 5.477225575051661
+          },
+          "violations": []
+        },
+        {
+          "name": "collect_selection_results",
+          "kind": "Function",
+          "start_line": 252,
+          "metrics": {
+            "cyclomatic": 3,
+            "cognitive": 3,
+            "assertions": 0,
+            "function_lines": 39,
+            "params": 0,
+            "nesting_max": 2,
+            "abc": 17.832554500127006
+          },
+          "violations": []
+        },
+        {
+          "name": "apply_ordering",
+          "kind": "Function",
+          "start_line": 293,
           "metrics": {
             "cyclomatic": 1,
             "cognitive": 0,
             "assertions": 0,
-            "function_lines": 20,
+            "function_lines": 31,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 25.709920264364882
+          },
+          "violations": []
+        },
+        {
+          "name": "test_ascent_program_compiles",
+          "kind": "Function",
+          "start_line": 358,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 5,
             "params": 0,
             "nesting_max": 0,
-            "abc": 24.73863375370596
+            "abc": 1.4142135623730951
           },
           "violations": []
         }

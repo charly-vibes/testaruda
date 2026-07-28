@@ -159,152 +159,17 @@ impl<'a> Engine<'a> {
         let mut comp_fallback_start: Vec<(u32,)> =
             ctx.comp_fallback.iter().map(|&k| (k,)).collect();
 
-        // Build the initial Ascent program. `comp_fallback` may be extended
-        // by the confidence floor loop below (TIA-SAFE-002, TIA-SAFE-003).
-        let mut prog = AscentProgram {
-            changed: ctx.changed.iter().map(|&c| (c,)).collect(),
-            unresolved: ctx.unresolved.iter().map(|&c| (c,)).collect(),
-            cu_dep: ctx.cu_deps.clone(),
-            test_dep: ctx.test_deps.clone(),
-            always_run: ctx.always_run.iter().map(|&t| (t,)).collect(),
-            comp_fallback: comp_fallback_start.clone(),
-            test_comp: ctx.test_comp.clone(),
-            quarantined: ctx.quarantined.iter().map(|&t| (t,)).collect(),
-            invocation_quality: vec![(ctx.invocation_quality,)],
-            ..Default::default()
-        };
-
-        // Run the Ascent program
+        let mut prog = build_ascent_program(&ctx, &comp_fallback_start);
         prog.run();
 
-        // ===== Confidence floor & fallback (TIA-SAFE-002, TIA-SAFE-003) =====
-        // After the first run, check if any component has reachability-selected
-        // tests whose min confidence is below the configured threshold. If so,
-        // add that component to comp_fallback and re-run.
-        //
-        // Always-run-only components skip fallback (TIA-SAFE-002 second clause).
-
-        // Collect per-component reachability-selected test confidences.
-        // Always-run tests are excluded from the floor check.
-        let always_run_ids: std::collections::HashSet<u32> =
-            ctx.always_run.iter().copied().collect();
-        let mut comp_confs: std::collections::HashMap<u32, Vec<f64>> =
-            std::collections::HashMap::new();
-        for &(t, c) in &prog.test_conf {
-            if always_run_ids.contains(&t) {
-                continue; // always-run-only component skip (SAFE-002 second clause)
-            }
-            // Only consider reachability-selected tests (those with a dep path)
-            if !prog.test_pred.iter().any(|&(tid, _, _)| tid == t) {
-                continue; // no witness path → not reachability-selected
-            }
-            if let Some(&(k, _)) = prog.test_comp.iter().find(|&&(tid, _)| tid == t) {
-                let conf = c as f64 / ONE as f64;
-                comp_confs.entry(k).or_default().push(conf);
-            }
-        }
-
-        let mut needs_fallback = Vec::new();
-        let threshold = ctx.confidence_threshold as f64 / ONE as f64;
-        for (comp, confs) in &comp_confs {
-            let min_conf = confs.iter().cloned().fold(f64::MAX, f64::min);
-            if min_conf < threshold {
-                needs_fallback.push(*comp);
-            }
-        }
-
-        // If any components need fallback, re-run with extended comp_fallback
+        // Confidence floor & fallback (TIA-SAFE-002, TIA-SAFE-003)
+        let needs_fallback = compute_confidence_floor(&ctx, &prog);
         if !needs_fallback.is_empty() {
-            for comp in &needs_fallback {
-                if !comp_fallback_start.iter().any(|&(k,)| k == *comp) {
-                    comp_fallback_start.push((*comp,));
-                }
-            }
-            let mut prog2 = AscentProgram {
-                changed: ctx.changed.iter().map(|&c| (c,)).collect(),
-                unresolved: ctx.unresolved.iter().map(|&c| (c,)).collect(),
-                cu_dep: ctx.cu_deps.clone(),
-                test_dep: ctx.test_deps.clone(),
-                always_run: ctx.always_run.iter().map(|&t| (t,)).collect(),
-                comp_fallback: comp_fallback_start.clone(),
-                test_comp: ctx.test_comp.clone(),
-                quarantined: ctx.quarantined.iter().map(|&t| (t,)).collect(),
-                invocation_quality: vec![(ctx.invocation_quality,)],
-                ..Default::default()
-            };
-            prog2.run();
-            prog = prog2;
+            prog = rerun_with_fallback(&ctx, &mut comp_fallback_start, &needs_fallback);
         }
 
-        // Collect results — iterate over the `affected` relation
-        let mut affected: Vec<SelectedTest> = Vec::new();
-
-        for &(t,) in &prog.affected {
-            let conf = prog
-                .test_conf
-                .iter()
-                .find(|&&(tid, _)| tid == t)
-                .map(|&(_, c)| c as f64 / ONE as f64)
-                .unwrap_or(0.0);
-
-            let dist = prog
-                .test_dist
-                .iter()
-                .find(|&&(tid, _)| tid == t)
-                .map(|&(_, Dual(d))| d);
-
-            let witness: Vec<WitnessEdge> = prog
-                .test_pred
-                .iter()
-                .filter(|&&(tid, _, _)| tid == t)
-                .map(|&(_, c, o)| WitnessEdge {
-                    content_unit: c,
-                    origin: o,
-                })
-                .collect();
-
-            let is_quarantined = prog.quarantined.iter().any(|&(qt,)| qt == t);
-
-            affected.push(SelectedTest {
-                id: t,
-                confidence: conf,
-                distance: dist,
-                witness: if witness.is_empty() {
-                    None
-                } else {
-                    Some(witness)
-                },
-                quarantined: is_quarantined,
-            });
-        }
-
-        // Apply ordering (TIA-SEL-005, TIA-SEL-006, TIA-SEL-007)
-        match ordering {
-            TestOrdering::Default => {}
-            TestOrdering::Deterministic => {
-                affected.sort_by_key(|t| t.id);
-            }
-            TestOrdering::ByDuration => {
-                let durations = self.store.load_mean_durations()?;
-                affected.sort_by(|a, b| {
-                    let da = durations.get(&a.id).copied().unwrap_or(0);
-                    let db = durations.get(&b.id).copied().unwrap_or(0);
-                    // Descending: higher duration first
-                    db.cmp(&da).then_with(|| a.id.cmp(&b.id))
-                });
-            }
-            TestOrdering::Predictive => {
-                let failure_rates = self.store.load_failure_rates()?;
-                affected.sort_by(|a, b| {
-                    let ra = failure_rates.get(&a.id).copied().unwrap_or(0.0);
-                    let rb = failure_rates.get(&b.id).copied().unwrap_or(0.0);
-                    // Descending: higher failure rate first
-                    rb.partial_cmp(&ra)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                        .then_with(|| a.id.cmp(&b.id))
-                });
-            }
-        }
+        let mut affected = collect_selection_results(&prog);
+        apply_ordering(&mut affected, ordering, self.store)?;
 
         Ok(Selection {
             changed_count: ctx.changed.len(),
@@ -312,6 +177,151 @@ impl<'a> Engine<'a> {
             tests: affected,
         })
     }
+}
+
+/// Build an AscentProgram from the selection context.
+fn build_ascent_program(
+    ctx: &crate::store::SelectionContext,
+    comp_fallback: &[(u32,)],
+) -> AscentProgram {
+    AscentProgram {
+        changed: ctx.changed.iter().map(|&c| (c,)).collect(),
+        unresolved: ctx.unresolved.iter().map(|&c| (c,)).collect(),
+        cu_dep: ctx.cu_deps.clone(),
+        test_dep: ctx.test_deps.clone(),
+        always_run: ctx.always_run.iter().map(|&t| (t,)).collect(),
+        comp_fallback: comp_fallback.to_vec(),
+        test_comp: ctx.test_comp.clone(),
+        quarantined: ctx.quarantined.iter().map(|&t| (t,)).collect(),
+        invocation_quality: vec![(ctx.invocation_quality,)],
+        ..Default::default()
+    }
+}
+
+/// Compute which components need fallback based on confidence floor.
+fn compute_confidence_floor(
+    ctx: &crate::store::SelectionContext,
+    prog: &AscentProgram,
+) -> Vec<u32> {
+    let always_run_ids: std::collections::HashSet<u32> = ctx.always_run.iter().copied().collect();
+    let mut comp_confs: std::collections::HashMap<u32, Vec<f64>> = std::collections::HashMap::new();
+
+    for &(t, c) in &prog.test_conf {
+        if always_run_ids.contains(&t) {
+            continue;
+        }
+        if !prog.test_pred.iter().any(|&(tid, _, _)| tid == t) {
+            continue;
+        }
+        if let Some(&(k, _)) = prog.test_comp.iter().find(|&&(tid, _)| tid == t) {
+            let conf = c as f64 / ONE as f64;
+            comp_confs.entry(k).or_default().push(conf);
+        }
+    }
+
+    let mut needs_fallback = Vec::new();
+    let threshold = ctx.confidence_threshold as f64 / ONE as f64;
+    for (comp, confs) in &comp_confs {
+        let min_conf = confs.iter().cloned().fold(f64::MAX, f64::min);
+        if min_conf < threshold {
+            needs_fallback.push(*comp);
+        }
+    }
+    needs_fallback
+}
+
+/// Re-run the Ascent program with extended comp_fallback.
+fn rerun_with_fallback(
+    ctx: &crate::store::SelectionContext,
+    comp_fallback: &mut Vec<(u32,)>,
+    needs_fallback: &[u32],
+) -> AscentProgram {
+    for comp in needs_fallback {
+        if !comp_fallback.iter().any(|&(k,)| k == *comp) {
+            comp_fallback.push((*comp,));
+        }
+    }
+    let mut prog2 = build_ascent_program(ctx, comp_fallback);
+    prog2.run();
+    prog2
+}
+
+/// Collect selection results from the Ascent program's `affected` relation.
+fn collect_selection_results(prog: &AscentProgram) -> Vec<SelectedTest> {
+    let mut affected: Vec<SelectedTest> = Vec::new();
+
+    for &(t,) in &prog.affected {
+        let conf = prog
+            .test_conf
+            .iter()
+            .find(|&&(tid, _)| tid == t)
+            .map(|&(_, c)| c as f64 / ONE as f64)
+            .unwrap_or(0.0);
+
+        let dist = prog
+            .test_dist
+            .iter()
+            .find(|&&(tid, _)| tid == t)
+            .map(|&(_, Dual(d))| d);
+
+        let witness: Vec<WitnessEdge> = prog
+            .test_pred
+            .iter()
+            .filter(|&&(tid, _, _)| tid == t)
+            .map(|&(_, c, o)| WitnessEdge {
+                content_unit: c,
+                origin: o,
+            })
+            .collect();
+
+        let is_quarantined = prog.quarantined.iter().any(|&(qt,)| qt == t);
+
+        affected.push(SelectedTest {
+            id: t,
+            confidence: conf,
+            distance: dist,
+            witness: if witness.is_empty() {
+                None
+            } else {
+                Some(witness)
+            },
+            quarantined: is_quarantined,
+        });
+    }
+    affected
+}
+
+/// Apply test ordering (TIA-SEL-005, TIA-SEL-006, TIA-SEL-007).
+fn apply_ordering(
+    affected: &mut [SelectedTest],
+    ordering: TestOrdering,
+    store: &crate::store::Store,
+) -> miette::Result<()> {
+    match ordering {
+        TestOrdering::Default => {}
+        TestOrdering::Deterministic => {
+            affected.sort_by_key(|t| t.id);
+        }
+        TestOrdering::ByDuration => {
+            let durations = store.load_mean_durations()?;
+            affected.sort_by(|a, b| {
+                let da = durations.get(&a.id).copied().unwrap_or(0);
+                let db = durations.get(&b.id).copied().unwrap_or(0);
+                db.cmp(&da).then_with(|| a.id.cmp(&b.id))
+            });
+        }
+        TestOrdering::Predictive => {
+            let failure_rates = store.load_failure_rates()?;
+            affected.sort_by(|a, b| {
+                let ra = failure_rates.get(&a.id).copied().unwrap_or(0.0);
+                let rb = failure_rates.get(&b.id).copied().unwrap_or(0.0);
+                rb.partial_cmp(&ra)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.id.cmp(&b.id))
+            });
+        }
+    }
+    Ok(())
 }
 
 /// A node in the witness chain.
