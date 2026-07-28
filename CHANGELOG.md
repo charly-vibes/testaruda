@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.2.5 — Spec-contract coverage sweep (2026-07-28)
+
+### Added
+
+- Clojure adapter: all 6 commands (handshake, discover, static-deps,
+  fingerprint, run-args, ingest) with fixture project, integration tests,
+  and documentation (closes 19 tickets).
+- .NET adapter detection shell-split infrastructure: `parse_command_string()`
+  + `spawn_adapter()` helper in `src/adapter.rs` (TIA-ADAPT-024).
+- 26 new espectacular contracts covering change-detection, adapter-protocol,
+  agent-mode, local-mode, observability, selection-engine, and non-functional
+  domains — `ah check` now reports 0 issues.
+- JSON Schema for agent and pre-edit output formats
+  (`docs/schemas/agent-output.schema.json`,
+  `docs/schemas/pre-edit-output-v1.json`).
+- TypeScript and Clojure adapter documentation in `docs/configuration.md`.
+
+### Fixed
+
+- `run_adapter_pipeline` error diagnostics name resolved binary (e.g. `titi`)
+  not full command string.
+- Adapter-clojure protocol standardized to use params-style invocation.
+- Stress-test harness: adapter resolved to absolute path, `--test-dir` flag,
+  empty node_ids handled.
+- Multi-language benchmark script.
+
+---
+
 ## 0.2.2 — Pre-push integration (2026-07-17)
 
 ### Added
