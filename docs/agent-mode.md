@@ -137,4 +137,4 @@ testaruda select --pre-edit [--files <list>]
 Output format: `testaruda-pre-edit-v1` with `changed_files` and
 `selected_tests` arrays plus summary stats. Its contract is published in
 `schemas/pre-edit-output-v1.json`. The full agent-mode contract is published
-separately in `schemas/agent-output-v1.json`.
+separately in `schemas/agent-output.schema.json`.

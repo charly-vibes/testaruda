@@ -22,8 +22,6 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 This project uses `dont` for grounded-claim workflow.
 
-**When to use:** When making a design or correctness assertion during development, run `dont conclude "<assertion>"` before asserting it. For documented facts, use `dont ground "<fact>" --file <path> --lines <N>`.
-
 At session start run `dont prime --json`.
 
 Canonical agent instructions: `.dont/AGENTS.md`.

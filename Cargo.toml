@@ -1,6 +1,6 @@
 [package]
 name = "testaruda"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 description = "Language-agnostic test selection engine — compute the affected test set from a code change via provenance-semiring dependency analysis"
 license = "Apache-2.0"

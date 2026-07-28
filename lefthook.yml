@@ -44,3 +44,5 @@ pre-push:
         Warning: --no-verify requires justification:
         - Commit message MUST contain "WIP" or "wip"
         - You MUST fix tests before merging
+    dont-check:
+      run: dont check
