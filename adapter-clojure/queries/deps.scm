@@ -17,4 +17,4 @@
   value: (kwd_lit) @_keyword
   (#match? @_keyword "^:(require|use|import)$")
   .
-  [(vec_lit) (sym_lit)] @dep_entry) @dep_form
+  ([(vec_lit) (sym_lit)] @dep_entry)+) @dep_form

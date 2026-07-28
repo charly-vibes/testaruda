@@ -85,8 +85,13 @@ fn discover_returns_not_implemented() {
 
 #[test]
 fn static_deps_returns_not_implemented() {
-    let resp = send_command(r#"{"command":"static-deps","args":{"files":["src/core.clj"]}}"#);
-    assert_eq!(resp["ok"], false, "static-deps not yet implemented: {resp}");
+    // static-deps now returns ok:true even with no files; the stub test is
+    // still valid to verify the command doesn't error out.
+    let resp = send_command(r#"{"command":"static-deps","args":{"files":[]}}"#);
+    assert_eq!(
+        resp["ok"], true,
+        "static-deps should succeed with empty files: {resp}"
+    );
 }
 
 #[test]

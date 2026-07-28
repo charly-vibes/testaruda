@@ -11,14 +11,14 @@
 //! - run-args: build runner CLI args (deps.edn vs project.clj)
 //! - ingest: parse JUnit XML or stdout for results
 //!
-//! **Currently implemented:** handshake only (testaruda-iq6).
-//! All other commands return "not implemented" errors — they land in
-//! follow-up tickets (testaruda-fjj, testaruda-cch, etc.).
+//! **Status:** handshake + static-deps implemented. All other commands return
+//! "not implemented" errors (see testaruda-kw6, testaruda-cch, testaruda-fjj).
 
 #[allow(dead_code)]
 mod project;
 mod query;
 
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Write};
 
 fn main() {
@@ -53,7 +53,7 @@ fn handle_command(input: &str) -> serde_json::Value {
     match command {
         "handshake" => cmd_handshake(),
         "discover" => json_err("not implemented: discover (see testaruda-cch)"),
-        "static-deps" => json_err("not implemented: static-deps (see testaruda-cch)"),
+        "static-deps" => cmd_static_deps(&cmd),
         "fingerprint" => json_err("not implemented: fingerprint (see testaruda-cch)"),
         "run-args" => json_err("not implemented: run-args (see testaruda-fjj)"),
         "ingest" => json_err("not implemented: ingest (see testaruda-fjj)"),
@@ -83,4 +83,125 @@ fn cmd_handshake() -> serde_json::Value {
             "runtime_edges": false
         }
     }))
+}
+
+/// Static-deps: extract dependency edges from changed files (TIA-ADAPT-019).
+///
+/// Takes `{"files": ["path/to/file.clj", ...]}` and returns edges from
+/// test files to source files based on `:require/:use/:import` analysis.
+fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
+    let files = match cmd["args"]["files"].as_array() {
+        Some(f) => f,
+        None => return json_err("missing args.files"),
+    };
+
+    // Phase 1: Parse every changed file to get its namespace name and deps.
+    let mut changed_namespaces: HashMap<String, String> = HashMap::new(); // ns → file
+    let mut any_clojure = false;
+
+    for file_val in files {
+        let file_path = match file_val.as_str() {
+            Some(s) => s,
+            None => continue,
+        };
+        if !file_path.ends_with(".clj")
+            && !file_path.ends_with(".cljs")
+            && !file_path.ends_with(".cljc")
+        {
+            continue;
+        }
+        any_clojure = true;
+
+        let content = match std::fs::read_to_string(file_path) {
+            Ok(c) => c,
+            Err(_) => continue, // skip unreadable files
+        };
+        let tree = query::parse(&content);
+
+        // Get the namespace name
+        let ns_query = query::compile_query(include_str!("../queries/ns.scm"));
+        let ns_caps = query::run_query(&ns_query, &tree, content.as_bytes());
+        let namespace = ns_caps
+            .iter()
+            .find(|c| c.name == "namespace_name")
+            .map(|c| c.text.clone());
+
+        if let Some(ref ns) = &namespace {
+            changed_namespaces.insert(ns.clone(), file_path.to_string());
+            // Extract deps from this file
+            let deps_query = query::compile_query(include_str!("../queries/deps.scm"));
+            let dep_caps = query::run_query(&deps_query, &tree, content.as_bytes());
+            extract_dep_namespaces_from_caps(&dep_caps, &content);
+        }
+    }
+
+    if !any_clojure {
+        return json_ok(serde_json::json!({"edges": []}));
+    }
+
+    // Phase 2: Scan the project for test files and parse their deps.
+    // For each test file, check if its deps include any changed namespace.
+    let mut edges: Vec<serde_json::Value> = Vec::new();
+    let mut edge_set: HashSet<(String, String)> = HashSet::new();
+
+    for entry in walkdir::WalkDir::new(".")
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            let p = e.path().to_string_lossy();
+            e.file_type().is_file()
+                && (p.ends_with(".clj") || p.ends_with(".cljs") || p.ends_with(".cljc"))
+                && !p.contains("/target/")
+                && !p.contains("/.git/")
+                && !p.contains("/.flatpak-builder/")
+                && !p.ends_with("/.clj")
+        })
+    {
+        let path = entry.path().to_string_lossy().to_string();
+        let clean_path = path.strip_prefix("./").unwrap_or(&path);
+
+        if files.iter().any(|f| f.as_str() == Some(clean_path)) {
+            continue; // skip changed files themselves
+        }
+
+        let content = match std::fs::read_to_string(entry.path()) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let tree = query::parse(&content);
+        let deps_query = query::compile_query(include_str!("../queries/deps.scm"));
+        let dep_caps = query::run_query(&deps_query, &tree, content.as_bytes());
+        let test_deps = extract_dep_namespaces_from_caps(&dep_caps, &content);
+
+        for dep_ns in &test_deps {
+            if let Some(source_file) = changed_namespaces.get(dep_ns) {
+                let from = clean_path.to_string();
+                let to = source_file.clone();
+                let edge_key = (from.clone(), to.clone());
+                if edge_set.insert(edge_key) {
+                    edges.push(serde_json::json!({
+                        "from": from,
+                        "to": to,
+                        "weight": 1_000_000,
+                        "origin": "static"
+                    }));
+                }
+            }
+        }
+    }
+
+    json_ok(serde_json::json!({"edges": edges}))
+}
+
+/// Extract dependency namespace names from tree-sitter capture results.
+fn extract_dep_namespaces_from_caps(caps: &[query::Capture], _content: &str) -> Vec<String> {
+    let mut namespaces = Vec::new();
+
+    for cap in caps.iter().filter(|c| c.name == "dep_entry") {
+        let ns = query::extract_namespace_from_dep_entry(&cap.text);
+        if !ns.is_empty() {
+            namespaces.push(ns);
+        }
+    }
+    namespaces
 }

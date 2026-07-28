@@ -24,7 +24,7 @@
 - [ ] 2.3 Implement `cmd_discover()`: scan project for `.clj` files
       (respecting deps.edn `:test-paths` or default `test/`), parse each
       with tree-sitter, run the discover query, return test items
-- [ ] 2.4 Implement `cmd_static_deps()`: for each changed file, parse with
+- [x] 2.4 Implement `cmd_static_deps()`: for each changed file, parse with
       tree-sitter, run the deps query, find tests that require the changed
       file's namespace, return edges with `weight: 1_000_000`, `origin: "static"`
 - [ ] 2.5 Implement `cmd_fingerprint()`: blake3 hash of file contents
