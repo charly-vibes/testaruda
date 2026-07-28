@@ -470,13 +470,101 @@ fn cmd_fingerprint(cmd: &serde_json::Value) -> serde_json::Value {
 }
 
 /// Run args: detect test runner and build command-line arguments.
-/// (Stub for scaffolding — will be implemented with runner detection.)
-fn cmd_run_args(_cmd: &serde_json::Value) -> serde_json::Value {
-    json_ok(serde_json::json!({
-        "runner": "vitest",
-        "args": ["npx", "vitest", "run", "--reporter=junit"],
-        "warnings": ["run-args not yet fully implemented"]
-    }))
+fn cmd_run_args(cmd: &serde_json::Value) -> serde_json::Value {
+    let params = &cmd["params"];
+    let selected: Vec<String> = match params["selected"].as_array() {
+        Some(arr) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect(),
+        None => return json_err("missing 'params.selected'"),
+    };
+
+    if selected.is_empty() {
+        return json_err("no tests selected");
+    }
+
+    match detect_runner() {
+        Runner::Vitest => {
+            let mut runner_args = vec![
+                "npx".to_string(),
+                "vitest".to_string(),
+                "run".to_string(),
+                "--reporter=junit".to_string(),
+                "--outputFile=target/test-results.xml".to_string(),
+            ];
+            // Add selected test files
+            for sel in &selected {
+                runner_args.push("--".to_string());
+                runner_args.push(sel.clone());
+            }
+
+            json_ok(serde_json::json!({
+                "runner_args": runner_args,
+                "collection_path": "target/test-results.xml",
+            }))
+        }
+        Runner::Jest => {
+            let mut runner_args = vec![
+                "npx".to_string(),
+                "jest".to_string(),
+                "--reporters=jest-junit".to_string(),
+                "--outputFile=target/test-results.xml".to_string(),
+            ];
+            for sel in &selected {
+                runner_args.push(sel.clone());
+            }
+
+            json_ok(serde_json::json!({
+                "runner_args": runner_args,
+                "collection_path": "target/test-results.xml",
+            }))
+        }
+        Runner::Unknown => json_err("no test runner detected (vitest or jest)"),
+    }
+}
+
+/// Detected test runner.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Runner {
+    Vitest,
+    Jest,
+    Unknown,
+}
+
+/// Detect the test runner by probing for configuration files.
+fn detect_runner() -> Runner {
+    // Check for vitest config files (preferred)
+    let vitest_configs = ["vitest.config.ts", "vitest.config.js", "vitest.config.mjs"];
+    for config in &vitest_configs {
+        if std::path::Path::new(config).exists() {
+            return Runner::Vitest;
+        }
+    }
+
+    // Check for jest config files
+    let jest_configs = ["jest.config.ts", "jest.config.js", "jest.config.mjs"];
+    for config in &jest_configs {
+        if std::path::Path::new(config).exists() {
+            return Runner::Jest;
+        }
+    }
+
+    // Check package.json for vitest or jest in devDependencies
+    if let Ok(content) = std::fs::read_to_string("package.json") {
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(deps) = parsed["devDependencies"].as_object() {
+                if deps.contains_key("vitest") {
+                    return Runner::Vitest;
+                }
+                if deps.contains_key("jest") {
+                    return Runner::Jest;
+                }
+            }
+        }
+    }
+
+    Runner::Unknown
 }
 
 /// Ingest: parse test runner output (JUnit XML) into runtime edges.
@@ -492,7 +580,21 @@ fn cmd_ingest(_cmd: &serde_json::Value) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::{grammar_for_extension, run_query_with_lang};
+    use std::sync::{LazyLock, Mutex};
     use tree_sitter::Parser;
+
+    /// Global lock for CWD-manipulating tests to prevent parallel interference.
+    static CWD_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    fn with_cwd<R>(f: impl FnOnce() -> R) -> R {
+        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let orig = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+        let result = f();
+        std::env::set_current_dir(&orig).unwrap();
+        result
+    }
 
     fn ts_language() -> tree_sitter::Language {
         tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()
@@ -1079,5 +1181,130 @@ mod tests {
         let source = "import React from \"react\";\n";
         let imports = super::parse_imports_from_source(source, "js");
         assert_eq!(imports.len(), 0, "unsupported extension returns empty");
+    }
+
+    // ========================================================================
+    // run-args tests
+    // ========================================================================
+
+    #[test]
+    fn detect_runner_vitest_config() {
+        with_cwd(|| {
+            use std::io::Write;
+            let mut f = std::fs::File::create("vitest.config.ts").unwrap();
+            write!(f, "export default {{}}\n").unwrap();
+            drop(f);
+
+            let runner = super::detect_runner();
+            assert_eq!(runner, super::Runner::Vitest, "should detect vitest config");
+        });
+    }
+
+    #[test]
+    fn detect_runner_jest_config() {
+        with_cwd(|| {
+            use std::io::Write;
+            let mut f = std::fs::File::create("jest.config.ts").unwrap();
+            write!(f, "export default {{}}\n").unwrap();
+            drop(f);
+
+            let runner = super::detect_runner();
+            assert_eq!(runner, super::Runner::Jest, "should detect jest config");
+        });
+    }
+
+    #[test]
+    fn detect_runner_package_json_vitest() {
+        with_cwd(|| {
+            use std::io::Write;
+            let mut f = std::fs::File::create("package.json").unwrap();
+            write!(f, "{{\"devDependencies\": {{\"vitest\": \"^1.0.0\"}}}}\n").unwrap();
+            drop(f);
+
+            let runner = super::detect_runner();
+            assert_eq!(
+                runner,
+                super::Runner::Vitest,
+                "should detect vitest from package.json"
+            );
+        });
+    }
+
+    #[test]
+    fn detect_runner_unknown() {
+        with_cwd(|| {
+            let runner = super::detect_runner();
+            assert_eq!(
+                runner,
+                super::Runner::Unknown,
+                "no config should return unknown"
+            );
+        });
+    }
+
+    #[test]
+    fn cmd_run_args_vitest() {
+        with_cwd(|| {
+            use std::io::Write;
+            let mut f = std::fs::File::create("vitest.config.ts").unwrap();
+            write!(f, "export default {{}}\n").unwrap();
+            drop(f);
+
+            let cmd = serde_json::json!({
+                "command": "run-args",
+                "params": {
+                    "selected": ["src/test.ts::suite::test", "src/other.test.ts"]
+                }
+            });
+            let result = super::cmd_run_args(&cmd);
+            assert!(
+                result["ok"].as_bool().unwrap_or(false),
+                "should succeed: {:?}",
+                result
+            );
+            assert!(result["result"]["runner_args"]
+                .as_array()
+                .map(|a| a.len() > 0)
+                .unwrap_or(false));
+        });
+    }
+
+    #[test]
+    fn cmd_run_args_missing_selected() {
+        let cmd = serde_json::json!({"command": "run-args"});
+        let result = super::cmd_run_args(&cmd);
+        assert!(
+            !result["ok"].as_bool().unwrap_or(true),
+            "should fail without selected"
+        );
+    }
+
+    #[test]
+    fn cmd_run_args_empty_selected() {
+        let cmd = serde_json::json!({
+            "command": "run-args",
+            "params": {"selected": []}
+        });
+        let result = super::cmd_run_args(&cmd);
+        assert!(
+            !result["ok"].as_bool().unwrap_or(true),
+            "should fail with empty selected"
+        );
+    }
+
+    #[test]
+    fn cmd_run_args_no_runner() {
+        with_cwd(|| {
+            let cmd = serde_json::json!({
+                "command": "run-args",
+                "params": {"selected": ["test.ts"]}
+            });
+            let result = super::cmd_run_args(&cmd);
+            assert!(
+                !result["ok"].as_bool().unwrap_or(true),
+                "should fail without runner: {:?}",
+                result
+            );
+        });
     }
 }
