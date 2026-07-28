@@ -85,13 +85,16 @@ fn is_test_file(name: &str) -> bool {
         || name.ends_with(".spec.mts")
         || name.ends_with(".test.cts")
         || name.ends_with(".spec.cts")
+        // Mocha/chai convention (testaruda-mfk)
+        || name.ends_with(".test.js")
+        || name.ends_with(".spec.js")
 }
 
-/// Check if a path is inside a __tests__ or __test__ directory.
+/// Check if a path is inside a __tests__, __test__, or test/ directory.
 fn is_in_test_dir(path: &std::path::Path) -> bool {
     path.components().any(|c| {
         let name = c.as_os_str().to_string_lossy();
-        name == "__tests__" || name == "__test__"
+        name == "__tests__" || name == "__test__" || name == "test"
     })
 }
 
@@ -291,6 +294,14 @@ fn cmd_discover(_cmd: &serde_json::Value) -> serde_json::Value {
             tests.extend(parsed);
         }
     }
+
+    // Deduplicate by node_id (TIA-ADAPT-004, testaruda-7qr)
+    let mut seen = std::collections::HashSet::new();
+    tests.retain(|t| {
+        t["node_id"]
+            .as_str()
+            .map_or(true, |id| seen.insert(id.to_string()))
+    });
 
     json_ok(serde_json::Value::Array(tests))
 }
@@ -525,25 +536,36 @@ fn parse_imports_from_source(source: &str, ext: &str) -> Vec<String> {
     sources
 }
 
-/// Static deps: extract import/require expressions from changed files.
-/// (Stub for scaffolding — will be implemented with tree-sitter queries.)
-/// Fingerprint: compute blake3 hash of file contents.
+/// Fingerprint: compute blake3 hash of file contents (batch protocol).
+///
+/// Accepts `{"command":"fingerprint","params":{"files":[...]}}` per the adapter
+/// protocol (matching Python/Rust adapter implementations). Returns top-level
+/// `{"ok":true,"fingerprints":[...]}` with one entry per file.
 fn cmd_fingerprint(cmd: &serde_json::Value) -> serde_json::Value {
-    let path = match cmd["path"].as_str() {
-        Some(p) => p,
-        None => return json_err("missing 'path' field"),
+    let params = &cmd["params"];
+    let files: Vec<String> = match params["files"].as_array() {
+        Some(arr) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect(),
+        None => return json_err("missing 'params.files'"),
     };
 
-    let contents = match std::fs::read(path) {
-        Ok(c) => c,
-        Err(e) => return json_err(&format!("failed to read file: {}", e)),
-    };
+    let mut fingerprints = Vec::new();
+    for file in &files {
+        let content = match std::fs::read(file) {
+            Ok(c) => c,
+            Err(e) => return json_err(&format!("cannot read {}: {}", file, e)),
+        };
+        let hash = blake3::hash(&content);
+        fingerprints.push(serde_json::json!({
+            "file": file,
+            "fingerprint": hash.to_hex().to_string(),
+            "symbol": null,
+        }));
+    }
 
-    let hash = blake3::hash(&contents);
-    json_ok(serde_json::json!({
-        "path": path,
-        "fingerprint": hash.to_hex().to_string()
-    }))
+    serde_json::json!({"ok": true, "fingerprints": fingerprints})
 }
 
 /// Run args: detect test runner and build command-line arguments.
@@ -1315,9 +1337,13 @@ mod tests {
         assert!(super::is_test_file("foo.spec.mts"));
         assert!(super::is_test_file("foo.test.cts"));
         assert!(super::is_test_file("foo.spec.cts"));
+        // Mocha/chai convention (testaruda-mfk)
+        assert!(super::is_test_file("app.test.js"));
+        assert!(super::is_test_file("app.spec.js"));
         assert!(!super::is_test_file("foo.ts"));
         assert!(!super::is_test_file("foo.tsx"));
         assert!(!super::is_test_file("foo.utils.ts"));
+        assert!(!super::is_test_file("foo.js"));
     }
 
     #[test]
@@ -1326,8 +1352,13 @@ mod tests {
         assert!(super::is_in_test_dir(Path::new("src/__tests__/foo.ts")));
         assert!(super::is_in_test_dir(Path::new("src/__test__/foo.ts")));
         assert!(super::is_in_test_dir(Path::new("__tests__/foo.ts")));
+        // Mocha convention: test/ directory
+        assert!(super::is_in_test_dir(Path::new("test/app.test.js")));
+        assert!(super::is_in_test_dir(Path::new("test/app.js")));
+        assert!(super::is_in_test_dir(Path::new("src/test/app.test.js")));
         assert!(!super::is_in_test_dir(Path::new("src/tests/foo.ts")));
         assert!(!super::is_in_test_dir(Path::new("src/foo.ts")));
+        assert!(!super::is_in_test_dir(Path::new("testing/foo.ts")));
     }
 
     #[test]
@@ -1662,5 +1693,156 @@ mod tests {
         assert!(super::has_failure_element("<error>"));
         assert!(!super::has_failure_element("<passed>"));
         assert!(!super::has_failure_element(""));
+    }
+
+    // ========================================================================
+    // fingerprint tests
+    // ========================================================================
+
+    #[test]
+    fn cmd_fingerprint_missing_params_files() {
+        let cmd = serde_json::json!({"command": "fingerprint"});
+        let result = super::cmd_fingerprint(&cmd);
+        assert!(
+            !result["ok"].as_bool().unwrap_or(true),
+            "should fail with missing params.files"
+        );
+        assert!(
+            result["error"]
+                .as_str()
+                .unwrap_or("")
+                .contains("params.files"),
+            "error message should mention params.files: {:?}",
+            result["error"]
+        );
+    }
+
+    #[test]
+    fn cmd_fingerprint_empty_files() {
+        let cmd = serde_json::json!({
+            "command": "fingerprint",
+            "params": {"files": []}
+        });
+        let result = super::cmd_fingerprint(&cmd);
+        assert!(
+            result["ok"].as_bool().unwrap_or(false),
+            "should succeed with empty file list: {:?}",
+            result
+        );
+        assert_eq!(
+            result["fingerprints"].as_array().map(|a| a.len()),
+            Some(0),
+            "should return empty fingerprints array"
+        );
+    }
+
+    #[test]
+    fn cmd_fingerprint_single_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("test.ts");
+        std::fs::write(&file_path, "const x = 1;\n").unwrap();
+
+        let cmd = serde_json::json!({
+            "command": "fingerprint",
+            "params": {"files": [file_path.to_string_lossy()]}
+        });
+        let result = super::cmd_fingerprint(&cmd);
+
+        assert!(
+            result["ok"].as_bool().unwrap_or(false),
+            "should succeed: {:?}",
+            result
+        );
+
+        let fingerprints = result["fingerprints"].as_array().unwrap();
+        assert_eq!(fingerprints.len(), 1, "should have one fingerprint");
+
+        let fp = &fingerprints[0];
+        assert_eq!(
+            fp["file"].as_str(),
+            Some(file_path.to_string_lossy().as_ref()),
+            "should include file path"
+        );
+        assert!(
+            fp["fingerprint"]
+                .as_str()
+                .map(|s| s.len() > 0)
+                .unwrap_or(false),
+            "should include non-empty fingerprint"
+        );
+        assert!(fp["symbol"].is_null(), "symbol should be null");
+    }
+
+    #[test]
+    fn cmd_fingerprint_multiple_files() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let file1 = dir.path().join("a.ts");
+        let file2 = dir.path().join("b.ts");
+        std::fs::write(&file1, "const a = 1;\n").unwrap();
+        std::fs::write(&file2, "const b = 2;\n").unwrap();
+
+        let cmd = serde_json::json!({
+            "command": "fingerprint",
+            "params": {"files": [
+                file1.to_string_lossy(),
+                file2.to_string_lossy()
+            ]}
+        });
+        let result = super::cmd_fingerprint(&cmd);
+
+        assert!(result["ok"].as_bool().unwrap_or(false), "should succeed");
+        let fingerprints = result["fingerprints"].as_array().unwrap();
+        assert_eq!(fingerprints.len(), 2, "should have two fingerprints");
+        assert_eq!(
+            fingerprints[0]["file"].as_str(),
+            Some(file1.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            fingerprints[1]["file"].as_str(),
+            Some(file2.to_string_lossy().as_ref())
+        );
+    }
+
+    #[test]
+    fn cmd_fingerprint_nonexistent_file() {
+        let cmd = serde_json::json!({
+            "command": "fingerprint",
+            "params": {"files": ["/nonexistent/path/test.ts"]}
+        });
+        let result = super::cmd_fingerprint(&cmd);
+        assert!(
+            !result["ok"].as_bool().unwrap_or(true),
+            "should fail for nonexistent file: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn cmd_fingerprint_response_format_matches_protocol() {
+        // Verify the top-level response structure matches what stress-test.sh expects:
+        // `.fingerprints // .result.fingerprints // [] | length`
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("test.ts");
+        std::fs::write(&file_path, "const x = 1;\n").unwrap();
+
+        let cmd = serde_json::json!({
+            "command": "fingerprint",
+            "params": {"files": [file_path.to_string_lossy()]}
+        });
+        let result = super::cmd_fingerprint(&cmd);
+
+        // Has top-level fingerprints array (stress-test.sh checks this)
+        assert!(
+            result["fingerprints"].is_array(),
+            "fingerprints should be a top-level array: {:?}",
+            result
+        );
+        // No nesting under .result
+        assert!(
+            result["result"].is_null() || result.get("result").is_none(),
+            "should NOT wrap in .result: {:?}",
+            result
+        );
     }
 }

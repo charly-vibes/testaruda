@@ -27,8 +27,9 @@
 #   4. Times each command and reports errors gracefully
 #   5. Outputs structured JSON to stdout
 #
-# Examples:
-#   ./scripts/stress-test.sh target/scratch/click
+# ARG_MAX safety (testaruda-15t): large payloads are written to temp files
+# and passed via --argfile to avoid exceeding the kernel E2BIG limit.
+##   ./scripts/stress-test.sh target/scratch/click
 #   ./scripts/stress-test.sh target/scratch/tokei
 #   ./scripts/stress-test.sh --base HEAD~5 --head HEAD target/scratch/httpx
 #   ./scripts/stress-test.sh --sample 50 --output results.json .
@@ -91,8 +92,24 @@ adapter_command() {
 }
 
 # JSON-safe string: convert to a single-line JSON string
+# Writes to a temp file and uses --rawfile to avoid ARG_MAX issues
+# with very long paths on systems with small limits (testaruda-15t).
 json_str() {
-    jq -n --arg v "$1" '$v'
+    local val="$1"
+    if [[ -z "$val" ]]; then
+        echo '""'
+        return
+    fi
+    local tmpfile
+    tmpfile="$(mktemp "${TMPDIR:-/tmp}/testaruda_jq.XXXXXX" 2>/dev/null)"
+    if [[ -z "$tmpfile" ]]; then
+        # fallback if mktemp fails
+        jq -n --arg v "$val" '$v'
+        return
+    fi
+    printf '%s' "$val" > "$tmpfile"
+    jq -n --rawfile v "$tmpfile" '$v'
+    rm -f "$tmpfile"
 }
 
 # JSON-safe number
@@ -413,6 +430,10 @@ REPO_URL="$(cd "$WORK_DIR" && git remote get-url origin 2>/dev/null || echo "")"
 HEAD_HASH="$(cd "$WORK_DIR" && git rev-parse HEAD 2>/dev/null || echo "")"
 HEAD_MSG="$(cd "$WORK_DIR" && git log --oneline -1 2>/dev/null || echo "")"
 
+# Write large payloads to temp files to avoid ARG_MAX (testaruda-15t)
+DISCOVER_FILES_FILE="${TMPDIR:-/tmp}/testaruda_discover_files.$$.json"
+printf '%s' "$DISCOVER_FILES" > "$DISCOVER_FILES_FILE"
+
 OUTPUT_JSON="$(jq -n \
     --arg slug "$SLUG" \
     --arg repo_url "$REPO_URL" \
@@ -425,7 +446,7 @@ OUTPUT_JSON="$(jq -n \
     --argjson discover_ok "$DISCOVER_OK" \
     --argjson discover_duration "$DISCOVER_DURATION" \
     --argjson discover_count "$DISCOVER_COUNT" \
-    --arg discover_files "$DISCOVER_FILES" \
+    --argfile discover_files "$DISCOVER_FILES_FILE" \
     --arg discover_error "$DISCOVER_ERROR" \
     --argjson fingerprint_ok "$FINGERPRINT_OK" \
     --argjson fingerprint_duration "$FINGERPRINT_DURATION" \
