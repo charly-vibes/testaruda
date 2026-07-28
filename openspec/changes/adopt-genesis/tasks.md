@@ -16,22 +16,22 @@
 - [ ] 4.2 Test: top-level keys match the shared shape.
 
 ## 5. Add doctor (true-suite-minimum verb)
-- [ ] 5.1 Add `Doctor` variant to the `Commands` enum.
-- [ ] 5.2 Register testaruda's own checks (testaruda.toml schema, adapter config) with `genesis::suite_linter::LinterRegistry`.
-- [ ] 5.3 `doctor` calls `LinterRegistry::run_all()` to run all registered checks; genesis owns the orchestration, testaruda owns the check logic.
-- [ ] 5.4 `--fix` applies safe fixes; each check provides its own fix fn.
+- [x] 5.1 Add `Doctor` variant to the `Commands` enum.
+- [x] 5.2 Register testaruda's own checks (testaruda.toml schema, adapter config) with `genesis::suite_linter::LinterRegistry`.
+- [x] 5.3 `doctor` calls `LinterRegistry::run_all()` to run all registered checks; genesis owns the orchestration, testaruda owns the check logic.
+- [x] 5.4 `--fix` applies safe fixes; each check provides its own fix fn.
 
 ## 6. Ship llm.txt
-- [ ] 6.1 Hand-write a minimal `llm.txt` now (closes Appendix A.3 gap).
+- [x] 6.1 Hand-write a minimal `llm.txt` now (closes Appendix A.3 gap).
 - [ ] 6.2 Switch to `genesis::aix` generation once that module is stable.
 
 ## 7. Clean up
-- [ ] 7.1 `cargo clippy -- -D warnings` clean.
+- [x] 7.1 `cargo clippy -- -D warnings` clean.
 - [ ] 7.2 Verify tool-craft (genesis `.wai` research) Appendix A.3 testaruda row; file a charly-monorepo ticket if inaccurate.
 
 ## 8. Add `feedback` subcommand (wraps `genesis::feedback`)
-- [ ] 8.1 Add `Feedback` variant to the `Commands` enum with `KIND` + flags (playbook §2).
-- [ ] 8.2 Read testaruda's error scratch for `--from-last-error`; never shadow the real error.
-- [ ] 8.3 Default target repo = testaruda's `Cargo.toml` `repository`; labels from playbook §8.
+- [x] 8.1 Add `Feedback` variant to the `Commands` enum with `KIND` + flags (playbook §2).
+- [x] 8.2 Read testaruda's error scratch for `--from-last-error`; never shadow the real error.
+- [x] 8.3 Default target repo = testaruda's `Cargo.toml` `repository`; labels from playbook §8.
 - [ ] 8.4 Error-footer hook: non-zero exits with no `genesis::suggestions::Fix` print `Feedback: testaruda feedback bug --from-last-error`.
-- [ ] 8.5 Regression: `testaruda feedback bug --dry-run` prints body + exact `gh` line; redactor strips a `https://<pat>@…` remote.
+- [x] 8.5 Regression: `testaruda feedback bug --dry-run` prints body + exact `gh` line; redactor strips a `https://<pat>@…` remote.
