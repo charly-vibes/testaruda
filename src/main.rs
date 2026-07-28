@@ -1032,6 +1032,58 @@ fn main() -> miette::Result<()> {
             Ok(())
         }
     }
+    .map_err(|e| {
+        // Error-footer hook (TIA-ADAPT feedback protocol):
+        // On non-zero exit with no Fix suggestion, print feedback command hint
+        let err_msg = format!("{}", e);
+        eprintln!("testaruda: {}", err_msg);
+        eprintln!("Feedback: testaruda feedback bug --from-last-error");
+
+        // Write to genesis error scratch
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let ts = {
+            let days = now / 86400;
+            let time_secs = now % 86400;
+            let hours = time_secs / 3600;
+            let mins = (time_secs % 3600) / 60;
+            let secs = time_secs % 60;
+            let mut y = 1970i64;
+            let mut remaining = days as i64;
+            loop {
+                let days_in_year = if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 { 366 } else { 365 };
+                if remaining < days_in_year { break; }
+                remaining -= days_in_year;
+                y += 1;
+            }
+            let month_days = if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 {
+                [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+            } else {
+                [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+            };
+            let mut m = 1usize;
+            for (i, &md) in month_days.iter().enumerate() {
+                if remaining < md as i64 { m = i + 1; break; }
+                remaining -= md as i64;
+            }
+            if m == 0 { m = 12; }
+            let d = (remaining + 1) as u8;
+            format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", y, m, d, hours, mins, secs)
+        };
+        let record = genesis::feedback::scratch::ErrorRecord {
+            ts,
+            argv: std::env::args().collect(),
+            exit: 1,
+            footer: Some(
+                "Feedback: testaruda feedback bug --from-last-error".into(),
+            ),
+            kind: "error".into(),
+        };
+        genesis::feedback::scratch::write_scratch_best_effort("testaruda", &record);
+        std::process::exit(1);
+    })
 }
 
 // ===== Adapter Pipeline =====

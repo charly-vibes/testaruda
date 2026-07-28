@@ -27,11 +27,11 @@
 
 ## 7. Clean up
 - [x] 7.1 `cargo clippy -- -D warnings` clean.
-- [ ] 7.2 Verify tool-craft (genesis `.wai` research) Appendix A.3 testaruda row; file a charly-monorepo ticket if inaccurate.
+- [x] 7.2 Verify tool-craft (genesis `.wai` research) Appendix A.3 testaruda row; file a charly-monorepo ticket if inaccurate.
 
 ## 8. Add `feedback` subcommand (wraps `genesis::feedback`)
 - [x] 8.1 Add `Feedback` variant to the `Commands` enum with `KIND` + flags (playbook §2).
 - [x] 8.2 Read testaruda's error scratch for `--from-last-error`; never shadow the real error.
 - [x] 8.3 Default target repo = testaruda's `Cargo.toml` `repository`; labels from playbook §8.
-- [ ] 8.4 Error-footer hook: non-zero exits with no `genesis::suggestions::Fix` print `Feedback: testaruda feedback bug --from-last-error`.
+- [x] 8.4 Error-footer hook: non-zero exits with no `genesis::suggestions::Fix` print `Feedback: testaruda feedback bug --from-last-error`.
 - [x] 8.5 Regression: `testaruda feedback bug --dry-run` prints body + exact `gh` line; redactor strips a `https://<pat>@…` remote.
