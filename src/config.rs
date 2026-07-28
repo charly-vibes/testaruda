@@ -1,9 +1,10 @@
 //! Configuration — parses `testaruda.toml` for adapter registrations and project settings.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use genesis::config::ConfigFile;
+use serde::{Deserialize, Serialize};
 
 /// The shape of the `[adapters]` section in testaruda.toml.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17,7 +18,7 @@ pub enum AdaptersConfigShape {
 }
 
 /// Top-level project configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
     #[serde(default)]
     pub adapters: AdapterConfig,
@@ -45,7 +46,7 @@ pub struct Config {
 }
 
 /// Environment configuration (TIA-CORE-008).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct EnvironmentConfig {
     /// Name/fingerprint of the current environment. Defaults to "default".
     #[serde(default = "default_environment_name")]
@@ -65,7 +66,7 @@ impl Default for EnvironmentConfig {
 }
 
 /// Discover configuration: directory exclusion patterns (TIA-ADAPT-004).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DiscoverConfig {
     /// Directory/file names to exclude from discover walks.
     /// Defaults to common patterns (target, .git, node_modules, .venv, etc.).
@@ -98,7 +99,7 @@ impl Default for DiscoverConfig {
 }
 
 /// Must-run rules configuration (TIA-SAFE-009).
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct MustRunConfig {
     /// Glob patterns mapped to lists of test node IDs.
     /// Flattened so TOML looks like:
@@ -111,7 +112,7 @@ pub struct MustRunConfig {
 }
 
 /// Periodic full-run configuration (TIA-SAFE-006).
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct PeriodicFullRunConfig {
     /// How often (in hours) to run a full test suite, regardless of
     /// change-based selection. 0 or missing means disabled.
@@ -136,10 +137,16 @@ impl Default for Config {
     }
 }
 
+impl ConfigFile for Config {
+    fn path(repo_root: &Path) -> PathBuf {
+        repo_root.join("testaruda.toml")
+    }
+}
+
 impl Config {
-    /// Load config from the project root.
+    /// Load config from the project root, normalizing deprecated formats.
     pub fn load(project_root: &Path) -> miette::Result<Self> {
-        let path = project_root.join("testaruda.toml");
+        let path = Self::path(project_root);
         let content = std::fs::read_to_string(&path)
             .map_err(|e| miette::miette!("Failed to read {}: {}", path.display(), e))?;
         // Normalize deprecated flat adapter format to canonical before parsing
@@ -211,7 +218,7 @@ exclude = ["target", ".git", "node_modules", ".venv", "venv",
 /// ```
 ///
 /// The deprecated flat format is normalized to canonical during `Config::load`.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AdapterConfig {
     /// Extension-to-binary mappings.
     #[serde(default)]

@@ -5,9 +5,16 @@ use std::io::IsTerminal;
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
 
+/// Build the genesis config registry with testaruda's config registered.
+pub fn build_config_registry() -> genesis::config::ConfigRegistry {
+    let mut reg = genesis::config::ConfigRegistry::new();
+    reg.register::<testaruda::config::Config>("testaruda", "testaruda.toml");
+    reg
+}
+
 /// Build the genesis command registry with all testaruda commands.
 ///
-/// Used for typo detection via `genesis::suggestions`.
+/// Used for typo detection via `genesis::suggestions` and the guide scaffold.
 pub fn build_command_registry() -> genesis::suggestions::CommandRegistry {
     let mut reg = genesis::suggestions::CommandRegistry::new();
     reg.register(
@@ -169,6 +176,30 @@ fn main() -> miette::Result<()> {
         builder.init();
     }
 
+    // Initialize the genesis guide scaffold
+    let all_commands = [
+        "init",
+        "select",
+        "calibrate",
+        "ingest",
+        "graph",
+        "import",
+        "explain",
+        "validate",
+        "discover",
+        "metrics",
+        "doctor",
+        "completions",
+    ];
+    let guide = genesis::guide::Guide::builder("testaruda", env!("CARGO_PKG_VERSION"))
+        .about("Language-agnostic test selection engine — compute the affected test set from a code change via provenance-semiring dependency analysis")
+        .commands(&all_commands)
+        .build();
+
+    // Build and validate the config registry (tool-craft contract)
+    let config_registry = build_config_registry();
+    let _store = genesis::config::ConfigStore::new(config_registry);
+
     let cli = match Cli::try_parse() {
         Ok(c) => c,
         Err(err) => {
@@ -184,8 +215,7 @@ fn main() -> miette::Result<()> {
 
             if let Some(ref cmd) = unknown {
                 let engine = genesis::suggestions::SuggestionEngine::new();
-                let reg = build_command_registry();
-                if let Some(suggestion) = engine.suggest_typo(cmd, &reg) {
+                if let Some(suggestion) = engine.suggest_typo(cmd, guide.registry()) {
                     eprintln!("{}", err.render());
                     eprintln!();
                     eprintln!("💡 {}", suggestion.message());
