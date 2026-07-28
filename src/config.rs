@@ -1,8 +1,20 @@
 //! Configuration — parses `testaruda.toml` for adapter registrations and project settings.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use serde::Deserialize;
+
+/// The shape of the `[adapters]` section in testaruda.toml.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdaptersConfigShape {
+    /// Canonical: extensions under `[adapters.extensions]` sub-table.
+    Canonical,
+    /// Deprecated: extension keys at the top-level `[adapters]` table.
+    Flat,
+    /// No adapter configuration found.
+    Missing,
+}
 
 /// Top-level project configuration.
 #[derive(Debug, Clone, Deserialize)]
@@ -130,7 +142,9 @@ impl Config {
         let path = project_root.join("testaruda.toml");
         let content = std::fs::read_to_string(&path)
             .map_err(|e| miette::miette!("Failed to read {}: {}", path.display(), e))?;
-        toml::from_str(&content)
+        // Normalize deprecated flat adapter format to canonical before parsing
+        let normalized = normalize_adapters_config(&content);
+        toml::from_str(&normalized)
             .map_err(|e| miette::miette!("Failed to parse {}: {}", path.display(), e))
     }
 
@@ -181,11 +195,27 @@ exclude = ["target", ".git", "node_modules", ".venv", "venv",
 }
 
 /// Adapter registry configuration.
+///
+/// Supports two TOML shapes (canonical and deprecated flat):
+/// ```toml
+/// # Canonical (preferred):
+/// [adapters]
+/// default = "testaruda-adapter-rust"
+/// [adapters.extensions]
+/// ".rs" = "testaruda-adapter-rust"
+///
+/// # Deprecated flat format:
+/// [adapters]
+/// ".rs" = "testaruda-adapter-rust"
+/// default = "testaruda-adapter-rust"
+/// ```
+///
+/// The deprecated flat format is normalized to canonical during `Config::load`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AdapterConfig {
     /// Extension-to-binary mappings.
     #[serde(default)]
-    pub extensions: std::collections::HashMap<String, String>,
+    pub extensions: HashMap<String, String>,
     /// Default adapter binary.
     #[serde(default)]
     pub default: Option<String>,
@@ -272,24 +302,151 @@ pub fn make_exclude_filter(exclude: &[String]) -> impl Fn(&walkdir::DirEntry) ->
 
 impl AdapterConfig {
     /// Build an `AdapterRegistry` from this config.
-    /// Excludes the "default" key from extensions (handled separately).
+    /// The `default` field is handled separately from extensions.
     pub fn to_registry(&self) -> crate::adapter::AdapterRegistry {
         let mut reg = crate::adapter::AdapterRegistry::new();
         for (ext, binary) in &self.extensions {
-            if ext != "default" {
-                reg.register(ext, binary);
-            }
+            reg.register(ext, binary);
         }
         if let Some(ref default) = self.default {
             reg.set_default(default);
         }
         reg
     }
+
+    /// Detect the shape of the `[adapters]` section in raw TOML.
+    /// Returns `AdaptersConfigShape::Flat` when extension-like keys (starting with `.`)
+    /// are found directly under `[adapters]` instead of under `[adapters.extensions]`.
+    pub fn detect_shape(toml_content: &str) -> AdaptersConfigShape {
+        let value: Result<toml::Value, _> = toml_content.parse();
+        let value = match value {
+            Ok(v) => v,
+            Err(_) => return AdaptersConfigShape::Missing,
+        };
+
+        let adapters = match value.get("adapters") {
+            Some(v) => v,
+            None => return AdaptersConfigShape::Missing,
+        };
+
+        let table = match adapters.as_table() {
+            Some(t) => t,
+            None => return AdaptersConfigShape::Missing,
+        };
+
+        // Canonical shape: extensions are under a sub-table `[adapters.extensions]`
+        if table.contains_key("extensions") {
+            return AdaptersConfigShape::Canonical;
+        }
+
+        // Flat shape: extension-like keys (starting with `.`) at the top level
+        let has_extension_keys = table.keys().any(|k| k.starts_with('.'));
+        if has_extension_keys {
+            return AdaptersConfigShape::Flat;
+        }
+
+        // No extension keys found — could be missing or a config with only `default`
+        AdaptersConfigShape::Canonical
+    }
+}
+
+/// Normalize the deprecated flat `[adapters]` format to canonical `[adapters.extensions]`.
+///
+/// The flat format puts extension keys like `.rs` directly under `[adapters]`:
+/// ```toml
+/// [adapters]
+/// ".rs" = "testaruda-adapter-rust"
+/// default = "testaruda-adapter-rust"
+/// ```
+///
+/// This is normalized to:
+/// ```toml
+/// [adapters]
+/// default = "testaruda-adapter-rust"
+/// [adapters.extensions]
+/// ".rs" = "testaruda-adapter-rust"
+/// ```
+///
+/// If the config is already canonical, or if parsing fails, returns the original content.
+fn normalize_adapters_config(content: &str) -> String {
+    // Strategy: parse the raw TOML, detect flat format, then string-manipulate
+    // to move extension keys under [adapters.extensions].
+    // We don't use toml::Value::to_string() because its Display output
+    // uses inline tables which aren't parseable by toml::from_str.
+
+    let value: toml::Value = match content.parse() {
+        Ok(v) => v,
+        Err(_) => return content.to_string(),
+    };
+
+    let adapters = match value.get("adapters") {
+        Some(v) => v,
+        None => return content.to_string(),
+    };
+
+    let table = match adapters.as_table() {
+        Some(t) => t,
+        None => return content.to_string(),
+    };
+
+    // If it already has an extensions sub-table, it's canonical — no change needed
+    if table.contains_key("extensions") {
+        return content.to_string();
+    }
+
+    // Check for extension-like keys at the top level (flat format)
+    let has_extension_keys: Vec<String> = table
+        .keys()
+        .filter(|k| k.starts_with('.'))
+        .cloned()
+        .collect();
+
+    if has_extension_keys.is_empty() {
+        return content.to_string();
+    }
+
+    // Build the normalized output via string manipulation of the original TOML.
+    // We parse the adapters section, extract extension keys, and rewrite
+    // the [adapters] section with extensions under [adapters.extensions].
+
+    // Collect all non-extension keys from adapters (e.g., default)
+    let non_extension_entries: Vec<(&String, &toml::Value)> =
+        table.iter().filter(|(k, _)| !k.starts_with('.')).collect();
+
+    // Serialize the canonical form using serde's toml serialization
+    let mut canonical_adapters = toml::value::Table::new();
+    for (key, val) in &non_extension_entries {
+        canonical_adapters.insert((*key).clone(), (*val).clone());
+    }
+
+    let mut extensions = toml::value::Table::new();
+    for key in &has_extension_keys {
+        if let Some(val) = table.get(key) {
+            extensions.insert(key.clone(), val.clone());
+        }
+    }
+    canonical_adapters.insert("extensions".to_string(), toml::Value::Table(extensions));
+
+    // Build the full output: for all top-level tables in the original TOML,
+    // replace the adapters table with the canonical version.
+    let mut out = toml::value::Table::new();
+    if let Some(root_table) = value.as_table() {
+        let canonical_adapters_value = toml::Value::Table(canonical_adapters);
+        for (key, val) in root_table {
+            if key == "adapters" {
+                out.insert(key.clone(), canonical_adapters_value.clone());
+            } else {
+                out.insert(key.clone(), val.clone());
+            }
+        }
+    }
+
+    toml::to_string(&toml::Value::Table(out)).unwrap_or_else(|_| content.to_string())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Config;
+    use super::*;
 
     #[test]
     fn generated_config_round_trips_adapter_extensions() {
@@ -330,5 +487,180 @@ mod tests {
             config.adapters.default.as_deref(),
             Some("testaruda-adapter-rust")
         );
+    }
+
+    #[test]
+    fn flat_format_parses_via_config_load() {
+        let project = tempfile::tempdir().unwrap();
+        let path = project.path().join("testaruda.toml");
+        std::fs::write(
+            &path,
+            r#"
+[adapters]
+".rs" = "testaruda-adapter-rust"
+".py" = "testaruda-adapter-python"
+default = "testaruda-adapter-rust"
+"#,
+        )
+        .unwrap();
+
+        let config = Config::load(project.path()).unwrap();
+        assert_eq!(
+            config.adapters.extensions.get(".rs").map(String::as_str),
+            Some("testaruda-adapter-rust")
+        );
+        assert_eq!(
+            config.adapters.extensions.get(".py").map(String::as_str),
+            Some("testaruda-adapter-python")
+        );
+        assert_eq!(
+            config.adapters.default.as_deref(),
+            Some("testaruda-adapter-rust")
+        );
+    }
+
+    #[test]
+    fn canonical_format_parses_correctly() {
+        let toml_content = r#"
+[adapters]
+default = "testaruda-adapter-rust"
+
+[adapters.extensions]
+".rs" = "testaruda-adapter-rust"
+".py" = "testaruda-adapter-python"
+"#;
+        let config: Config = toml::from_str(toml_content).unwrap();
+        assert_eq!(
+            config.adapters.extensions.get(".rs").map(String::as_str),
+            Some("testaruda-adapter-rust")
+        );
+        assert_eq!(
+            config.adapters.extensions.get(".py").map(String::as_str),
+            Some("testaruda-adapter-python")
+        );
+        assert_eq!(
+            config.adapters.default.as_deref(),
+            Some("testaruda-adapter-rust")
+        );
+    }
+
+    #[test]
+    fn detect_shape_canonical() {
+        let toml = r#"
+[adapters]
+default = "testaruda-adapter-rust"
+[adapters.extensions]
+".rs" = "testaruda-adapter-rust"
+"#;
+        assert_eq!(
+            AdapterConfig::detect_shape(toml),
+            AdaptersConfigShape::Canonical
+        );
+    }
+
+    #[test]
+    fn detect_shape_flat() {
+        let toml = r#"
+[adapters]
+".rs" = "testaruda-adapter-rust"
+default = "testaruda-adapter-rust"
+"#;
+        assert_eq!(AdapterConfig::detect_shape(toml), AdaptersConfigShape::Flat);
+    }
+
+    #[test]
+    fn detect_shape_missing() {
+        assert_eq!(
+            AdapterConfig::detect_shape(""),
+            AdaptersConfigShape::Missing
+        );
+    }
+
+    #[test]
+    fn both_formats_produce_equivalent_registry() {
+        let canonical = r#"
+[adapters]
+default = "my-default"
+[adapters.extensions]
+".rs" = "my-rust"
+".py" = "my-python"
+"#;
+
+        let c: Config = toml::from_str(canonical).unwrap();
+
+        // Flat format needs to go through Config::load for normalization
+        let project = tempfile::tempdir().unwrap();
+        let path = project.path().join("testaruda.toml");
+        std::fs::write(
+            &path,
+            r#"
+[adapters]
+".rs" = "my-rust"
+".py" = "my-python"
+default = "my-default"
+"#,
+        )
+        .unwrap();
+        let f = Config::load(project.path()).unwrap();
+
+        let reg_c = c.adapters.to_registry();
+        let reg_f = f.adapters.to_registry();
+
+        // Both should resolve the same way
+        assert_eq!(
+            reg_c.resolve("foo.rs"),
+            reg_f.resolve("foo.rs"),
+            "canonical and flat should resolve .rs identically"
+        );
+        assert_eq!(
+            reg_c.resolve("foo.py"),
+            reg_f.resolve("foo.py"),
+            "canonical and flat should resolve .py identically"
+        );
+        assert_eq!(
+            reg_c.default_binary(),
+            reg_f.default_binary(),
+            "canonical and flat should have same default"
+        );
+    }
+
+    #[test]
+    fn normalize_adapters_config_converts_flat_to_canonical() {
+        let flat = r#"[adapters]
+".rs" = "testaruda-adapter-rust"
+".py" = "testaruda-adapter-python"
+default = "testaruda-adapter-rust"
+"#;
+        let normalized = super::normalize_adapters_config(flat);
+        let value: toml::Value = normalized.parse().unwrap();
+        let adapters = value.get("adapters").unwrap().as_table().unwrap();
+        assert!(
+            adapters.contains_key("extensions"),
+            "normalized config should have [adapters.extensions]"
+        );
+        let extensions = adapters.get("extensions").unwrap().as_table().unwrap();
+        assert_eq!(
+            extensions.get(".rs").unwrap().as_str(),
+            Some("testaruda-adapter-rust")
+        );
+        assert_eq!(
+            extensions.get(".py").unwrap().as_str(),
+            Some("testaruda-adapter-python")
+        );
+        assert_eq!(
+            adapters.get("default").unwrap().as_str(),
+            Some("testaruda-adapter-rust")
+        );
+    }
+
+    #[test]
+    fn normalize_leaves_canonical_unchanged() {
+        let canonical = r#"[adapters]
+default = "testaruda-adapter-rust"
+[adapters.extensions]
+".rs" = "testaruda-adapter-rust"
+"#;
+        let normalized = super::normalize_adapters_config(canonical);
+        assert_eq!(normalized, canonical);
     }
 }

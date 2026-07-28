@@ -99,6 +99,8 @@ enum Command {
     Discover {},
     /// Show operational metrics
     Metrics {},
+    /// Validate project configuration (testaruda.toml)
+    Doctor,
     /// Generate CLI documentation in markdown (internal use)
     #[command(hide = true)]
     GenCliDocs,
@@ -752,6 +754,62 @@ fn main() -> miette::Result<()> {
                 quarantined_count = quarantined_count,
                 schema_version = schema_version,
             );
+
+            Ok(())
+        }
+        Command::Doctor => {
+            let project_root = find_project_root()?;
+            let config_path = project_root.join("testaruda.toml");
+
+            if !config_path.exists() {
+                eprintln!("⚠️  No testaruda.toml found at {}", config_path.display());
+                eprintln!("   Run `testaruda init` to create one.");
+                std::process::exit(1);
+            }
+
+            let content = std::fs::read_to_string(&config_path)
+                .map_err(|e| miette::miette!("Failed to read {}: {}", config_path.display(), e))?;
+
+            let shape = testaruda::config::AdapterConfig::detect_shape(&content);
+            match shape {
+                testaruda::config::AdaptersConfigShape::Canonical => {
+                    println!("✅ Config is canonical: extensions under [adapters.extensions]");
+                }
+                testaruda::config::AdaptersConfigShape::Flat => {
+                    eprintln!(
+                        "❌ Config uses deprecated format: extension keys at top-level [adapters]"
+                    );
+                    eprintln!();
+                    eprintln!("   The canonical format puts extension mappings under [adapters.extensions]:");
+                    eprintln!();
+                    eprintln!("     [adapters]");
+                    eprintln!("     default = \"testaruda-adapter-rust\"");
+                    eprintln!();
+                    eprintln!("     [adapters.extensions]");
+                    eprintln!("     \".rs\" = \"testaruda-adapter-rust\"");
+                    eprintln!("     \".py\" = \"testaruda-adapter-python\"");
+                    eprintln!();
+                    eprintln!("   To fix: move extension entries under [adapters.extensions] in");
+                    eprintln!("   {}", config_path.display());
+                    std::process::exit(1);
+                }
+                testaruda::config::AdaptersConfigShape::Missing => {
+                    eprintln!("⚠️  No [adapters] section found in testaruda.toml");
+                    eprintln!("   Run `testaruda init` to regenerate with defaults.");
+                    std::process::exit(1);
+                }
+            }
+
+            // Also validate that the config parses correctly
+            match testaruda::config::Config::load(&project_root) {
+                Ok(_) => {
+                    println!("✅ Config parses correctly");
+                }
+                Err(e) => {
+                    eprintln!("❌ Config parse error: {}", e);
+                    std::process::exit(1);
+                }
+            }
 
             Ok(())
         }
