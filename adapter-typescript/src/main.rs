@@ -568,13 +568,173 @@ fn detect_runner() -> Runner {
 }
 
 /// Ingest: parse test runner output (JUnit XML) into runtime edges.
-/// (Stub for scaffolding — will be implemented with JUnit parsing.)
-fn cmd_ingest(_cmd: &serde_json::Value) -> serde_json::Value {
+fn cmd_ingest(cmd: &serde_json::Value) -> serde_json::Value {
+    let params = &cmd["params"];
+    let run_output = match params["run_output"].as_str() {
+        Some(s) => s,
+        None => return json_err("missing 'params.run_output'"),
+    };
+
+    if run_output.is_empty() {
+        return json_err("empty run output");
+    }
+
+    let mut per_test_results: Vec<serde_json::Value> = Vec::new();
+
+    // Detect JUnit XML format
+    let trimmed = run_output.trim();
+    if trimmed.starts_with("<?xml")
+        || trimmed.starts_with("<testsuites")
+        || trimmed.starts_with("<testsuite")
+    {
+        per_test_results = parse_junit_xml(run_output);
+    }
+
+    // If no JUnit results, try parsing as verbose output
+    if per_test_results.is_empty() {
+        for line in run_output.lines() {
+            let trimmed = line.trim();
+            if trimmed.ends_with(" PASSED") {
+                let test_id = trimmed
+                    .strip_suffix(" PASSED")
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_default();
+                if !test_id.is_empty() {
+                    per_test_results.push(serde_json::json!({
+                        "test_id": test_id,
+                        "outcome": "passed",
+                    }));
+                }
+            } else if trimmed.ends_with(" FAILED") {
+                let test_id = trimmed
+                    .strip_suffix(" FAILED")
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_default();
+                if !test_id.is_empty() {
+                    per_test_results.push(serde_json::json!({
+                        "test_id": test_id,
+                        "outcome": "failed",
+                    }));
+                }
+            }
+        }
+    }
+
+    // Build runtime edges: from test_id to its file path
+    let mut runtime_edges: Vec<serde_json::Value> = Vec::new();
+    for test in &per_test_results {
+        if let Some(test_id) = test["test_id"].as_str() {
+            if let Some(file_path) = test_id.split("::").next() {
+                if !file_path.is_empty() {
+                    runtime_edges.push(serde_json::json!({
+                        "from": test_id,
+                        "to": file_path,
+                        "weight": 1_000_000,
+                        "origin": "runtime",
+                    }));
+                }
+            }
+        }
+    }
+
     json_ok(serde_json::json!({
-        "results": [],
-        "edges": [],
-        "warnings": ["ingest not yet implemented"]
+        "runtime_edges": runtime_edges,
+        "per_test_results": per_test_results,
+        "external_inputs": [],
     }))
+}
+
+/// Parse a JUnit XML testcase tag and extract attributes.
+fn parse_junit_testcase(line: &str) -> Option<(&str, &str, f64)> {
+    let tag_start = line.find("<testcase")?;
+
+    // Find the closing > of the tag, handling > inside attribute values
+    let line_after = &line[tag_start..];
+    let mut in_quote = false;
+    let mut tag_end = 0;
+    for (i, ch) in line_after.char_indices() {
+        if ch == '"' {
+            in_quote = !in_quote;
+        } else if ch == '>' && !in_quote {
+            tag_end = tag_start + i + 1;
+            break;
+        }
+    }
+    if tag_end == 0 {
+        return None;
+    }
+
+    let tag = &line[tag_start..tag_end];
+
+    let name = extract_xml_attr(tag, "name")?;
+    let file = extract_xml_attr(tag, "file").or_else(|| extract_xml_attr(tag, "classname"))?;
+    let time_str = extract_xml_attr(tag, "time").unwrap_or("0");
+    let time_secs: f64 = time_str.parse().unwrap_or(0.0);
+
+    Some((name, file, time_secs))
+}
+
+/// Extract the value of an XML attribute from a tag string.
+fn extract_xml_attr<'a>(tag: &'a str, attr: &str) -> Option<&'a str> {
+    let pattern_dq = format!(r#" {}=""#, attr);
+    let alt_pattern_dq = format!(r#"{}""#, attr);
+    let start = tag.find(&pattern_dq).or_else(|| tag.find(&alt_pattern_dq));
+    if let Some(start) = start {
+        let value_start = start + pattern_dq.len();
+        if let Some(end) = tag[value_start..].find('"') {
+            let val = &tag[value_start..value_start + end];
+            if !val.is_empty() {
+                return Some(val);
+            }
+        }
+    }
+    None
+}
+
+/// Check if a block of text contains a <failure or <error element.
+fn has_failure_element(text: &str) -> bool {
+    text.contains("<failure") || text.contains("<error")
+}
+
+/// Parse JUnit XML output and return per-test results.
+fn parse_junit_xml(content: &str) -> Vec<serde_json::Value> {
+    let mut results = Vec::new();
+    let lines: Vec<&str> = content.lines().collect();
+
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        if let Some((name, file, time_secs)) = parse_junit_testcase(line) {
+            let test_id = format!("{}::{}", file, name);
+
+            // Collect content until </testcase> (may span multiple lines)
+            let mut block = line.to_string();
+            if !line.trim().ends_with("</testcase>") {
+                for (j, next_line) in lines.iter().enumerate().skip(i + 1) {
+                    block.push_str(next_line);
+                    if next_line.contains("</testcase>") {
+                        i = j;
+                        break;
+                    }
+                }
+            }
+
+            let outcome = if has_failure_element(&block) {
+                "failed"
+            } else {
+                "passed"
+            };
+
+            results.push(serde_json::json!({
+                "test_id": test_id,
+                "outcome": outcome,
+                "duration_ms": (time_secs * 1000.0) as u64,
+            }));
+        }
+        i += 1;
+    }
+
+    results
 }
 
 #[cfg(test)]
@@ -1306,5 +1466,124 @@ mod tests {
                 result
             );
         });
+    }
+
+    // ========================================================================
+    // ingest tests
+    // ========================================================================
+
+    #[test]
+    fn ingest_missing_run_output() {
+        let cmd = serde_json::json!({"command": "ingest"});
+        let result = super::cmd_ingest(&cmd);
+        assert!(
+            !result["ok"].as_bool().unwrap_or(true),
+            "should fail without run_output"
+        );
+    }
+
+    #[test]
+    fn ingest_empty_run_output() {
+        let cmd = serde_json::json!({
+            "command": "ingest",
+            "params": {"run_output": ""}
+        });
+        let result = super::cmd_ingest(&cmd);
+        assert!(
+            !result["ok"].as_bool().unwrap_or(true),
+            "should fail with empty run_output"
+        );
+    }
+
+    #[test]
+    fn ingest_junit_xml_basic() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="test.ts" file="test.ts">
+    <testcase classname="test.ts" name="suite > test" file="test.ts" time="0.001">
+    </testcase>
+  </testsuite>
+</testsuites>"#;
+        let cmd = serde_json::json!({
+            "command": "ingest",
+            "params": {"run_output": xml}
+        });
+        let result = super::cmd_ingest(&cmd);
+        assert!(
+            result["ok"].as_bool().unwrap_or(false),
+            "should succeed: {:?}",
+            result
+        );
+
+        let results = &result["result"]["per_test_results"];
+        let arr = results.as_array().unwrap();
+        assert_eq!(arr.len(), 1, "should have 1 test result");
+
+        let edges = &result["result"]["runtime_edges"];
+        let edge_arr = edges.as_array().unwrap();
+        assert_eq!(edge_arr.len(), 1, "should have 1 runtime edge");
+    }
+
+    #[test]
+    fn ingest_junit_xml_failure() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="test.ts" file="test.ts">
+    <testcase classname="test.ts" name="should fail" file="test.ts" time="0.005">
+      <failure message="expected 2 to be 3">AssertionError</failure>
+    </testcase>
+  </testsuite>
+</testsuites>"#;
+        let cmd = serde_json::json!({
+            "command": "ingest",
+            "params": {"run_output": xml}
+        });
+        let result = super::cmd_ingest(&cmd);
+        let results = &result["result"]["per_test_results"];
+        let arr = results.as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["outcome"], "failed", "should detect failure");
+    }
+
+    #[test]
+    fn ingest_verbose_output() {
+        let output = "test.ts::suite > test PASSED\ntest.ts::other test FAILED\n";
+        let cmd = serde_json::json!({
+            "command": "ingest",
+            "params": {"run_output": output}
+        });
+        let result = super::cmd_ingest(&cmd);
+        let results = &result["result"]["per_test_results"];
+        let arr = results.as_array().unwrap();
+        assert_eq!(arr.len(), 2, "should parse verbose output");
+    }
+
+    #[test]
+    fn ingest_unparseable_output() {
+        let output = "some random output\nthat is not XML or verbose\n";
+        let cmd = serde_json::json!({
+            "command": "ingest",
+            "params": {"run_output": output}
+        });
+        let result = super::cmd_ingest(&cmd);
+        let results = &result["result"]["per_test_results"];
+        let arr = results.as_array().unwrap();
+        assert_eq!(arr.len(), 0, "unparseable output should return empty");
+    }
+
+    #[test]
+    fn extract_xml_attr_basic() {
+        let tag = r#"<testcase name="my test" file="src/test.ts" time="0.001">"#;
+        assert_eq!(super::extract_xml_attr(tag, "name"), Some("my test"));
+        assert_eq!(super::extract_xml_attr(tag, "file"), Some("src/test.ts"));
+        assert_eq!(super::extract_xml_attr(tag, "time"), Some("0.001"));
+    }
+
+    #[test]
+    fn has_failure_element_detection() {
+        assert!(super::has_failure_element("<failure>"));
+        assert!(super::has_failure_element("<error>"));
+        assert!(!super::has_failure_element("<passed>"));
+        assert!(!super::has_failure_element(""));
     }
 }
