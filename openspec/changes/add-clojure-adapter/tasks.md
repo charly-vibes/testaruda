@@ -1,11 +1,11 @@
 ## 1. Crate scaffolding & tree-sitter queries
 - [x] 1.1 Create `adapter-clojure/` crate directory with `Cargo.toml`
       depending on `tree-sitter = "0.25"` and `tree-sitter-clojure = "0.1"`
-- [ ] 1.2 Create `adapter-clojure/queries/discover.scm` — tree-sitter query
+- [x] 1.2 Create `adapter-clojure/queries/discover.scm` — tree-sitter query
       matching `(deftest|deftest-)` forms and their test names
-- [ ] 1.3 Create `adapter-clojure/queries/ns.scm` — tree-sitter query matching
+- [x] 1.3 Create `adapter-clojure/queries/ns.scm` — tree-sitter query matching
       `(ns ...)` declarations and extracting the namespace name
-- [ ] 1.4 Create `adapter-clojure/queries/deps.scm` — tree-sitter query matching
+- [x] 1.4 Create `adapter-clojure/queries/deps.scm` — tree-sitter query matching
       `(:require ...)`, `(:use ...)`, `(:import ...)` entries inside `ns` forms
 - [ ] 1.5 Write Rust query runner function: given a `tree_sitter::Tree` and a
       query file, return captured node ranges as `(name, line, column)` tuples

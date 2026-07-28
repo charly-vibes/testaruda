@@ -16,6 +16,7 @@ walkdir = "2"
 # Pinned to match sibling project pretender (see openspec/changes/add-clojure-adapter).
 tree-sitter = "0.25"
 tree-sitter-clojure = "0.1"
+streaming-iterator = "0.1"
 
 [dev-dependencies]
 tempfile = "3"
