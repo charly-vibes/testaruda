@@ -15,6 +15,7 @@
 #   --sample N         Max test items to fetch run-args for (default: 10)
 #   --output PATH      Write JSON results to file (default: stdout)
 #   --adapter PATH     Adapter binary (default: auto-detect from repo)
+#   --test-dir PATH    Subdirectory to discover tests in (for monorepos)
 #   --timeout SECS     Timeout per adapter command in seconds (default: 30)
 #   --help             Show this help
 #
@@ -32,6 +33,8 @@
 #   ./scripts/stress-test.sh --base HEAD~5 --head HEAD target/scratch/httpx
 #   ./scripts/stress-test.sh --sample 50 --output results.json .
 #   for d in target/scratch/*/; do ./scripts/stress-test.sh "$d"; done
+#   # For monorepos, discover tests from subpackage:
+#   ./scripts/stress-test.sh --test-dir packages/zod target/scratch/zod
 #
 # Dependencies: jq, git, testaruda-adapter-python (on PATH or --adapter)
 set -euo pipefail
@@ -112,9 +115,25 @@ detect_adapter() {
 resolve_adapter() {
     local bin="$1"
     if command -v "$bin" &>/dev/null; then echo "$bin"; return 0; fi
-    if [[ -x "$bin" ]]; then echo "$bin"; return 0; fi
-    if [[ -x "target/debug/$bin" ]]; then echo "target/debug/$bin"; return 0; fi
-    if [[ -x "target/release/$bin" ]]; then echo "target/release/$bin"; return 0; fi
+    if [[ -x "$bin" ]]; then
+        # Resolve to absolute path if relative
+        if [[ "$bin" != /* ]]; then
+            echo "$(cd . && realpath "$bin" 2>/dev/null || echo "$bin")"
+        else
+            echo "$bin"
+        fi
+        return 0
+    fi
+    # Check in project target directories (must be absolute for cross-directory use)
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    if [[ -x "$script_dir/target/debug/$bin" ]]; then
+        echo "$script_dir/target/debug/$bin"
+        return 0
+    fi
+    if [[ -x "$script_dir/target/release/$bin" ]]; then
+        echo "$script_dir/target/release/$bin"
+        return 0
+    fi
     echo "$bin"
     return 1
 }
@@ -355,29 +374,34 @@ if [[ "$DISCOVER_COUNT" -gt 0 ]]; then
     # Simulate test runner output for discovered tests
     SIMULATED_LINES="$(echo "$DISCOVER_RESPONSE" | jq -r ".result | map(.node_id) | .[0:10] | .[]")"
 
-    # Build newline-separated run_output
-    RUN_OUTPUT=""
-    first=true
-    while IFS= read -r tid; do
-        if [[ -z "$tid" ]]; then continue; fi
-        if $first; then first=false; else RUN_OUTPUT+=$'\n'; fi
-        RUN_OUTPUT+="{\"test_id\":\"$tid\",\"outcome\":\"passed\",\"duration_ms\":5}"
-    done <<< "$SIMULATED_LINES"
-
-    # Escape the run_output for JSON
-    RUN_OUTPUT_ESCAPED="$(echo "$RUN_OUTPUT" | jq -Rs .)"
-
-    INGEST_CMD="{\"command\":\"ingest\",\"params\":{\"run_output\":$RUN_OUTPUT_ESCAPED}}"
-
-    START="$(date +%s%N)"
-    INGEST_RESPONSE="$(adapter_command "$INGEST_CMD" "$WORK_DIR")"
-    INGEST_DURATION=$(( ($(date +%s%N) - START) / 1000000 ))
-
-    if echo "$INGEST_RESPONSE" | jq -e '.ok == true' >/dev/null 2>&1; then
-        INGEST_OK=true
-        INGEST_COUNT="$(echo "$INGEST_RESPONSE" | jq '.result.per_test_results | length')"
+    if [[ -z "$SIMULATED_LINES" ]]; then
+        echo "  WARNING: no test node_ids found, skipping ingest" >&2
+        INGEST_ERROR='"no node_ids in discover results"'
     else
-        INGEST_ERROR="$(echo "$INGEST_RESPONSE" | jq '.error' 2>/dev/null || echo null)"
+        # Build newline-separated run_output
+        RUN_OUTPUT=""
+        first=true
+        while IFS= read -r tid; do
+            if [[ -z "$tid" ]]; then continue; fi
+            if $first; then first=false; else RUN_OUTPUT+=$'\n'; fi
+            RUN_OUTPUT+="{\"test_id\":\"$tid\",\"outcome\":\"passed\",\"duration_ms\":5}"
+        done <<< "$SIMULATED_LINES"
+
+        # Escape the run_output for JSON
+        RUN_OUTPUT_ESCAPED="$(echo "$RUN_OUTPUT" | jq -Rs .)"
+
+        INGEST_CMD="{\"command\":\"ingest\",\"params\":{\"run_output\":$RUN_OUTPUT_ESCAPED}}"
+
+        START="$(date +%s%N)"
+        INGEST_RESPONSE="$(adapter_command "$INGEST_CMD" "$WORK_DIR")"
+        INGEST_DURATION=$(( ($(date +%s%N) - START) / 1000000 ))
+
+        if echo "$INGEST_RESPONSE" | jq -e '.ok == true' >/dev/null 2>&1; then
+            INGEST_OK=true
+            INGEST_COUNT="$(echo "$INGEST_RESPONSE" | jq '.result.per_test_results | length')"
+        else
+            INGEST_ERROR="$(echo "$INGEST_RESPONSE" | jq '.error' 2>/dev/null || echo null)"
+        fi
     fi
 fi
 
