@@ -1,0 +1,14 @@
+id = "python-project-detection"
+description = "Contract for: Init auto-detects Python projects via pyproject.toml"
+archetype = "PF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+[[tests.shell]]
+command = "grep -q 'fn detect_project_language' src/config.rs && grep -q 'pyproject.toml' src/config.rs && echo 'python detection code present'"
+timeout_seconds = 10
+
+[[tests.shell]]
+command = "cargo test config::tests::generated_config_round_trips_adapter_extensions"
+timeout_seconds = 60

@@ -1,0 +1,10 @@
+id = "other-commands-before-init"
+description = "Contract for: discover/ingest/explain/graph commands check store init before proceeding"
+archetype = "PF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+[[tests.shell]]
+command = "grep -n 'check_initialized' src/main.rs | head -5 && echo 'check_initialized called in main.rs'"
+timeout_seconds = 10

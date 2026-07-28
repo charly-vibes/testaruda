@@ -1,0 +1,26 @@
+id = "schema-shipped"
+description = "Contract for: JSON schema is shipped for agent output format"
+archetype = "NF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+[[tests.shell]]
+command = "test -f docs/schemas/agent-output.schema.json && echo 'agent schema exists' || { echo 'MISSING: docs/schemas/agent-output.schema.json'; exit 1; }"
+timeout_seconds = 10
+
+[[tests.shell]]
+command = "python3 -c 'import json; schema=json.load(open(\"docs/schemas/agent-output.schema.json\")); assert \"properties\" in schema; print(\"agent schema valid\")'"
+timeout_seconds = 10
+
+[[tests.shell]]
+command = "test -f docs/schemas/pre-edit-output-v1.json && echo 'pre-edit schema exists' || { echo 'MISSING: docs/schemas/pre-edit-output-v1.json'; exit 1; }"
+timeout_seconds = 10
+
+[[tests.shell]]
+command = "python3 -c 'import json; schema=json.load(open(\"docs/schemas/pre-edit-output-v1.json\")); assert \"properties\" in schema; print(\"pre-edit schema valid\")'"
+timeout_seconds = 10
+
+[[tests.shell]]
+command = "grep -q 'agent-output.schema.json' docs/agent-mode.md && echo 'schema linked in docs' || { echo 'MISSING: schema link in docs/agent-mode.md'; exit 1; }"
+timeout_seconds = 10

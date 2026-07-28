@@ -1,0 +1,10 @@
+id = "missing-subcommand-detected"
+description = "Contract for: Unknown subcommand triggers typo detection via genesis suggestions"
+archetype = "PF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+[[tests.shell]]
+command = "grep -q 'SuggestionEngine' src/main.rs && echo 'typo detection via genesis suggestions exists'"
+timeout_seconds = 10

@@ -1,0 +1,10 @@
+id = "corrupted-store"
+description = "Contract for: Corrupted or incompatible store detected with actionable error message"
+archetype = "PF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+[[tests.shell]]
+command = "cargo test store::tests::test_newer_schema_is_refused"
+timeout_seconds = 60

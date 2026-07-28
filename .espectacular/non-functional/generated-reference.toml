@@ -1,0 +1,10 @@
+id = "generated-reference"
+description = "Contract for: CLI documentation is automatically generated in markdown format"
+archetype = "NF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+[[tests.shell]]
+command = "grep -q 'GenCliDocs' src/main.rs && echo 'generated reference docs code exists'"
+timeout_seconds = 10

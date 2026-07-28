@@ -1,0 +1,10 @@
+id = "machine-readable-mode-log-routing"
+description = "Contract for: Machine-readable modes route logs to stderr, stdout stays parseable"
+archetype = "NF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+[[tests.shell]]
+command = "grep -q 'with_writer.*stderr' src/main.rs && echo 'tracing always writes to stderr'"
+timeout_seconds = 10

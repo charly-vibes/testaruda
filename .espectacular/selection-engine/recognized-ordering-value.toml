@@ -1,0 +1,10 @@
+id = "recognized-ordering-value"
+description = "Contract for: Valid ordering values (default, deterministic, duration, predictive) are accepted by clap"
+archetype = "PF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+[[tests.shell]]
+command = "grep -q 'ValueEnum' src/engine.rs && echo 'ordering values are validated via clap ValueEnum'"
+timeout_seconds = 10

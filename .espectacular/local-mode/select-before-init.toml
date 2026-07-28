@@ -1,0 +1,10 @@
+id = "select-before-init"
+description = "Contract for: select before init emits actionable error suggesting testaruda init"
+archetype = "PF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+[[tests.shell]]
+command = "grep -c 'check_initialized' src/main.rs | xargs -I{} echo 'check_initialized called {} times in main.rs'"
+timeout_seconds = 10

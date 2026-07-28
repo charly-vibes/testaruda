@@ -1,0 +1,14 @@
+id = "agent-documentation"
+description = "Contract for: Agent-mode documentation exists and covers all agent features"
+archetype = "NF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+[[tests.shell]]
+command = "test -f docs/agent-mode.md && echo 'agent-mode.md exists' || { echo 'MISSING'; exit 1; }"
+timeout_seconds = 10
+
+[[tests.shell]]
+command = "grep -q 'TIA-AGENT' docs/agent-mode.md && echo 'covers TIA-AGENT requirements' || { echo 'MISSING spec refs'; exit 1; }"
+timeout_seconds = 10

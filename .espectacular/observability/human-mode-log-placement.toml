@@ -1,0 +1,10 @@
+id = "human-mode-log-placement"
+description = "Contract for: Logs are placed on stderr in human-readable mode"
+archetype = "NF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+[[tests.shell]]
+command = "grep -q 'with_writer.*stderr' src/main.rs && echo 'tracing outputs to stderr'"
+timeout_seconds = 10

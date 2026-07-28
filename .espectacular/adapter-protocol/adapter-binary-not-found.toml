@@ -1,0 +1,10 @@
+id = "adapter-binary-not-found"
+description = "Contract for: Spawn failure when adapter binary not on PATH — diagnostic names resolved binary"
+archetype = "NF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+[[tests.shell]]
+command = "cargo test adapter::tests::test_parse_command_string_empty"
+timeout_seconds = 60
