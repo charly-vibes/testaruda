@@ -33,9 +33,9 @@
       runner args for selected test namespaces
 - [ ] 2.7 Implement `cmd_ingest()`: parse JUnit XML output from Cognitect
       runner or Leiningen stdout, return runtime edges and per-test results
-- [ ] 2.8 Implement deps.edn reader: extract `:test-paths` and detect
+- [x] 2.8 Implement deps.edn reader: extract `:test-paths` and detect
       Cognitect test runner alias
-- [ ] 2.9 Implement project.clj reader: extract `:test-paths` and detect
+- [x] 2.9 Implement project.clj reader: extract `:test-paths` and detect
       Leiningen project
 
 ## 3. Workspace integration

@@ -15,6 +15,8 @@
 //! All other commands return "not implemented" errors — they land in
 //! follow-up tickets (testaruda-fjj, testaruda-cch, etc.).
 
+#[allow(dead_code)]
+mod project;
 mod query;
 
 use std::io::{BufRead, BufReader, Write};
