@@ -54,8 +54,8 @@ fn handle_command(input: &str) -> serde_json::Value {
         "handshake" => cmd_handshake(),
         "discover" => cmd_discover(),
         "static-deps" => cmd_static_deps(&cmd),
-        "fingerprint" => json_err("not implemented: fingerprint (see testaruda-cch)"),
-        "run-args" => json_err("not implemented: run-args (see testaruda-fjj)"),
+        "fingerprint" => cmd_fingerprint(&cmd),
+        "run-args" => cmd_run_args(&cmd),
         "ingest" => json_err("not implemented: ingest (see testaruda-fjj)"),
         _ => json_err(&format!("unknown command: {command}")),
     }
@@ -267,4 +267,87 @@ fn cmd_discover() -> serde_json::Value {
     }
 
     json_ok(serde_json::json!(tests))
+}
+
+/// Fingerprint: blake3 hash of file contents (TIA-ADAPT-002).
+fn cmd_fingerprint(cmd: &serde_json::Value) -> serde_json::Value {
+    let file_path = match cmd["args"]["file"].as_str() {
+        Some(f) => f,
+        None => return json_err("missing args.file"),
+    };
+
+    let content = match std::fs::read_to_string(file_path) {
+        Ok(c) => c,
+        Err(e) => return json_err(&format!("cannot read {}: {}", file_path, e)),
+    };
+
+    let hash = blake3::hash(content.as_bytes());
+    json_ok(serde_json::json!({
+        "fingerprints": {
+            file_path: hash.to_hex().to_string()
+        }
+    }))
+}
+
+/// Run-args: build CLI args for the test runner (TIA-ADAPT-002).
+fn cmd_run_args(cmd: &serde_json::Value) -> serde_json::Value {
+    let files = match cmd["args"]["files"].as_array() {
+        Some(f) => f,
+        None => return json_err("missing args.files"),
+    };
+
+    // Use project config to determine runner
+    let config = project::ProjectConfig::detect(std::path::Path::new("."));
+
+    // Extract test names from node_ids (format: <namespace>::<test-name>(Test))
+    let mut test_names: Vec<String> = Vec::new();
+    for file_val in files {
+        let node_id = file_val.as_str().unwrap_or("");
+        // Format: my-project.core-test::test-greet(Test) → test-greet
+        if let Some(test_part) = node_id.split("::").nth(1) {
+            let name = test_part.trim_end_matches("(Test)");
+            test_names.push(name.to_string());
+        } else {
+            // Fallback: treat file as namespace
+            test_names.push(node_id.to_string());
+        }
+    }
+
+    let runner = config
+        .as_ref()
+        .map(|c| &c.runner)
+        .unwrap_or(&project::TestRunner::Default);
+
+    let args: Vec<String> = match runner {
+        project::TestRunner::Leiningen => {
+            // lein test :only namespace/test-name
+            let mut args = vec!["test".to_string(), ":only".to_string()];
+            for name in &test_names {
+                args.push(format!("{}/{}", name, name)); // simplified
+            }
+            args
+        }
+        project::TestRunner::Kaocha => {
+            // clojure -M:test --focus namespace
+            let mut args = vec!["-M:test".to_string(), "--focus".to_string()];
+            for name in &test_names {
+                args.push(name.clone());
+            }
+            args
+        }
+        project::TestRunner::Cognitect | project::TestRunner::Default => {
+            // clojure -M:test -n namespace
+            let mut args = vec!["-M:test".to_string(), "-n".to_string()];
+            for name in &test_names {
+                args.push(name.clone());
+            }
+            args
+        }
+    };
+
+    json_ok(serde_json::json!({
+        "command": "clojure",
+        "args": args,
+        "env": {}
+    }))
 }

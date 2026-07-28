@@ -1,4 +1,5 @@
 use assert_cmd::Command;
+use tempfile;
 
 /// Helper: send a JSON command to the adapter binary and return the parsed response.
 fn send_command(cmd: &str) -> serde_json::Value {
@@ -95,15 +96,34 @@ fn static_deps_returns_not_implemented() {
 }
 
 #[test]
-fn fingerprint_returns_not_implemented() {
-    let resp = send_command(r#"{"command":"fingerprint","args":{"file":"src/core.clj"}}"#);
-    assert_eq!(resp["ok"], false, "fingerprint not yet implemented: {resp}");
+fn fingerprint_returns_results() {
+    // Create a known file and fingerprint it via the adapter binary
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.clj"), "(ns foo)").unwrap();
+    let mut binary = Command::cargo_bin("testaruda-adapter-clojure").unwrap();
+    let assert = binary
+        .current_dir(dir.path())
+        .write_stdin(r#"{"command":"fingerprint","args":{"file":"test.clj"}}"#)
+        .assert()
+        .success();
+    let output = assert.get_output();
+    let stdout = std::str::from_utf8(&output.stdout).unwrap();
+    let resp: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(resp["ok"], true, "fingerprint should succeed: {resp}");
+    let fps = resp["result"]["fingerprints"].as_object().unwrap();
+    assert!(
+        fps.contains_key("test.clj"),
+        "should have test.clj fingerprint"
+    );
+    let hash = fps["test.clj"].as_str().unwrap();
+    assert_eq!(hash.len(), 64, "blake3 hash should be 64 hex chars");
 }
 
 #[test]
-fn run_args_returns_not_implemented() {
+fn run_args_returns_results() {
     let resp = send_command(r#"{"command":"run-args","args":{"files":["test/core_test.clj"]}}"#);
-    assert_eq!(resp["ok"], false, "run-args not yet implemented: {resp}");
+    assert_eq!(resp["ok"], true, "run-args should succeed: {resp}");
+    assert!(resp["result"]["args"].is_array(), "should have args array");
 }
 
 #[test]

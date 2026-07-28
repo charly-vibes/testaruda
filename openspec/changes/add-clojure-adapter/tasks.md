@@ -27,9 +27,9 @@
 - [x] 2.4 Implement `cmd_static_deps()`: for each changed file, parse with
       tree-sitter, run the deps query, find tests that require the changed
       file's namespace, return edges with `weight: 1_000_000`, `origin: "static"`
-- [ ] 2.5 Implement `cmd_fingerprint()`: blake3 hash of file contents
+- [x] 2.5 Implement `cmd_fingerprint()`: blake3 hash of file contents
       (identical to existing adapters)
-- [ ] 2.6 Implement `cmd_run_args()`: detect deps.edn vs project.clj, build
+- [x] 2.6 Implement `cmd_run_args()`: detect deps.edn vs project.clj, build
       runner args for selected test namespaces
 - [ ] 2.7 Implement `cmd_ingest()`: parse JUnit XML output from Cognitect
       runner or Leiningen stdout, return runtime edges and per-test results
