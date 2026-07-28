@@ -141,11 +141,17 @@ fn main() -> miette::Result<()> {
                 // Report detected language for user feedback
                 let detected = testaruda::config::detect_project_language(&project_root);
                 match detected {
+                    Some(ref adapter) if adapter.contains("rust") => {
+                        println!("  🦀 Rust project detected — default adapter set to testaruda-adapter-rust");
+                    }
                     Some(ref adapter) if adapter.contains("python") => {
                         println!("  🐍 Python project detected — default adapter set to testaruda-adapter-python");
                     }
-                    Some(ref adapter) if adapter.contains("rust") => {
-                        println!("  🦀 Rust project detected — default adapter set to testaruda-adapter-rust");
+                    Some(ref adapter) if adapter.contains("julia") => {
+                        println!("  🔬 Julia project detected — default adapter set to testaruda-adapter-julia");
+                    }
+                    Some(ref adapter) if adapter.contains("typescript") => {
+                        println!("  🟦 TypeScript project detected — default adapter set to testaruda-adapter-typescript");
                     }
                     _ => {
                         println!("  📁 Project language not detected — default adapter set to testaruda-adapter-rust");

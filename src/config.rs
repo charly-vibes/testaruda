@@ -158,6 +158,10 @@ default = "{}"
 ".rs" = "testaruda-adapter-rust"
 ".py" = "testaruda-adapter-python"
 ".jl" = "testaruda-adapter-julia"
+".ts" = "testaruda-adapter-typescript"
+".tsx" = "testaruda-adapter-typescript"
+".mts" = "testaruda-adapter-typescript"
+".cts" = "testaruda-adapter-typescript"
 
 [discover]
 # Directory/file names to exclude from discover walks.
@@ -193,6 +197,22 @@ impl Default for AdapterConfig {
         extensions.insert(".rs".to_string(), "testaruda-adapter-rust".to_string());
         extensions.insert(".py".to_string(), "testaruda-adapter-python".to_string());
         extensions.insert(".jl".to_string(), "testaruda-adapter-julia".to_string());
+        extensions.insert(
+            ".ts".to_string(),
+            "testaruda-adapter-typescript".to_string(),
+        );
+        extensions.insert(
+            ".tsx".to_string(),
+            "testaruda-adapter-typescript".to_string(),
+        );
+        extensions.insert(
+            ".mts".to_string(),
+            "testaruda-adapter-typescript".to_string(),
+        );
+        extensions.insert(
+            ".cts".to_string(),
+            "testaruda-adapter-typescript".to_string(),
+        );
         Self {
             extensions,
             default: Some("testaruda-adapter-rust".to_string()),
@@ -219,6 +239,23 @@ pub fn detect_project_language(project_root: &Path) -> Option<String> {
     // Check Julia (Project.toml marker)
     if project_root.join("Project.toml").exists() {
         return Some("testaruda-adapter-julia".to_string());
+    }
+    // Check TypeScript (vitest/jest config or package.json with vitest/jest)
+    if project_root.join("vitest.config.ts").exists()
+        || project_root.join("vitest.config.js").exists()
+        || project_root.join("jest.config.ts").exists()
+        || project_root.join("jest.config.js").exists()
+    {
+        return Some("testaruda-adapter-typescript".to_string());
+    }
+    if let Ok(content) = std::fs::read_to_string(project_root.join("package.json")) {
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(deps) = parsed["devDependencies"].as_object() {
+                if deps.contains_key("vitest") || deps.contains_key("jest") {
+                    return Some("testaruda-adapter-typescript".to_string());
+                }
+            }
+        }
     }
     None
 }
@@ -272,6 +309,22 @@ mod tests {
         assert_eq!(
             config.adapters.extensions.get(".jl").map(String::as_str),
             Some("testaruda-adapter-julia")
+        );
+        assert_eq!(
+            config.adapters.extensions.get(".ts").map(String::as_str),
+            Some("testaruda-adapter-typescript")
+        );
+        assert_eq!(
+            config.adapters.extensions.get(".tsx").map(String::as_str),
+            Some("testaruda-adapter-typescript")
+        );
+        assert_eq!(
+            config.adapters.extensions.get(".mts").map(String::as_str),
+            Some("testaruda-adapter-typescript")
+        );
+        assert_eq!(
+            config.adapters.extensions.get(".cts").map(String::as_str),
+            Some("testaruda-adapter-typescript")
         );
         assert_eq!(
             config.adapters.default.as_deref(),
