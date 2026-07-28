@@ -1,90 +1,1443 @@
 {
   "files": [
     {
-      "path": "src/agent.rs",
-      "role": "app",
+      "path": "tests/adapter_clojure.rs",
+      "role": "test",
       "diagnostics": [],
       "file_violations": [],
       "units": [
         {
-          "name": "from_selection",
+          "name": "adapter_available",
           "kind": "Function",
-          "start_line": 134,
-          "metrics": {
-            "cyclomatic": 10,
-            "cognitive": 17,
-            "assertions": 0,
-            "function_lines": 117,
-            "params": 0,
-            "nesting_max": 3,
-            "abc": 49.33558553417604
-          },
-          "violations": []
-        },
-        {
-          "name": "test_query",
-          "kind": "Function",
-          "start_line": 253,
+          "start_line": 10,
           "metrics": {
             "cyclomatic": 1,
             "cognitive": 0,
             "assertions": 0,
-            "function_lines": 43,
+            "function_lines": 9,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 10.0
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "adapter_clojure_crate_exists",
+          "kind": "Function",
+          "start_line": 22,
+          "metrics": {
+            "cyclomatic": 3,
+            "cognitive": 2,
+            "assertions": 0,
+            "function_lines": 30,
             "params": 0,
             "nesting_max": 1,
-            "abc": 7.280109889280518
+            "abc": 8.717797887081348
           },
-          "violations": []
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
         },
         {
-          "name": "test_agent_output_format_serialization",
+          "name": "adapter_clojure_handshake",
           "kind": "Function",
-          "start_line": 304,
+          "start_line": 54,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 38,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 20.639767440550294
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "fixture_path",
+          "kind": "Function",
+          "start_line": 94,
           "metrics": {
             "cyclomatic": 1,
             "cognitive": 0,
             "assertions": 0,
-            "function_lines": 54,
+            "function_lines": 5,
             "params": 0,
             "nesting_max": 0,
-            "abc": 4.47213595499958
+            "abc": 2.23606797749979
           },
-          "violations": []
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
         },
         {
-          "name": "test_test_query_selected",
+          "name": "spawn_adapter",
           "kind": "Function",
-          "start_line": 360,
+          "start_line": 101,
           "metrics": {
             "cyclomatic": 1,
             "cognitive": 0,
             "assertions": 0,
-            "function_lines": 24,
+            "function_lines": 8,
             "params": 0,
             "nesting_max": 0,
-            "abc": 5.0
+            "abc": 9.0
           },
-          "violations": []
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
         },
         {
-          "name": "test_test_query_not_selected",
+          "name": "send_command",
           "kind": "Function",
-          "start_line": 386,
+          "start_line": 111,
           "metrics": {
             "cyclomatic": 1,
             "cognitive": 0,
             "assertions": 0,
-            "function_lines": 13,
+            "function_lines": 14,
             "params": 0,
             "nesting_max": 0,
-            "abc": 4.242640687119285
+            "abc": 13.601470508735444
           },
-          "violations": []
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
         },
         {
-          "name": "test_coverage_gap_serialization",
+          "name": "adapter_clojure_discover_fixture",
           "kind": "Function",
-          "start_line": 401,
+          "start_line": 127,
+          "metrics": {
+            "cyclomatic": 3,
+            "cognitive": 2,
+            "assertions": 0,
+            "function_lines": 41,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 22.22611077089287
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "adapter_clojure_static_deps_fixture",
+          "kind": "Function",
+          "start_line": 170,
+          "metrics": {
+            "cyclomatic": 3,
+            "cognitive": 2,
+            "assertions": 0,
+            "function_lines": 51,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 32.817678162843876
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "adapter_clojure_full_pipeline",
+          "kind": "Function",
+          "start_line": 223,
+          "metrics": {
+            "cyclomatic": 3,
+            "cognitive": 2,
+            "assertions": 0,
+            "function_lines": 65,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 37.69615364994153
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "adapter_clojure_seeded_fault_recall",
+          "kind": "Function",
+          "start_line": 292,
+          "metrics": {
+            "cyclomatic": 3,
+            "cognitive": 2,
+            "assertions": 0,
+            "function_lines": 69,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 52.43090691567332
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "enter",
+          "kind": "Function",
+          "start_line": 370,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 5,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 4.123105625617661
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "drop",
+          "kind": "Function",
+          "start_line": 378,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 3,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 1.4142135623730951
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/adapter_julia.rs",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": [
+        {
+          "name": "adapter_available",
+          "kind": "Function",
+          "start_line": 16,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 9,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 10.0
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "julia_available",
+          "kind": "Function",
+          "start_line": 27,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 9,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 10.0
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "send_command",
+          "kind": "Function",
+          "start_line": 38,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 11,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 13.601470508735444
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "julia_adapter_handshake",
+          "kind": "Function",
+          "start_line": 51,
+          "metrics": {
+            "cyclomatic": 3,
+            "cognitive": 2,
+            "assertions": 0,
+            "function_lines": 44,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 18.547236990991408
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "julia_adapter_discover",
+          "kind": "Function",
+          "start_line": 97,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 50,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 29.427877939124322
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "julia_adapter_fingerprint",
+          "kind": "Function",
+          "start_line": 149,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 39,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 29.13760456866693
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "julia_adapter_run_args",
+          "kind": "Function",
+          "start_line": 190,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 46,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 22.825424421026653
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "julia_adapter_static_deps_unresolved",
+          "kind": "Function",
+          "start_line": 238,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 32,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 18.466185312619388
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "julia_adapter_unknown_command",
+          "kind": "Function",
+          "start_line": 272,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 28,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 18.275666882497067
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "assert_monorepo_discover",
+          "kind": "Function",
+          "start_line": 306,
+          "metrics": {
+            "cyclomatic": 3,
+            "cognitive": 2,
+            "assertions": 0,
+            "function_lines": 47,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 22.44994432064365
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "julia_adapter_monorepo_discover_per_package_a",
+          "kind": "Function",
+          "start_line": 355,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 6,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 3.1622776601683795
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "julia_adapter_monorepo_discover_per_package_b",
+          "kind": "Function",
+          "start_line": 363,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 6,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 3.1622776601683795
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "julia_adapter_monorepo_discover_per_package_c_no_tests",
+          "kind": "Function",
+          "start_line": 371,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 7,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 3.1622776601683795
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "julia_adapter_monorepo_separate_discover_for_each_package",
+          "kind": "Function",
+          "start_line": 383,
+          "metrics": {
+            "cyclomatic": 3,
+            "cognitive": 2,
+            "assertions": 0,
+            "function_lines": 71,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 48.88762624632127
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "julia_adapter_monorepo_fingerprint",
+          "kind": "Function",
+          "start_line": 456,
+          "metrics": {
+            "cyclomatic": 3,
+            "cognitive": 2,
+            "assertions": 0,
+            "function_lines": 50,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 28.30194339616981
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "julia_adapter_monorepo_static_deps_cross_package",
+          "kind": "Function",
+          "start_line": 508,
+          "metrics": {
+            "cyclomatic": 6,
+            "cognitive": 7,
+            "assertions": 0,
+            "function_lines": 109,
+            "params": 0,
+            "nesting_max": 2,
+            "abc": 49.44694126030446
+          },
+          "violations": [
+            {
+              "metric": "cyclomatic",
+              "actual": 6.0,
+              "limit": 5.0
+            },
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "fixture_path",
+          "kind": "Function",
+          "start_line": 621,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 4,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 4.123105625617661
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "monorepo_fixture_path",
+          "kind": "Function",
+          "start_line": 627,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 7,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 4.123105625617661
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "spawn_adapter",
+          "kind": "Function",
+          "start_line": 636,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 8,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 9.0
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "julia_adapter_full_pipeline",
+          "kind": "Function",
+          "start_line": 646,
+          "metrics": {
+            "cyclomatic": 3,
+            "cognitive": 2,
+            "assertions": 0,
+            "function_lines": 142,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 63.31666447310692
+          },
+          "violations": [
+            {
+              "metric": "abc",
+              "actual": 63.31666447310692,
+              "limit": 60.0
+            },
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "julia_adapter_malformed_json",
+          "kind": "Function",
+          "start_line": 794,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 25,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 11.74734012447073
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "julia_adapter_discover_empty_dir",
+          "kind": "Function",
+          "start_line": 821,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 28,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 15.264337522473747
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "julia_adapter_static_deps_no_changed_files",
+          "kind": "Function",
+          "start_line": 851,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 27,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 13.638181696985855
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "julia_adapter_static_deps_multiple_files",
+          "kind": "Function",
+          "start_line": 880,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 32,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 10.816653826391969
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "julia_adapter_ingest_empty_output",
+          "kind": "Function",
+          "start_line": 914,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 35,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 10.488088481701515
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "julia_adapter_ingest_mixed_outcomes",
+          "kind": "Function",
+          "start_line": 951,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 53,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 28.178005607210743
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "julia_adapter_ingest_without_duration",
+          "kind": "Function",
+          "start_line": 1006,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 36,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 16.583123951777
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "julia_adapter_run_args_empty_selected",
+          "kind": "Function",
+          "start_line": 1044,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 30,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 13.638181696985855
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "julia_adapter_missing_params_structure",
+          "kind": "Function",
+          "start_line": 1076,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 27,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 13.638181696985855
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/adapter_python.rs",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": [
+        {
+          "name": "fixture_path",
+          "kind": "Function",
+          "start_line": 15,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 5,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 2.23606797749979
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "adapter_available",
+          "kind": "Function",
+          "start_line": 22,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 9,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 10.0
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "spawn_adapter",
+          "kind": "Function",
+          "start_line": 33,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 8,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 9.0
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "send_command",
+          "kind": "Function",
+          "start_line": 43,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 11,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 13.601470508735444
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "with_fixture_cwd",
+          "kind": "Function",
+          "start_line": 57,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 14,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 11.704699910719626
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "python_adapter_handshake",
+          "kind": "Function",
+          "start_line": 77,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 31,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 8.660254037844387
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "discover_src_layout_finds_project_tests",
+          "kind": "Function",
+          "start_line": 114,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 74,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 24.06241883103193
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "discover_src_layout_node_id_format",
+          "kind": "Function",
+          "start_line": 190,
+          "metrics": {
+            "cyclomatic": 3,
+            "cognitive": 3,
+            "assertions": 0,
+            "function_lines": 42,
+            "params": 0,
+            "nesting_max": 2,
+            "abc": 16.278820596099706
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "discover_excludes_venv_and_cache_dirs",
+          "kind": "Function",
+          "start_line": 238,
+          "metrics": {
+            "cyclomatic": 3,
+            "cognitive": 3,
+            "assertions": 0,
+            "function_lines": 38,
+            "params": 0,
+            "nesting_max": 2,
+            "abc": 15.937377450509228
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "static_deps_src_layout_resolves_modules",
+          "kind": "Function",
+          "start_line": 282,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 58,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 14.352700094407323
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "static_deps_src_layout_service_change",
+          "kind": "Function",
+          "start_line": 342,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 30,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 12.12435565298214
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "static_deps_src_layout_nested_test_no_deps",
+          "kind": "Function",
+          "start_line": 374,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 32,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 12.12435565298214
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "static_deps_nonexistent_file_unresolved",
+          "kind": "Function",
+          "start_line": 412,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 26,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 12.12435565298214
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "static_deps_test_file_changed_self_edge",
+          "kind": "Function",
+          "start_line": 444,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 33,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 20.273134932713294
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/adapter_typescript.rs",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": [
+        {
+          "name": "adapter_available",
+          "kind": "Function",
+          "start_line": 9,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 9,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 10.0
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "adapter_typescript_crate_exists",
+          "kind": "Function",
+          "start_line": 21,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 32,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 10.0
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "adapter_typescript_handshake",
+          "kind": "Function",
+          "start_line": 56,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 51,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 27.53179979587241
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "fixture_path",
+          "kind": "Function",
+          "start_line": 109,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 5,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 2.23606797749979
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "spawn_adapter",
+          "kind": "Function",
+          "start_line": 116,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 8,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 9.0
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "send_command",
+          "kind": "Function",
+          "start_line": 126,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 11,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 13.601470508735444
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "adapter_typescript_discover_fixture",
+          "kind": "Function",
+          "start_line": 139,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 39,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 20.273134932713294
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "adapter_typescript_static_deps_fixture",
+          "kind": "Function",
+          "start_line": 180,
+          "metrics": {
+            "cyclomatic": 3,
+            "cognitive": 2,
+            "assertions": 0,
+            "function_lines": 44,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 17.578395831246947
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "adapter_typescript_full_pipeline",
+          "kind": "Function",
+          "start_line": 226,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 79,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 39.97499218261337
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "adapter_typescript_static_deps_seeded_fault",
+          "kind": "Function",
+          "start_line": 307,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 69,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 46.850827100489916
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/clojure_detection_test.rs",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": [
+        {
+          "name": "detect_clojure_by_deps_edn",
+          "kind": "Function",
+          "start_line": 4,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 6,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 8.246211251235321
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "detect_clojure_by_project_clj",
+          "kind": "Function",
+          "start_line": 12,
           "metrics": {
             "cyclomatic": 1,
             "cognitive": 0,
@@ -92,59 +1445,133 @@
             "function_lines": 10,
             "params": 0,
             "nesting_max": 0,
-            "abc": 4.47213595499958
+            "abc": 8.246211251235321
           },
-          "violations": []
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
         },
         {
-          "name": "test_agent_output_fallback_reason_no_deps",
+          "name": "detect_prefers_rust_over_clojure",
           "kind": "Function",
-          "start_line": 413,
+          "start_line": 24,
           "metrics": {
             "cyclomatic": 1,
             "cognitive": 0,
             "assertions": 0,
-            "function_lines": 42,
+            "function_lines": 7,
             "params": 0,
             "nesting_max": 0,
-            "abc": 5.385164807134504
+            "abc": 12.165525060596439
           },
-          "violations": []
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
         },
         {
-          "name": "test_agent_output_fallback_reason_quarantined",
+          "name": "detect_no_clojure_marker_returns_none",
           "kind": "Function",
-          "start_line": 457,
+          "start_line": 33,
           "metrics": {
             "cyclomatic": 1,
             "cognitive": 0,
             "assertions": 0,
-            "function_lines": 42,
+            "function_lines": 6,
             "params": 0,
             "nesting_max": 0,
-            "abc": 5.385164807134504
+            "abc": 8.246211251235321
           },
-          "violations": []
-        },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/dotnet_adapter.rs",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": [
         {
-          "name": "test_agent_output_node_id_included",
+          "name": "enter",
           "kind": "Function",
-          "start_line": 501,
+          "start_line": 18,
           "metrics": {
             "cyclomatic": 1,
             "cognitive": 0,
             "assertions": 0,
-            "function_lines": 36,
+            "function_lines": 5,
             "params": 0,
             "nesting_max": 0,
-            "abc": 5.385164807134504
+            "abc": 4.123105625617661
           },
-          "violations": []
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
         },
         {
-          "name": "test_empty_agent_output_fields",
+          "name": "drop",
           "kind": "Function",
-          "start_line": 539,
+          "start_line": 26,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 3,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 1.4142135623730951
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "titi_available",
+          "kind": "Function",
+          "start_line": 32,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 9,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 10.0
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "create_dotnet_project",
+          "kind": "Function",
+          "start_line": 43,
           "metrics": {
             "cyclomatic": 1,
             "cognitive": 0,
@@ -152,11 +1579,1328 @@
             "function_lines": 20,
             "params": 0,
             "nesting_max": 0,
-            "abc": 7.280109889280518
+            "abc": 6.082762530298219
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "write_dotnet_config",
+          "kind": "Function",
+          "start_line": 65,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 15,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 3.1622776601683795
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "dotnet_extension_resolves_cs",
+          "kind": "Function",
+          "start_line": 84,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 8,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 2.23606797749979
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "dotnet_extension_resolves_fs",
+          "kind": "Function",
+          "start_line": 94,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 8,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 2.23606797749979
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "dotnet_extension_resolves_vb",
+          "kind": "Function",
+          "start_line": 104,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 5,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 2.23606797749979
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "dotnet_extension_resolves_csproj",
+          "kind": "Function",
+          "start_line": 111,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 8,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 2.23606797749979
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "dotnet_extension_resolves_sln",
+          "kind": "Function",
+          "start_line": 121,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 5,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 2.23606797749979
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "dotnet_extension_resolves_slnx",
+          "kind": "Function",
+          "start_line": 128,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 5,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 2.23606797749979
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "dotnet_extension_does_not_leak_to_rs",
+          "kind": "Function",
+          "start_line": 135,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 7,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 3.1622776601683795
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "spawn_titi_fails_when_not_on_path",
+          "kind": "Function",
+          "start_line": 146,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 13,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 2.449489742783178
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "dotnet_config_round_trips_via_normalize",
+          "kind": "Function",
+          "start_line": 163,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 52,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 2.8284271247461903
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "select_falls_back_when_titi_not_installed",
+          "kind": "Function",
+          "start_line": 222,
+          "metrics": {
+            "cyclomatic": 2,
+            "cognitive": 1,
+            "assertions": 0,
+            "function_lines": 108,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 43.18564576337837
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "dotnet_flat_format_normalizes",
+          "kind": "Function",
+          "start_line": 333,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 24,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 4.242640687119285
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/fixtures/clojure/deps.edn",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": []
+    },
+    {
+      "path": "tests/fixtures/clojure/src/core.clj",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": [
+        {
+          "name": "greet",
+          "kind": "Function",
+          "start_line": 4,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 2,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 1.0
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/fixtures/clojure/src/utils.clj",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": [
+        {
+          "name": "add",
+          "kind": "Function",
+          "start_line": 3,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 1,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 1.0
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/fixtures/clojure/test/core_test.clj",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": []
+    },
+    {
+      "path": "tests/fixtures/clojure/test/utils_test.clj",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": []
+    },
+    {
+      "path": "tests/fixtures/julia-monorepo/packages/pkg_a/src/PkgA.jl",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": []
+    },
+    {
+      "path": "tests/fixtures/julia-monorepo/packages/pkg_a/test/runtests.jl",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": []
+    },
+    {
+      "path": "tests/fixtures/julia-monorepo/packages/pkg_a/test/sub/deep_test.jl",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": []
+    },
+    {
+      "path": "tests/fixtures/julia-monorepo/packages/pkg_b/src/PkgB.jl",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": []
+    },
+    {
+      "path": "tests/fixtures/julia-monorepo/packages/pkg_b/test/runtests.jl",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": []
+    },
+    {
+      "path": "tests/fixtures/julia/src/MyFixture.jl",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": []
+    },
+    {
+      "path": "tests/fixtures/julia/test/test_myfixture.jl",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": []
+    },
+    {
+      "path": "tests/fixtures/python-src-layout/.venv/lib/python3.12/site-packages/test_vendored.py",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": [
+        {
+          "name": "test_vendored",
+          "kind": "Function",
+          "start_line": 3,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 1,
+            "function_lines": 2,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 0.0
           },
           "violations": []
         }
       ]
+    },
+    {
+      "path": "tests/fixtures/python-src-layout/conftest.py",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": [
+        {
+          "name": "sample_model",
+          "kind": "Function",
+          "start_line": 7,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 3,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 1.0
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/fixtures/python-src-layout/src/my_package/__init__.py",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": []
+    },
+    {
+      "path": "tests/fixtures/python-src-layout/src/my_package/model.py",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": []
+    },
+    {
+      "path": "tests/fixtures/python-src-layout/src/my_package/service.py",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": [
+        {
+          "name": "process",
+          "kind": "Function",
+          "start_line": 6,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 2,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 0.0
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/fixtures/python-src-layout/tests/conftest.py",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": [
+        {
+          "name": "other_model",
+          "kind": "Function",
+          "start_line": 7,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 3,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 1.0
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/fixtures/python-src-layout/tests/sub/conftest.py",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": []
+    },
+    {
+      "path": "tests/fixtures/python-src-layout/tests/sub/test_nested.py",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": [
+        {
+          "name": "test_nested",
+          "kind": "Function",
+          "start_line": 4,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 1,
+            "function_lines": 2,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 0.0
+          },
+          "violations": []
+        }
+      ]
+    },
+    {
+      "path": "tests/fixtures/python-src-layout/tests/test_model.py",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": [
+        {
+          "name": "test_model_creation",
+          "kind": "Function",
+          "start_line": 6,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 2,
+            "function_lines": 4,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 1.4142135623730951
+          },
+          "violations": []
+        },
+        {
+          "name": "test_model_defaults",
+          "kind": "Function",
+          "start_line": 12,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 2,
+            "function_lines": 3,
+            "params": 1,
+            "nesting_max": 0,
+            "abc": 0.0
+          },
+          "violations": []
+        }
+      ]
+    },
+    {
+      "path": "tests/fixtures/python-src-layout/tests/test_service.py",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": [
+        {
+          "name": "test_process",
+          "kind": "Function",
+          "start_line": 7,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 1,
+            "function_lines": 3,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 2.23606797749979
+          },
+          "violations": []
+        },
+        {
+          "name": "test_process_with_fixture",
+          "kind": "Function",
+          "start_line": 12,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 2,
+            "function_lines": 5,
+            "params": 2,
+            "nesting_max": 0,
+            "abc": 2.8284271247461903
+          },
+          "violations": []
+        }
+      ]
+    },
+    {
+      "path": "tests/fixtures/typescript/src/greeting.ts",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": [
+        {
+          "name": "greet",
+          "kind": "Function",
+          "start_line": 2,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 3,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 0.0
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "farewell",
+          "kind": "Function",
+          "start_line": 6,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 3,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 0.0
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "formatMessage",
+          "kind": "Function",
+          "start_line": 10,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 3,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 2.0
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/fixtures/typescript/src/user.ts",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": [
+        {
+          "name": "createUser",
+          "kind": "Function",
+          "start_line": 8,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 3,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 1.0
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "getUserDisplayName",
+          "kind": "Function",
+          "start_line": 12,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 3,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 0.0
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/fixtures/typescript/tests/greeting.test.ts",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": []
+    },
+    {
+      "path": "tests/fixtures/typescript/tests/user.test.ts",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": []
+    },
+    {
+      "path": "tests/fixtures/typescript/vitest.config.ts",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": []
+    },
+    {
+      "path": "tests/ordering.rs",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": [
+        {
+          "name": "enter",
+          "kind": "Function",
+          "start_line": 26,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 5,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 4.123105625617661
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "drop",
+          "kind": "Function",
+          "start_line": 34,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 3,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 1.4142135623730951
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "setup_graph",
+          "kind": "Function",
+          "start_line": 41,
+          "metrics": {
+            "cyclomatic": 5,
+            "cognitive": 4,
+            "assertions": 0,
+            "function_lines": 110,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 31.575306807693888
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "run_test",
+          "kind": "Function",
+          "start_line": 152,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 12,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 14.560219778561036
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "test_ordering_scenarios",
+          "kind": "Function",
+          "start_line": 166,
+          "metrics": {
+            "cyclomatic": 6,
+            "cognitive": 11,
+            "assertions": 0,
+            "function_lines": 232,
+            "params": 0,
+            "nesting_max": 3,
+            "abc": 89.42594701763018
+          },
+          "violations": [
+            {
+              "metric": "cyclomatic",
+              "actual": 6.0,
+              "limit": 5.0
+            },
+            {
+              "metric": "cognitive",
+              "actual": 11.0,
+              "limit": 8.0
+            },
+            {
+              "metric": "function_lines",
+              "actual": 232.0,
+              "limit": 200.0
+            },
+            {
+              "metric": "nesting_max",
+              "actual": 3.0,
+              "limit": 2.0
+            },
+            {
+              "metric": "abc",
+              "actual": 89.42594701763018,
+              "limit": 60.0
+            },
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/recall_fault.rs",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": [
+        {
+          "name": "enter",
+          "kind": "Function",
+          "start_line": 37,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 5,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 4.123105625617661
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "drop",
+          "kind": "Function",
+          "start_line": 45,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 3,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 1.4142135623730951
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "adapter_available",
+          "kind": "Function",
+          "start_line": 51,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 9,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 10.0
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "send_command",
+          "kind": "Function",
+          "start_line": 62,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 11,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 13.601470508735444
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "create_rust_fixture",
+          "kind": "Function",
+          "start_line": 75,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 53,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 15.0
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "parse_discover_results",
+          "kind": "Function",
+          "start_line": 130,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 11,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 10.04987562112089
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "parse_static_deps_result",
+          "kind": "Function",
+          "start_line": 143,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 16,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 18.027756377319946
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "seed_store",
+          "kind": "Function",
+          "start_line": 162,
+          "metrics": {
+            "cyclomatic": 6,
+            "cognitive": 6,
+            "assertions": 0,
+            "function_lines": 77,
+            "params": 0,
+            "nesting_max": 2,
+            "abc": 22.9128784747792
+          },
+          "violations": [
+            {
+              "metric": "cyclomatic",
+              "actual": 6.0,
+              "limit": 5.0
+            },
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "test_recall_fault_pipeline",
+          "kind": "Function",
+          "start_line": 241,
+          "metrics": {
+            "cyclomatic": 4,
+            "cognitive": 3,
+            "assertions": 0,
+            "function_lines": 81,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 49.13247398615299
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "test_recall_fault_semantic_mutation_detected",
+          "kind": "Function",
+          "start_line": 324,
+          "metrics": {
+            "cyclomatic": 3,
+            "cognitive": 2,
+            "assertions": 0,
+            "function_lines": 100,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 53.88877434122992
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/seeded_fault.rs",
+      "role": "test",
+      "diagnostics": [],
+      "file_violations": [],
+      "units": [
+        {
+          "name": "enter",
+          "kind": "Function",
+          "start_line": 25,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 5,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 4.123105625617661
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "drop",
+          "kind": "Function",
+          "start_line": 33,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 3,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 1.4142135623730951
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "setup_graph",
+          "kind": "Function",
+          "start_line": 48,
+          "metrics": {
+            "cyclomatic": 5,
+            "cognitive": 4,
+            "assertions": 0,
+            "function_lines": 122,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 36.90528417449187
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "run_test",
+          "kind": "Function",
+          "start_line": 171,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 12,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 14.560219778561036
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        },
+        {
+          "name": "test_seeded_fault_soundness_and_precision",
+          "kind": "Function",
+          "start_line": 185,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 101,
+            "params": 0,
+            "nesting_max": 1,
+            "abc": 47.80167361086848
+          },
+          "violations": [
+            {
+              "metric": "min_assertions",
+              "actual": 0.0,
+              "limit": 1.0
+            }
+          ]
+        }
+      ]
     }
-  ]
+  ],
+  "history": {
+    "top_hotspots": [],
+    "top_patterns": [
+      {
+        "rule_key": "min_assertions",
+        "role": "test",
+        "area": "target/scratch",
+        "count": 3395,
+        "distinct_files": 367,
+        "distinct_days": 1
+      },
+      {
+        "rule_key": "function_lines_max",
+        "role": "app",
+        "area": "target/scratch",
+        "count": 943,
+        "distinct_files": 459,
+        "distinct_days": 1
+      },
+      {
+        "rule_key": "params_max",
+        "role": "test",
+        "area": "target/scratch",
+        "count": 625,
+        "distinct_files": 88,
+        "distinct_days": 1
+      },
+      {
+        "rule_key": "cyclomatic_max",
+        "role": "app",
+        "area": "target/scratch",
+        "count": 543,
+        "distinct_files": 306,
+        "distinct_days": 1
+      },
+      {
+        "rule_key": "abc_max",
+        "role": "app",
+        "area": "target/scratch",
+        "count": 358,
+        "distinct_files": 224,
+        "distinct_days": 1
+      },
+      {
+        "rule_key": "function_lines_max",
+        "role": "app",
+        "area": "src",
+        "count": 335,
+        "distinct_files": 8,
+        "distinct_days": 1
+      },
+      {
+        "rule_key": "min_assertions",
+        "role": "test",
+        "area": "tests",
+        "count": 315,
+        "distinct_files": 9,
+        "distinct_days": 1
+      },
+      {
+        "rule_key": "cognitive_max",
+        "role": "app",
+        "area": "target/scratch",
+        "count": 302,
+        "distinct_files": 210,
+        "distinct_days": 1
+      },
+      {
+        "rule_key": "abc_max",
+        "role": "app",
+        "area": "src",
+        "count": 207,
+        "distinct_files": 7,
+        "distinct_days": 1
+      },
+      {
+        "rule_key": "cyclomatic_max",
+        "role": "test",
+        "area": "target/scratch",
+        "count": 188,
+        "distinct_files": 69,
+        "distinct_days": 1
+      }
+    ]
+  }
 }

@@ -16,13 +16,15 @@ cyclomatic_max = 10
 cognitive_max = 20
 function_lines_max = 200
 file_lines_max = 5000
-nesting_max = 6
+# file_lines and nesting_max are tightenable once store.rs is split
+# (4585 lines) and main() is refactored (cyclomatic 67).
+nesting_max = 5
 params_max = 4
 abc_max = 60
 
 [thresholds.test]
-cyclomatic_max = 6
-cognitive_max = 10
-function_lines_max = 250
+cyclomatic_max = 5
+cognitive_max = 8
+function_lines_max = 200
 min_assertions = 1
-abc_max = 100
+abc_max = 80
