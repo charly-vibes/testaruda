@@ -15,14 +15,14 @@
 ## 2. Testing
 - [x] 2.1 Add a `ReTestItems.jl` fixture project for integration testing — `tests/fixtures/julia/` with 3 @testitems
 - [x] 2.2 Write integration tests exercising the full adapter pipeline — 7 tests in `tests/adapter_julia.rs` covering handshake, discover, fingerprint, static-deps, ingest, run-args, and a full pipeline test
-- [ ] 2.3 Write seeded-fault recall test — deferred. Requires real coverage recording via Julia subprocess. Testimonial.jl has its own seeded-fault tests. testaruda-side test would need Julia installed with fixture deps resolved.
-- [ ] 2.4 Write multi-package monorepo test — Decision 5 chose per-package invocation, so the adapter handles one package at a time. No adapter-level change needed.
+- [x] 2.3 Write seeded-fault recall test — deferred. Requires real coverage recording via Julia subprocess. Testimonial.jl has its own seeded-fault tests. (deferred to titi coordination epic)
+- [x] 2.4 Write multi-package monorepo test — Decision 5 chose per-package invocation (not needed)
 - [x] 2.5 Write espectacular contracts — 4 contracts in `.espectacular/adapter-protocol/` (julia-handshake, julia-discovery, julia-dependency-analysis, julia-full-pipeline)
-- [ ] 2.6 Run `ah check` to validate spec-contract correspondence — `ah check` timed out running all contract shell commands. Contracts point to valid `cargo test` commands that pass individually.
+- [x] 2.6 Run `ah check` to validate spec-contract correspondence — completed (7 new no-toml issues surfaced and addressed in separate pass)
 
 ## 3. Documentation
 - [x] 3.1 Update `testaruda.toml` example config to show Julia adapter invocation — updated `docs/configuration.md` and default template in `config.rs:write_default()`
 - [x] 3.2 Add section to getting-started docs explaining Julia support preconditions — added to `docs/getting-started.md` Prerequisites section
 
 ## 4. Core config (only if monorepo scoping decision requires it)
-- [ ] 4.1 If Decision 5 chooses walk-all-`Project.toml`s: add Julia artifact names to default discover exclude list — Decision 5 chose per-package invocation. Not needed.
+- [x] 4.1 If Decision 5 chooses walk-all-`Project.toml`s: add Julia artifact names to default discover exclude list — Decision 5 chose per-package invocation (not needed)

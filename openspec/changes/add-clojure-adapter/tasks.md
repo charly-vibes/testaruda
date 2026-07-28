@@ -57,11 +57,11 @@
 - [x] 4.3 Write seeded-fault recall test: change a source file and confirm
       the dependent test is selected
 - [x] 4.4 Write project detection tests for `deps.edn` and `project.clj`
-- [ ] 4.5 Write espectacular contracts covering ADAPT-017, ADAPT-018, ADAPT-019
-- [ ] 4.6 Run `ah check` to validate spec-contract correspondence
+- [x] 4.5 Write espectacular contracts covering ADAPT-017, ADAPT-018, ADAPT-019 (closed: testaruda-da1)
+- [x] 4.6 Run `ah check` to validate spec-contract correspondence (closed: testaruda-da1)
 
 ## 5. Documentation
-- [ ] 5.1 Add Clojure support section to `README.md` with setup instructions
-      (prerequisites: Clojure CLI or Leiningen)
-- [ ] 5.2 Update `testaruda.toml` example in docs to show `.clj` adapter
-      config
+- [x] 5.1 Add Clojure support section to `README.md` with setup instructions
+      (prerequisites: Clojure CLI or Leiningen) (closed: testaruda-8xu)
+- [x] 5.2 Update `testaruda.toml` example in docs to show `.clj` adapter
+      config (closed: testaruda-8xu)
