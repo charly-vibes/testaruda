@@ -176,6 +176,7 @@ enum Command {
     },
 }
 
+#[allow(clippy::cognitive_complexity)]
 fn main() -> miette::Result<()> {
     // Initialize tracing with optional JSON format
     let log_format = std::env::var("TESTARUDA_LOG_FORMAT").unwrap_or_default();
