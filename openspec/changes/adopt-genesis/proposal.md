@@ -20,7 +20,8 @@ gaps at once.
 - Ship `llm.txt` (generated via `genesis::aix` once stable; hand-written
   minimally until then — closes the Appendix A.3 testaruda `llm.txt` gap).
 - Add a `doctor` command (the true-suite-minimum verb testaruda is missing —
-  tool-craft §2.1) backed by `genesis::suite_linter` for its checks.
+  tool-craft §2.1). testaruda's doctor registers its own checks with
+  `genesis::suite_linter::LinterRegistry`; genesis just runs them.
 - Add a `testaruda feedback [KIND]` subcommand wrapping `genesis::feedback`.
   testaruda owns the command surface; genesis owns the machinery. Blocked
   on `genesis::feedback` (wai donates first).
@@ -36,5 +37,6 @@ gaps at once.
   footer), `src/cli.rs`, new `llm.txt`, new `src/doctor.rs`.
 - Blocked by: genesis tagging `v0.1.0` (envelope/suggestions/managed_block/
   suite_linter stable).
-- Coordinates with `testaruda-86m` (testaruda.toml schema) for the
-  `suite_linter` check.
+- Coordinates with `testaruda-86m` (testaruda.toml schema). testaruda registers
+  its own schema check with the `LinterRegistry`; genesis does not hardcode
+  tool-specific checks.

@@ -17,8 +17,9 @@
 
 ## 5. Add doctor (true-suite-minimum verb)
 - [ ] 5.1 Add `Doctor` variant to the `Commands` enum.
-- [ ] 5.2 Back `doctor` checks with `genesis::suite_linter` (testaruda.toml schema via testaruda-86m, pretender.toml presence, ah/dont gate wiring, badge/block match).
-- [ ] 5.3 `--fix` applies safe fixes via `genesis::suite_linter` fix fns.
+- [ ] 5.2 Register testaruda's own checks (testaruda.toml schema, adapter config) with `genesis::suite_linter::LinterRegistry`.
+- [ ] 5.3 `doctor` calls `LinterRegistry::run_all()` to run all registered checks; genesis owns the orchestration, testaruda owns the check logic.
+- [ ] 5.4 `--fix` applies safe fixes; each check provides its own fix fn.
 
 ## 6. Ship llm.txt
 - [ ] 6.1 Hand-write a minimal `llm.txt` now (closes Appendix A.3 gap).
