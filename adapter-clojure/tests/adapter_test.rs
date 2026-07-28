@@ -78,9 +78,9 @@ fn invalid_json_returns_error() {
 }
 
 #[test]
-fn discover_returns_not_implemented() {
+fn discover_returns_results() {
     let resp = send_command(r#"{"command":"discover"}"#);
-    assert_eq!(resp["ok"], false, "discover not yet implemented: {resp}");
+    assert_eq!(resp["ok"], true, "discover should succeed: {resp}");
 }
 
 #[test]

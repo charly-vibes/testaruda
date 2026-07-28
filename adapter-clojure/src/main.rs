@@ -52,7 +52,7 @@ fn handle_command(input: &str) -> serde_json::Value {
     let command = cmd["command"].as_str().unwrap_or("");
     match command {
         "handshake" => cmd_handshake(),
-        "discover" => json_err("not implemented: discover (see testaruda-cch)"),
+        "discover" => cmd_discover(),
         "static-deps" => cmd_static_deps(&cmd),
         "fingerprint" => json_err("not implemented: fingerprint (see testaruda-cch)"),
         "run-args" => json_err("not implemented: run-args (see testaruda-fjj)"),
@@ -204,4 +204,67 @@ fn extract_dep_namespaces_from_caps(caps: &[query::Capture], _content: &str) -> 
         }
     }
     namespaces
+}
+
+/// Discover: enumerate tests by scanning .clj files and running the discover
+/// query to find deftest/deftest- forms (TIA-ADAPT-018).
+fn cmd_discover() -> serde_json::Value {
+    let mut tests: Vec<serde_json::Value> = Vec::new();
+
+    for entry in walkdir::WalkDir::new(".")
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            let p = e.path().to_string_lossy();
+            e.file_type().is_file()
+                && (p.ends_with(".clj") || p.ends_with(".cljs") || p.ends_with(".cljc"))
+                && !p.contains("/target/")
+                && !p.contains("/.git/")
+                && !p.contains("/.flatpak-builder/")
+        })
+    {
+        let path = entry.path().to_string_lossy().to_string();
+        let clean_path = path.strip_prefix("./").unwrap_or(&path);
+
+        let content = match std::fs::read_to_string(entry.path()) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        let tree = query::parse(&content);
+        let discover_q = query::compile_query(include_str!("../queries/discover.scm"));
+        let caps = query::run_query(&discover_q, &tree, content.as_bytes());
+
+        // Get the namespace from the file (using ns query)
+        let ns_query = query::compile_query(include_str!("../queries/ns.scm"));
+        let ns_caps = query::run_query(&ns_query, &tree, content.as_bytes());
+        let namespace = ns_caps
+            .iter()
+            .find(|c| c.name == "namespace_name")
+            .map(|c| c.text.clone())
+            .unwrap_or_default();
+
+        // For each test_name capture, create a test item
+        let test_names: Vec<&str> = caps
+            .iter()
+            .filter(|c| c.name == "test_name")
+            .map(|c| c.text.as_str())
+            .collect();
+
+        for test_name in test_names {
+            let node_id = if namespace.is_empty() {
+                format!("{}::{}(Test)", clean_path.replace('/', "::"), test_name)
+            } else {
+                format!("{}::{}(Test)", namespace, test_name)
+            };
+
+            tests.push(serde_json::json!({
+                "node_id": node_id,
+                "suite_kind": "unit",
+                "file": clean_path,
+            }));
+        }
+    }
+
+    json_ok(serde_json::json!(tests))
 }

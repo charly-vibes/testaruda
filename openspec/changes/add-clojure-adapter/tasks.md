@@ -21,7 +21,7 @@
 - [x] 2.2 Implement `cmd_handshake()`: declare `languages: ["clojure"]`,
       `granularity: "file"`, `symbol_model_complete: false`,
       `fingerprinting: true`, `runtime_edges: false`
-- [ ] 2.3 Implement `cmd_discover()`: scan project for `.clj` files
+- [x] 2.3 Implement `cmd_discover()`: scan project for `.clj` files
       (respecting deps.edn `:test-paths` or default `test/`), parse each
       with tree-sitter, run the discover query, return test items
 - [x] 2.4 Implement `cmd_static_deps()`: for each changed file, parse with
