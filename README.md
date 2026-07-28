@@ -77,10 +77,37 @@ testaruda discovers tests by spawning language-specific adapter processes:
 | `testaruda-adapter-python` | Python | Scans `test_*.py` / `*_test.py` files |
 | `testaruda-adapter-julia` | Julia | Uses Testimonial.jl to discover `@testitem` tests |
 | `testaruda-adapter-clojure` | Clojure | Scans `deftest` and `deftest-` forms via tree-sitter |
+| `testaruda-adapter-typescript` | TypeScript | Scans `vitest.config.*` or `jest.config.*` for test files |
 
-The Rust, Python, and Clojure adapters ship with testaruda. The Julia adapter is installed
+The Rust, Python, TypeScript, and Clojure adapters ship with testaruda. The Julia adapter is installed
 through Testimonial.jl. See [Getting Started](docs/getting-started.md) for setup
 and [Configuration](docs/configuration.md) for adapter registration.
+
+### TypeScript
+
+The TypeScript adapter (`testaruda-adapter-typescript`) discovers tests by detecting vitest
+or jest configuration files and scanning for test file patterns.
+
+**Prerequisites:**
+- `npx vitest` or `npx jest` available (the adapter delegates to the runner)
+- The adapter is built automatically with `cargo build`
+
+**Configuration in `testaruda.toml`:**
+```toml
+[adapters.extensions]
+".ts" = "testaruda-adapter-typescript"
+".tsx" = "testaruda-adapter-typescript"
+".mts" = "testaruda-adapter-typescript"
+".cts" = "testaruda-adapter-typescript"
+```
+
+**Detecting TypeScript projects:**
+testaruda auto-detects TypeScript projects by looking for `vitest.config.ts`,
+`vitest.config.js`, `jest.config.ts`, or `jest.config.js` at the project root,
+or a `package.json` with `vitest` or `jest` in `devDependencies`.
+
+> **Note:** Monorepo projects may have vitest/jest configs in subpackages.
+> Use the `--test-dir` flag with `stress-test.sh` to target a specific subpackage.
 
 ### Clojure
 
