@@ -9,7 +9,7 @@ keywords = ["test-selection", "dependency-analysis", "testing", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 
 [workspace]
-members = ["adapter-typescript"]
+members = ["adapter-typescript", "adapter-clojure"]
 
 [[bin]]
 name = "testaruda"

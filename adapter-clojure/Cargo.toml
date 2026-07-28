@@ -1,0 +1,21 @@
+[package]
+name = "adapter-clojure"
+version = "0.1.0"
+edition = "2021"
+description = "testaruda adapter for Clojure — tree-sitter-based import extraction and test discovery via deps.edn / project.clj"
+
+[[bin]]
+name = "testaruda-adapter-clojure"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+blake3 = "1"
+walkdir = "2"
+# Pinned to match sibling project pretender (see openspec/changes/add-clojure-adapter).
+tree-sitter = "0.25"
+tree-sitter-clojure = "0.1"
+
+[dev-dependencies]
+tempfile = "3"

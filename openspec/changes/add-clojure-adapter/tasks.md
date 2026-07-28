@@ -1,5 +1,5 @@
 ## 1. Crate scaffolding & tree-sitter queries
-- [ ] 1.1 Create `adapter-clojure/` crate directory with `Cargo.toml`
+- [x] 1.1 Create `adapter-clojure/` crate directory with `Cargo.toml`
       depending on `tree-sitter = "0.25"` and `tree-sitter-clojure = "0.1"`
 - [ ] 1.2 Create `adapter-clojure/queries/discover.scm` — tree-sitter query
       matching `(deftest|deftest-)` forms and their test names
@@ -39,8 +39,8 @@
       Leiningen project
 
 ## 3. Workspace integration
-- [ ] 3.1 Add `adapter-clojure` to the root `Cargo.toml` workspace members
-- [ ] 3.2 Pin `tree-sitter = "0.25"` and `tree-sitter-clojure = "0.1"`
+- [x] 3.1 Add `adapter-clojure` to the root `Cargo.toml` workspace members
+- [x] 3.2 Pin `tree-sitter = "0.25"` and `tree-sitter-clojure = "0.1"`
       in `adapter-clojure/Cargo.toml` (matching pretender's versions)
 - [ ] 3.3 Add `.clj` and `.cljs` extension mappings to `config.rs` defaults
 - [ ] 3.3 Add `deps.edn` and `project.clj` to `detect_project_language()` in
