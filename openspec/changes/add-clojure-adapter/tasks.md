@@ -17,8 +17,8 @@
       - Nested `:import` forms
 
 ## 2. Adapter binary
-- [ ] 2.1 Create `adapter-clojure/src/main.rs` with the main JSON loop
-- [ ] 2.2 Implement `cmd_handshake()`: declare `languages: ["clojure"]`,
+- [x] 2.1 Create `adapter-clojure/src/main.rs` with the main JSON loop
+- [x] 2.2 Implement `cmd_handshake()`: declare `languages: ["clojure"]`,
       `granularity: "file"`, `symbol_model_complete: false`,
       `fingerprinting: true`, `runtime_edges: false`
 - [ ] 2.3 Implement `cmd_discover()`: scan project for `.clj` files
