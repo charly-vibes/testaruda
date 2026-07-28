@@ -305,11 +305,19 @@ fn cmd_ingest(cmd: &serde_json::Value) -> serde_json::Value {
         return json_err("empty run output");
     }
 
-    let mut per_test_results: Vec<serde_json::Value> = Vec::new();
-    let runtime_edges: Vec<serde_json::Value> = Vec::new();
+    let per_test_results =
+        parse_cargo_test_output(run_output).unwrap_or_else(|| parse_json_lines(run_output));
 
-    // Parse cargo test output for test results
-    // Lines look like: "test test_name ... ok" or "test test_name ... FAILED"
+    json_ok(serde_json::json!({
+        "runtime_edges": Vec::<serde_json::Value>::new(),
+        "per_test_results": per_test_results,
+        "external_inputs": [],
+    }))
+}
+
+/// Parse cargo test output: lines like "test test_name ... ok" or "FAILED".
+fn parse_cargo_test_output(run_output: &str) -> Option<Vec<serde_json::Value>> {
+    let mut per_test_results: Vec<serde_json::Value> = Vec::new();
     for line in run_output.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("test ") && trimmed.ends_with(" ok") {
@@ -338,22 +346,23 @@ fn cmd_ingest(cmd: &serde_json::Value) -> serde_json::Value {
             }
         }
     }
-
-    // If no standard test output found, try to parse as JSON-line format
     if per_test_results.is_empty() {
-        for line in run_output.lines() {
-            let trimmed = line.trim();
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
-                if val.get("test_id").is_some() && val.get("outcome").is_some() {
-                    per_test_results.push(val);
-                }
+        None
+    } else {
+        Some(per_test_results)
+    }
+}
+
+/// Parse JSON-lines format where each line is a JSON object with test_id + outcome.
+fn parse_json_lines(run_output: &str) -> Vec<serde_json::Value> {
+    let mut results = Vec::new();
+    for line in run_output.lines() {
+        let trimmed = line.trim();
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            if val.get("test_id").is_some() && val.get("outcome").is_some() {
+                results.push(val);
             }
         }
     }
-
-    json_ok(serde_json::json!({
-        "runtime_edges": runtime_edges,
-        "per_test_results": per_test_results,
-        "external_inputs": [],
-    }))
+    results
 }

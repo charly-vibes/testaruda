@@ -1,516 +1,60 @@
 {
   "files": [
     {
-      "path": "src/main.rs",
+      "path": "src/agent.rs",
       "role": "app",
       "diagnostics": [],
       "file_violations": [],
       "units": [
         {
-          "name": "build_config_registry",
-          "kind": "Function",
-          "start_line": 11,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 5,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 2.23606797749979
-          },
-          "violations": []
-        },
-        {
-          "name": "build_command_registry",
-          "kind": "Function",
-          "start_line": 20,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 22,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 2.23606797749979
-          },
-          "violations": []
-        },
-        {
-          "name": "build_block_registry",
-          "kind": "Function",
-          "start_line": 44,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 13,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 11.045361017187261
-          },
-          "violations": []
-        },
-        {
-          "name": "main",
-          "kind": "Function",
-          "start_line": 180,
-          "metrics": {
-            "cyclomatic": 67,
-            "cognitive": 201,
-            "assertions": 0,
-            "function_lines": 912,
-            "params": 0,
-            "nesting_max": 5,
-            "abc": 354.682957019364
-          },
-          "violations": [
-            {
-              "metric": "cyclomatic",
-              "actual": 67.0,
-              "limit": 10.0
-            },
-            {
-              "metric": "cognitive",
-              "actual": 201.0,
-              "limit": 20.0
-            },
-            {
-              "metric": "function_lines",
-              "actual": 912.0,
-              "limit": 200.0
-            },
-            {
-              "metric": "abc",
-              "actual": 354.682957019364,
-              "limit": 60.0
-            }
-          ]
-        },
-        {
-          "name": "run_adapter_pipeline",
-          "kind": "Function",
-          "start_line": 1100,
-          "metrics": {
-            "cyclomatic": 10,
-            "cognitive": 18,
-            "assertions": 0,
-            "function_lines": 115,
-            "params": 0,
-            "nesting_max": 3,
-            "abc": 47.391982444291145
-          },
-          "violations": []
-        },
-        {
-          "name": "run_discover_pipeline",
-          "kind": "Function",
-          "start_line": 1217,
-          "metrics": {
-            "cyclomatic": 5,
-            "cognitive": 8,
-            "assertions": 0,
-            "function_lines": 46,
-            "params": 0,
-            "nesting_max": 3,
-            "abc": 20.615528128088304
-          },
-          "violations": []
-        },
-        {
-          "name": "find_project_root",
-          "kind": "Function",
-          "start_line": 1265,
-          "metrics": {
-            "cyclomatic": 3,
-            "cognitive": 3,
-            "assertions": 0,
-            "function_lines": 10,
-            "params": 0,
-            "nesting_max": 2,
-            "abc": 10.246950765959598
-          },
-          "violations": []
-        },
-        {
-          "name": "run_cargo_test_fallback",
-          "kind": "Function",
-          "start_line": 1280,
-          "metrics": {
-            "cyclomatic": 2,
-            "cognitive": 1,
-            "assertions": 0,
-            "function_lines": 20,
-            "params": 0,
-            "nesting_max": 1,
-            "abc": 10.246950765959598
-          },
-          "violations": []
-        },
-        {
           "name": "from_selection",
           "kind": "Function",
-          "start_line": 1321,
+          "start_line": 134,
           "metrics": {
-            "cyclomatic": 3,
-            "cognitive": 2,
+            "cyclomatic": 10,
+            "cognitive": 17,
             "assertions": 0,
-            "function_lines": 22,
+            "function_lines": 117,
+            "params": 0,
+            "nesting_max": 3,
+            "abc": 49.33558553417604
+          },
+          "violations": []
+        },
+        {
+          "name": "test_query",
+          "kind": "Function",
+          "start_line": 253,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 43,
             "params": 0,
             "nesting_max": 1,
-            "abc": 5.477225575051661
+            "abc": 7.280109889280518
           },
           "violations": []
         },
         {
-          "name": "exit_code",
+          "name": "test_agent_output_format_serialization",
           "kind": "Function",
-          "start_line": 1344,
+          "start_line": 304,
           "metrics": {
             "cyclomatic": 1,
             "cognitive": 0,
             "assertions": 0,
-            "function_lines": 3,
+            "function_lines": 54,
             "params": 0,
             "nesting_max": 0,
-            "abc": 0.0
+            "abc": 4.47213595499958
           },
           "violations": []
         },
         {
-          "name": "reason",
+          "name": "test_test_query_selected",
           "kind": "Function",
-          "start_line": 1348,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 3,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 0.0
-          },
-          "violations": []
-        },
-        {
-          "name": "test_shadow_mode_output",
-          "kind": "Function",
-          "start_line": 1373,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 17,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 2.23606797749979
-          },
-          "violations": []
-        },
-        {
-          "name": "test_json_plan_serialization",
-          "kind": "Function",
-          "start_line": 1392,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 26,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 3.605551275463989
-          },
-          "violations": []
-        },
-        {
-          "name": "test_shadow_plan_serialization",
-          "kind": "Function",
-          "start_line": 1420,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 19,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 3.605551275463989
-          },
-          "violations": []
-        },
-        {
-          "name": "test_success_exit_code",
-          "kind": "Function",
-          "start_line": 1441,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 25,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 2.23606797749979
-          },
-          "violations": []
-        },
-        {
-          "name": "test_empty_exit_code",
-          "kind": "Function",
-          "start_line": 1468,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 9,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 2.23606797749979
-          },
-          "violations": []
-        },
-        {
-          "name": "test_low_confidence_exit_code",
-          "kind": "Function",
-          "start_line": 1479,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 19,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 2.23606797749979
-          },
-          "violations": []
-        },
-        {
-          "name": "test_ci_exit_codes_distinct",
-          "kind": "Function",
-          "start_line": 1500,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 8,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 0.0
-          },
-          "violations": []
-        },
-        {
-          "name": "test_build_command_registry_includes_all_commands",
-          "kind": "Function",
-          "start_line": 1514,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 21,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 2.8284271247461903
-          },
-          "violations": []
-        },
-        {
-          "name": "test_typo_slect_suggests_select",
-          "kind": "Function",
-          "start_line": 1537,
-          "metrics": {
-            "cyclomatic": 2,
-            "cognitive": 1,
-            "assertions": 0,
-            "function_lines": 16,
-            "params": 0,
-            "nesting_max": 1,
-            "abc": 4.358898943540674
-          },
-          "violations": []
-        },
-        {
-          "name": "test_typo_injest_suggests_ingest",
-          "kind": "Function",
-          "start_line": 1555,
-          "metrics": {
-            "cyclomatic": 2,
-            "cognitive": 1,
-            "assertions": 0,
-            "function_lines": 9,
-            "params": 0,
-            "nesting_max": 1,
-            "abc": 4.358898943540674
-          },
-          "violations": []
-        },
-        {
-          "name": "test_typo_discovr_suggests_discover",
-          "kind": "Function",
-          "start_line": 1566,
-          "metrics": {
-            "cyclomatic": 2,
-            "cognitive": 1,
-            "assertions": 0,
-            "function_lines": 9,
-            "params": 0,
-            "nesting_max": 1,
-            "abc": 4.358898943540674
-          },
-          "violations": []
-        },
-        {
-          "name": "test_typo_dcotr_suggests_doctor",
-          "kind": "Function",
-          "start_line": 1577,
-          "metrics": {
-            "cyclomatic": 2,
-            "cognitive": 1,
-            "assertions": 0,
-            "function_lines": 9,
-            "params": 0,
-            "nesting_max": 1,
-            "abc": 4.358898943540674
-          },
-          "violations": []
-        },
-        {
-          "name": "test_typo_exports_suggests_explain",
-          "kind": "Function",
-          "start_line": 1588,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 14,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 4.242640687119285
-          },
-          "violations": []
-        },
-        {
-          "name": "test_typo_gibberish_returns_none",
-          "kind": "Function",
-          "start_line": 1604,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 9,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 4.242640687119285
-          },
-          "violations": []
-        },
-        {
-          "name": "test_format_typo_suggestion",
-          "kind": "Function",
-          "start_line": 1615,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 13,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 5.0
-          },
-          "violations": []
-        },
-        {
-          "name": "test_managed_block_registry_includes_standard_blocks",
-          "kind": "Function",
-          "start_line": 1634,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 8,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 1.4142135623730951
-          },
-          "violations": []
-        },
-        {
-          "name": "test_block_injector_creates_new_file",
-          "kind": "Function",
-          "start_line": 1644,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 18,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 11.661903789690601
-          },
-          "violations": []
-        },
-        {
-          "name": "test_block_injector_updates_existing_block",
-          "kind": "Function",
-          "start_line": 1664,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 21,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 13.416407864998739
-          },
-          "violations": []
-        },
-        {
-          "name": "test_block_injector_prepends_to_existing_file",
-          "kind": "Function",
-          "start_line": 1687,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 20,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 15.652475842498529
-          },
-          "violations": []
-        },
-        {
-          "name": "test_envelope_has_required_top_level_keys",
-          "kind": "Function",
-          "start_line": 1713,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 26,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 6.708203932499369
-          },
-          "violations": []
-        },
-        {
-          "name": "test_envelope_kind_select_serialization",
-          "kind": "Function",
-          "start_line": 1741,
-          "metrics": {
-            "cyclomatic": 1,
-            "cognitive": 0,
-            "assertions": 0,
-            "function_lines": 14,
-            "params": 0,
-            "nesting_max": 0,
-            "abc": 3.605551275463989
-          },
-          "violations": []
-        },
-        {
-          "name": "test_envelope_error_has_remediation",
-          "kind": "Function",
-          "start_line": 1757,
+          "start_line": 360,
           "metrics": {
             "cyclomatic": 1,
             "cognitive": 0,
@@ -518,141 +62,101 @@
             "function_lines": 24,
             "params": 0,
             "nesting_max": 0,
-            "abc": 5.830951894845301
+            "abc": 5.0
           },
           "violations": []
         },
         {
-          "name": "test_build_command_registry_is_idempotent",
+          "name": "test_test_query_not_selected",
           "kind": "Function",
-          "start_line": 1787,
+          "start_line": 386,
           "metrics": {
             "cyclomatic": 1,
             "cognitive": 0,
             "assertions": 0,
-            "function_lines": 5,
+            "function_lines": 13,
             "params": 0,
             "nesting_max": 0,
-            "abc": 2.8284271247461903
+            "abc": 4.242640687119285
           },
           "violations": []
         },
         {
-          "name": "test_build_block_registry_is_idempotent",
+          "name": "test_coverage_gap_serialization",
           "kind": "Function",
-          "start_line": 1794,
+          "start_line": 401,
           "metrics": {
             "cyclomatic": 1,
             "cognitive": 0,
             "assertions": 0,
-            "function_lines": 5,
+            "function_lines": 10,
             "params": 0,
             "nesting_max": 0,
-            "abc": 2.8284271247461903
+            "abc": 4.47213595499958
           },
           "violations": []
         },
         {
-          "name": "test_cli_parse_typo_caught_by_genesis",
+          "name": "test_agent_output_fallback_reason_no_deps",
           "kind": "Function",
-          "start_line": 1801,
+          "start_line": 413,
           "metrics": {
             "cyclomatic": 1,
             "cognitive": 0,
             "assertions": 0,
-            "function_lines": 16,
+            "function_lines": 42,
             "params": 0,
             "nesting_max": 0,
-            "abc": 6.4031242374328485
+            "abc": 5.385164807134504
+          },
+          "violations": []
+        },
+        {
+          "name": "test_agent_output_fallback_reason_quarantined",
+          "kind": "Function",
+          "start_line": 457,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 42,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 5.385164807134504
+          },
+          "violations": []
+        },
+        {
+          "name": "test_agent_output_node_id_included",
+          "kind": "Function",
+          "start_line": 501,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 36,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 5.385164807134504
+          },
+          "violations": []
+        },
+        {
+          "name": "test_empty_agent_output_fields",
+          "kind": "Function",
+          "start_line": 539,
+          "metrics": {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "assertions": 0,
+            "function_lines": 20,
+            "params": 0,
+            "nesting_max": 0,
+            "abc": 7.280109889280518
           },
           "violations": []
         }
       ]
     }
-  ],
-  "history": {
-    "top_hotspots": [],
-    "top_patterns": [
-      {
-        "rule_key": "min_assertions",
-        "role": "test",
-        "area": "target/scratch",
-        "count": 3395,
-        "distinct_files": 367,
-        "distinct_days": 1
-      },
-      {
-        "rule_key": "function_lines_max",
-        "role": "app",
-        "area": "target/scratch",
-        "count": 943,
-        "distinct_files": 459,
-        "distinct_days": 1
-      },
-      {
-        "rule_key": "params_max",
-        "role": "test",
-        "area": "target/scratch",
-        "count": 625,
-        "distinct_files": 88,
-        "distinct_days": 1
-      },
-      {
-        "rule_key": "cyclomatic_max",
-        "role": "app",
-        "area": "target/scratch",
-        "count": 543,
-        "distinct_files": 306,
-        "distinct_days": 1
-      },
-      {
-        "rule_key": "abc_max",
-        "role": "app",
-        "area": "target/scratch",
-        "count": 358,
-        "distinct_files": 224,
-        "distinct_days": 1
-      },
-      {
-        "rule_key": "function_lines_max",
-        "role": "app",
-        "area": "src",
-        "count": 331,
-        "distinct_files": 8,
-        "distinct_days": 1
-      },
-      {
-        "rule_key": "cognitive_max",
-        "role": "app",
-        "area": "target/scratch",
-        "count": 302,
-        "distinct_files": 210,
-        "distinct_days": 1
-      },
-      {
-        "rule_key": "abc_max",
-        "role": "app",
-        "area": "src",
-        "count": 203,
-        "distinct_files": 7,
-        "distinct_days": 1
-      },
-      {
-        "rule_key": "cyclomatic_max",
-        "role": "test",
-        "area": "target/scratch",
-        "count": 188,
-        "distinct_files": 69,
-        "distinct_days": 1
-      },
-      {
-        "rule_key": "params_max",
-        "role": "app",
-        "area": "target/scratch",
-        "count": 164,
-        "distinct_files": 54,
-        "distinct_days": 1
-      }
-    ]
-  }
+  ]
 }
