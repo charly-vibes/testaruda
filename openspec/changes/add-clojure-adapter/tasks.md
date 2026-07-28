@@ -7,9 +7,9 @@
       `(ns ...)` declarations and extracting the namespace name
 - [x] 1.4 Create `adapter-clojure/queries/deps.scm` — tree-sitter query matching
       `(:require ...)`, `(:use ...)`, `(:import ...)` entries inside `ns` forms
-- [ ] 1.5 Write Rust query runner function: given a `tree_sitter::Tree` and a
+- [x] 1.5 Write Rust query runner function: given a `tree_sitter::Tree` and a
       query file, return captured node ranges as `(name, line, column)` tuples
-- [ ] 1.6 Write unit tests for each query against realistic Clojure source
+- [x] 1.6 Write unit tests for each query against realistic Clojure source
       snippets including:
       - Comments, metadata, `#_`, `#?`, strings with parens
       - Complex `:require` forms with `:refer`, `:as`, and `:rename`

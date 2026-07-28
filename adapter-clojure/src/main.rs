@@ -12,6 +12,8 @@
 //! Until `testaruda-iq6` lands this binary is a no-op stub so the workspace
 //! builds and `cargo test` passes on the empty crate (acceptance: 4tm).
 
+mod query;
+
 fn main() {
     // Intentionally empty — see module docs.
 }
