@@ -16,6 +16,9 @@ default = "testaruda-adapter-rust"
 ".rs" = "testaruda-adapter-rust"
 ".py" = "testaruda-adapter-python"
 ".jl" = "testaruda-adapter-julia"
+".clj" = "testaruda-adapter-clojure"
+".cljs" = "testaruda-adapter-clojure"
+".cljc" = "testaruda-adapter-clojure"
 
 [must_run]
 # Map a changed-path glob to test node IDs that must run.

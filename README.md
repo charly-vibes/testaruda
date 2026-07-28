@@ -76,10 +76,34 @@ testaruda discovers tests by spawning language-specific adapter processes:
 | `testaruda-adapter-rust` | Rust | Scans `#[test]` and `#[tokio::test]` attributes |
 | `testaruda-adapter-python` | Python | Scans `test_*.py` / `*_test.py` files |
 | `testaruda-adapter-julia` | Julia | Uses Testimonial.jl to discover `@testitem` tests |
+| `testaruda-adapter-clojure` | Clojure | Scans `deftest` and `deftest-` forms via tree-sitter |
 
-The Rust and Python adapters ship with testaruda. The Julia adapter is installed
+The Rust, Python, and Clojure adapters ship with testaruda. The Julia adapter is installed
 through Testimonial.jl. See [Getting Started](docs/getting-started.md) for setup
 and [Configuration](docs/configuration.md) for adapter registration.
+
+### Clojure
+
+The Clojure adapter (`testaruda-adapter-clojure`) discovers tests by parsing `.clj`,
+`.cljs`, and `.cljc` files with tree-sitter and running a query for `deftest`/
+`deftest-` forms. It supports both deps.edn (Cognitect) and project.clj (Leiningen)
+project configurations.
+
+**Prerequisites:**
+- Clojure CLI tools (`clj`) or Leiningen (`lein`) on PATH
+- The adapter is built automatically with `cargo build`
+
+**Configuration in `testaruda.toml`:**
+```toml
+[adapters.extensions]
+".clj" = "testaruda-adapter-clojure"
+".cljs" = "testaruda-adapter-clojure"
+".cljc" = "testaruda-adapter-clojure"
+```
+
+**Detecting Clojure projects:**
+testaruda auto-detects Clojure projects by looking for `deps.edn` or
+`project.clj` in the project root.
 
 ## Requirements
 
