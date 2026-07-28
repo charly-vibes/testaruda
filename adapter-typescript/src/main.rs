@@ -6,7 +6,11 @@
 //! Uses tree-sitter-typescript for parsing `.ts`/`.tsx`/`.mts`/`.cts` files,
 //! extracting imports, test declarations, and exports via Scheme queries.
 
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
+
+mod resolver;
 
 fn main() {
     let stdin = std::io::stdin();
@@ -302,8 +306,8 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
         None => return json_err("missing 'params.changed_files'"),
     };
 
-    let mut unresolved = Vec::new();
     let mut edges = Vec::new();
+    let mut unresolved = Vec::new();
 
     // Discover all test items
     let discover_all = cmd_discover(&serde_json::json!({}));
@@ -321,67 +325,140 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
         Vec::new()
     };
 
-    // Build a map: import path -> list of (test_node_id, test_file_path)
-    // For each test file, parse its imports
-    let mut import_to_tests: std::collections::HashMap<String, Vec<(String, String)>> =
-        std::collections::HashMap::new();
+    // Determine the project root as the current working directory
+    let project_root = std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf());
+    let resolver = resolver::ImportResolver::new(&project_root);
+
+    // Build a map: resolved file path -> list of (test_node_id, test_file)
+    // For each test file, parse its imports and resolve them to concrete file paths.
+    let mut source_to_tests: HashMap<PathBuf, Vec<(String, String)>> = HashMap::new();
+    let mut visited = HashSet::new();
+
     for (node_id, file) in &test_files {
         if let Ok(content) = std::fs::read_to_string(file) {
             let ext = file.rsplit_once('.').map(|(_, e)| e).unwrap_or("");
             let imports = parse_imports_from_source(&content, ext);
+            let test_dir = Path::new(file)
+                .parent()
+                .unwrap_or(&project_root)
+                .to_path_buf();
+
             for imp in imports {
-                import_to_tests
-                    .entry(imp)
-                    .or_default()
-                    .push((node_id.clone(), file.clone()));
+                // Resolve the import path to find concrete file(s)
+                // First try direct resolution
+                let resolved = resolver.resolve(&test_dir, &imp);
+
+                if let Some(path) = resolved.resolved {
+                    source_to_tests
+                        .entry(path)
+                        .or_default()
+                        .push((node_id.clone(), file.clone()));
+                } else {
+                    // For unresolved imports from test files, try with re-export
+                    // following (handles barrel file re-exports)
+                    let re_exported =
+                        resolver.resolve_with_re_exports(&test_dir, &imp, &mut visited);
+                    for r_path in re_exported {
+                        source_to_tests
+                            .entry(r_path)
+                            .or_default()
+                            .push((node_id.clone(), file.clone()));
+                    }
+                }
             }
         }
     }
 
-    // For each changed file, check if any test file imports from it
-    for file in &changed_files {
-        // Derive the import path from the file path
-        // e.g., "src/component.ts" -> "./component" or "../component"
-        let file_stem = std::path::Path::new(file)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_string();
+    // Normalize changed files to canonical paths for matching
+    let changed_canonical: Vec<(String, PathBuf)> = changed_files
+        .iter()
+        .map(|f| {
+            let p = project_root.join(f);
+            let canonical = p.canonicalize().unwrap_or(p);
+            (f.clone(), canonical)
+        })
+        .collect();
 
-        // Check if any test file imports this file
-        // Try matching by stem (simple heuristic)
-        let matching_tests = import_to_tests.get(&file_stem).cloned().or_else(|| {
-            // Also try matching by path without extension
-            let path_no_ext = file
-                .rsplit_once('.')
-                .map(|(p, _)| p.to_string())
-                .unwrap_or_default();
-            import_to_tests.get(&path_no_ext).cloned()
-        });
+    // For each changed file, check if any resolved test import maps to it
+    for (changed_orig, changed_canonical) in &changed_canonical {
+        let matched = source_to_tests.get(changed_canonical);
 
-        if let Some(tests) = matching_tests {
-            for (test_node_id, _test_file) in &tests {
+        if let Some(tests) = matched {
+            for (test_node_id, _test_file) in tests {
                 edges.push(serde_json::json!({
                     "from": test_node_id,
-                    "to": file,
+                    "to": changed_orig,
                     "weight": 1_000_000,
                     "origin": "static",
                 }));
             }
         } else {
-            // If the changed file is itself a test file, create self-edge
-            let is_test = test_files.iter().any(|(_, f)| f == file);
-            if is_test {
-                if let Some(node_id) = test_files.iter().find(|(_, f)| f == file).map(|(n, _)| n) {
+            // Try matching by the original path (relative from project root)
+            let changed_relative = project_root.join(changed_orig);
+            let changed_normalized = changed_relative.canonicalize().unwrap_or(changed_relative);
+
+            let matched_relative = source_to_tests.get(&changed_normalized);
+
+            if let Some(tests) = matched_relative {
+                for (test_node_id, _test_file) in tests {
                     edges.push(serde_json::json!({
-                        "from": node_id,
-                        "to": file,
+                        "from": test_node_id,
+                        "to": changed_orig,
                         "weight": 1_000_000,
                         "origin": "static",
                     }));
                 }
             } else {
-                unresolved.push(file.clone());
+                // Also try matching by just the file stem (for cases where imports resolve
+                // to a different path representation)
+                let changed_stem = Path::new(changed_orig.as_str())
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                let stem_matched: Vec<&PathBuf> = source_to_tests
+                    .keys()
+                    .filter(|k: &&PathBuf| {
+                        k.file_stem()
+                            .and_then(|s| s.to_str())
+                            .map_or(false, |s| s == changed_stem)
+                    })
+                    .collect();
+
+                if !stem_matched.is_empty() {
+                    for source_path in stem_matched {
+                        if let Some(tests) = source_to_tests.get(source_path) {
+                            for (test_node_id, _test_file) in tests {
+                                edges.push(serde_json::json!({
+                                    "from": test_node_id,
+                                    "to": changed_orig,
+                                    "weight": 1_000_000,
+                                    "origin": "static",
+                                }));
+                            }
+                        }
+                    }
+                } else {
+                    // If the changed file is itself a test file, create self-edge
+                    let is_test = test_files.iter().any(|(_, f)| f == changed_orig);
+                    if is_test {
+                        if let Some(node_id) = test_files
+                            .iter()
+                            .find(|(_, f)| f == changed_orig)
+                            .map(|(n, _)| n)
+                        {
+                            edges.push(serde_json::json!({
+                                "from": node_id,
+                                "to": changed_orig,
+                                "weight": 1_000_000,
+                                "origin": "static",
+                            }));
+                        }
+                    } else {
+                        unresolved.push(changed_orig.clone());
+                    }
+                }
             }
         }
     }
