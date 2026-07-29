@@ -2,8 +2,8 @@ plugins = []
 
 [project]
 name = "testaruda"
-version = "2026.5.0"
+version = "2026.7.28"
 description = ""
-tool_commit = "7a7c984"
+tool_commit = "9010a5a"
 
 [llm]
