@@ -10,6 +10,12 @@ default = "testaruda-adapter-rust"
 ".rs" = "testaruda-adapter-rust"
 ".py" = "testaruda-adapter-python"
 ".jl" = "testaruda-adapter-julia"
+".cs" = "titi testaruda-adapter"
+".fs" = "titi testaruda-adapter"
+".vb" = "titi testaruda-adapter"
+".csproj" = "titi testaruda-adapter"
+".sln" = "titi testaruda-adapter"
+".slnx" = "titi testaruda-adapter"
 
 [discover]
 # Directory/file names to exclude from discover walks.

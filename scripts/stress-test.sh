@@ -14,7 +14,8 @@
 #   --head REF         Git head ref for changed files (default: HEAD)
 #   --sample N         Max test items to fetch run-args for (default: 10)
 #   --output PATH      Write JSON results to file (default: stdout)
-#   --adapter PATH     Adapter binary (default: auto-detect from repo)
+#   --adapter PATH     Adapter binary or command string (default: auto-detect from repo)
+#                       e.g. "titi testaruda-adapter" for subcommand adapters
 #   --test-dir PATH    Subdirectory to discover tests in (for monorepos)
 #   --timeout SECS     Timeout per adapter command in seconds (default: 30)
 #   --help             Show this help
@@ -37,7 +38,7 @@
 #   # For monorepos, discover tests from subpackage:
 #   ./scripts/stress-test.sh --test-dir packages/zod target/scratch/zod
 #
-# Dependencies: jq, git, testaruda-adapter-python (on PATH or --adapter)
+# Dependencies: jq, git, and at least one adapter binary (on PATH, --adapter, or auto-detected)
 set -euo pipefail
 
 # ============================================================================
@@ -81,13 +82,18 @@ fi
 
 # Send a single JSON command to the adapter, return the single response line.
 # Uses a fresh adapter subprocess per command (like the integration tests).
+# Supports command-string adapters (e.g., "titi testaruda-adapter") via
+# $ADAPTER_BIN and $ADAPTER_ARGS (set during adapter resolution).
 adapter_command() {
     local cmd="$1"
     local cwd="${2:-.}"
 
-    # Write command to temp file, spawn adapter, read first response line
     local resp
-    resp="$(cd "$cwd" && echo "$cmd" | timeout "$TIMEOUT" "$ADAPTER" 2>/dev/null | head -1 || true)"
+    if [[ -n "$ADAPTER_ARGS" ]]; then
+        resp="$(cd "$cwd" && echo "$cmd" | timeout "$TIMEOUT" "$ADAPTER_BIN" $ADAPTER_ARGS 2>/dev/null | head -1 || true)"
+    else
+        resp="$(cd "$cwd" && echo "$cmd" | timeout "$TIMEOUT" "$ADAPTER_BIN" 2>/dev/null | head -1 || true)"
+    fi
     echo "$resp"
 }
 
@@ -125,15 +131,16 @@ detect_adapter() {
     elif [[ -f "$dir/Project.toml" ]]; then echo "testaruda-adapter-julia"
     elif [[ -f "$dir/vitest.config.ts" || -f "$dir/vitest.config.js" || -f "$dir/jest.config.ts" || -f "$dir/jest.config.js" ]]; then echo "testaruda-adapter-typescript"
     elif [[ -f "$dir/deps.edn" || -f "$dir/project.clj" ]]; then echo "testaruda-adapter-clojure"
+    elif ls "$dir"/*.csproj &>/dev/null 2>&1 || ls "$dir"/*.sln &>/dev/null 2>&1 || ls "$dir"/*.slnx &>/dev/null 2>&1; then echo "titi testaruda-adapter"
     else echo ""; fi
 }
 
-# Resolve adapter binary path
-resolve_adapter() {
+# Resolve adapter binary path for non-command-string adapters.
+# Returns the resolved single binary path or empty string.
+resolve_adapter_binary() {
     local bin="$1"
     if command -v "$bin" &>/dev/null; then echo "$bin"; return 0; fi
     if [[ -x "$bin" ]]; then
-        # Resolve to absolute path if relative
         if [[ "$bin" != /* ]]; then
             echo "$(cd . && realpath "$bin" 2>/dev/null || echo "$bin")"
         else
@@ -141,7 +148,6 @@ resolve_adapter() {
         fi
         return 0
     fi
-    # Check in project target directories (must be absolute for cross-directory use)
     local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
     if [[ -x "$script_dir/target/debug/$bin" ]]; then
         echo "$script_dir/target/debug/$bin"
@@ -151,8 +157,38 @@ resolve_adapter() {
         echo "$script_dir/target/release/$bin"
         return 0
     fi
-    echo "$bin"
+    echo ""
     return 1
+}
+
+# Split command string into binary and args for array-safe invocation.
+# Echoes the binary path on the first line and args (space-separated) on the second.
+# For single-word adapters, the second line is empty.
+resolve_adapter() {
+    local input="$1"
+    # If it looks like a command string (contains space), split it
+    if [[ "$input" == *" "* ]]; then
+        local bin="${input%% *}"
+        local args="${input#* }"
+        local resolved="$(resolve_adapter_binary "$bin")"
+        if [[ -z "$resolved" ]]; then
+            echo "$bin"
+            echo "$args"
+            return 1
+        fi
+        echo "$resolved"
+        echo "$args"
+        return 0
+    fi
+    resolved="$(resolve_adapter_binary "$input")"
+    if [[ -z "$resolved" ]]; then
+        echo "$input"
+        echo ""
+        return 1
+    fi
+    echo "$resolved"
+    echo ""
+    return 0
 }
 
 # Get the repo slug from URL or path
@@ -215,14 +251,18 @@ if [[ -z "$ADAPTER" ]]; then
 fi
 
 RESOLVED="$(resolve_adapter "$ADAPTER")" || true
-if [[ -z "$RESOLVED" ]] || ! command -v "$RESOLVED" &>/dev/null && [[ ! -x "$RESOLVED" ]]; then
+# Parse resolved adapter — first line is binary, second is args (if command-string)
+ADAPTER_BIN="$(echo "$RESOLVED" | head -1)"
+ADAPTER_ARGS="$(echo "$RESOLVED" | tail -1)"
+
+if [[ -z "$ADAPTER_BIN" ]] || ! command -v "$ADAPTER_BIN" &>/dev/null && [[ ! -x "$ADAPTER_BIN" ]]; then
     echo "Error: adapter binary not found: $ADAPTER" >&2
     echo "  Build it: cargo build --bin $ADAPTER" >&2
     exit 1
 fi
-ADAPTER="$RESOLVED"
+ADAPTER_DISPLAY="$ADAPTER_BIN${ADAPTER_ARGS:+ $ADAPTER_ARGS}"
 
-echo "=== Stress-testing $ADAPTER against: $SLUG ===" >&2
+echo "=== Stress-testing $ADAPTER_DISPLAY against: $SLUG ===" >&2
 
 # ============================================================================
 # Phase 1: Handshake
@@ -264,8 +304,18 @@ DISCOVER_FILES="[]"
 DISCOVER_ERROR="null"
 if echo "$DISCOVER_RESPONSE" | jq -e '.ok == true' >/dev/null 2>&1; then
     DISCOVER_OK=true
-    DISCOVER_COUNT="$(echo "$DISCOVER_RESPONSE" | jq '.result | length')"
-    DISCOVER_FILES="$(echo "$DISCOVER_RESPONSE" | jq '.result | map(.file)')"
+    # Handle two discover response formats:
+    #   canonical: result = [TestItem, ...]
+    #   titi:      result.tests = [TestItem, ...]
+    if echo "$DISCOVER_RESPONSE" | jq -e '.result | type == "array"' >/dev/null 2>&1; then
+        DISCOVER_COUNT="$(echo "$DISCOVER_RESPONSE" | jq '.result | length')"
+        DISCOVER_FILES="$(echo "$DISCOVER_RESPONSE" | jq '.result | map(.file)')"
+    elif echo "$DISCOVER_RESPONSE" | jq -e '.result.tests | type == "array"' >/dev/null 2>&1; then
+        DISCOVER_COUNT="$(echo "$DISCOVER_RESPONSE" | jq '.result.tests | length')"
+        DISCOVER_FILES="$(echo "$DISCOVER_RESPONSE" | jq '.result.tests | map(.file)')"
+    else
+        DISCOVER_ERROR='"unexpected discover response format"'
+    fi
 else
     DISCOVER_ERROR="$(echo "$DISCOVER_RESPONSE" | jq '.error // "unknown error"' 2>/dev/null || echo '"no response"')"
 fi
