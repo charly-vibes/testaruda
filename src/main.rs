@@ -31,6 +31,7 @@ pub fn build_command_registry() -> genesis::suggestions::CommandRegistry {
             "validate".to_string(),
             "discover".to_string(),
             "metrics".to_string(),
+            "fingerprint".to_string(),
             "doctor".to_string(),
             "feedback".to_string(),
             "completions".to_string(),
@@ -148,6 +149,8 @@ enum Command {
     Discover {},
     /// Show operational metrics
     Metrics {},
+    /// Refresh all content unit fingerprints from disk
+    Fingerprint,
     /// Validate project configuration via genesis suite_linter
     Doctor {
         /// Apply safe fixes
@@ -303,6 +306,7 @@ fn dispatch(command: Command) -> miette::Result<()> {
         Command::Import { path } => commands::import_graph(path),
         Command::Explain { test_id, change } => commands::explain(test_id, change),
         Command::Validate { program } => commands::validate(program),
+        Command::Fingerprint => commands::fingerprint(),
         Command::Discover {} => commands::discover(),
         Command::Metrics {} => commands::metrics(),
         Command::Doctor { fix } => commands::doctor(fix),

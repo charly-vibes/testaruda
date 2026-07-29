@@ -1112,6 +1112,16 @@ pub fn metrics() -> miette::Result<()> {
     Ok(())
 }
 
+/// `testaruda fingerprint` — refresh all content unit fingerprints from disk.
+pub fn fingerprint() -> miette::Result<()> {
+    let store = Store::open_default()?;
+    store.check_initialized()?;
+    let updated = store.refresh_fingerprints()?;
+    println!("🔑 Refreshed fingerprints for {} content units", updated);
+    tracing::info!(event = "fingerprint", updated = updated,);
+    Ok(())
+}
+
 /// `testaruda doctor` — validate project configuration via genesis suite_linter.
 pub fn doctor(fix: bool) -> miette::Result<()> {
     let project_root = find_project_root()?;

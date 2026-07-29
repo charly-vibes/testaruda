@@ -1270,6 +1270,53 @@ impl Store {
         Ok(())
     }
 
+    /// Refresh all content unit fingerprints from disk.
+    ///
+    /// Walks every content unit in the store, recomputes its fingerprint
+    /// from the current file on disk, and updates the stored value.
+    /// Returns the number of units updated.
+    pub fn refresh_fingerprints(&self) -> miette::Result<u32> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, path FROM content_units")
+            .map_err(|e| miette::miette!("Failed to prepare query: {}", e))?;
+
+        let rows: Vec<(u32, String)> = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, u32>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| miette::miette!("Failed to query content units: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let mut updated = 0u32;
+        for (id, path) in &rows {
+            let abs_path = if std::path::Path::new(path).is_absolute() {
+                std::path::PathBuf::from(path)
+            } else {
+                self.project_root.join(path)
+            };
+            match Self::compute_fingerprint(&abs_path) {
+                Ok(fp) => {
+                    self.conn
+                        .execute(
+                            "UPDATE content_units SET fingerprint = ?1 WHERE id = ?2",
+                            rusqlite::params![fp, id],
+                        )
+                        .map_err(|e| {
+                            miette::miette!("Failed to update fingerprint for {}: {}", path, e)
+                        })?;
+                    updated += 1;
+                }
+                Err(_) => {
+                    // File missing — leave fingerprint as-is (will show as
+                    // "unresolved" on next select).
+                }
+            }
+        }
+        Ok(updated)
+    }
+
     /// Export the dependency graph as JSON (TIA-STORE-003).
     ///
     /// Returns content units, test items, dependency edges, and run history
