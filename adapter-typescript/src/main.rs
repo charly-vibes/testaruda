@@ -619,7 +619,45 @@ fn cmd_run_args(cmd: &serde_json::Value) -> serde_json::Value {
                 "collection_path": "target/test-results.xml",
             }))
         }
-        Runner::Unknown => json_err("no test runner detected (vitest or jest)"),
+        Runner::Mocha => {
+            let mut runner_args = vec![
+                "npx".to_string(),
+                "mocha".to_string(),
+                "--reporter".to_string(),
+                "json".to_string(),
+            ];
+            for sel in &selected {
+                runner_args.push(sel.clone());
+            }
+
+            json_ok(serde_json::json!({
+                "runner_args": runner_args,
+                "collection_path": null,
+            }))
+        }
+        Runner::Ava => {
+            let mut runner_args = vec!["npx".to_string(), "ava".to_string()];
+            for sel in &selected {
+                runner_args.push(sel.clone());
+            }
+
+            json_ok(serde_json::json!({
+                "runner_args": runner_args,
+                "collection_path": null,
+            }))
+        }
+        Runner::Tape => {
+            let mut runner_args = vec!["npx".to_string(), "tape".to_string()];
+            for sel in &selected {
+                runner_args.push(sel.clone());
+            }
+
+            json_ok(serde_json::json!({
+                "runner_args": runner_args,
+                "collection_path": null,
+            }))
+        }
+        Runner::Unknown => json_err("no test runner detected (vitest, jest, mocha, ava, or tape)"),
     }
 }
 
@@ -628,6 +666,9 @@ fn cmd_run_args(cmd: &serde_json::Value) -> serde_json::Value {
 enum Runner {
     Vitest,
     Jest,
+    Mocha,
+    Ava,
+    Tape,
     Unknown,
 }
 
@@ -649,6 +690,19 @@ fn detect_runner() -> Runner {
         }
     }
 
+    // Check for mocha config files
+    let mocha_configs = [
+        ".mocharc.yml",
+        ".mocharc.json",
+        ".mocharc.js",
+        ".mocharc.yaml",
+    ];
+    for config in &mocha_configs {
+        if std::path::Path::new(config).exists() {
+            return Runner::Mocha;
+        }
+    }
+
     // Check package.json for vitest or jest in devDependencies
     if let Ok(content) = std::fs::read_to_string("package.json") {
         if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
@@ -658,6 +712,15 @@ fn detect_runner() -> Runner {
                 }
                 if deps.contains_key("jest") {
                     return Runner::Jest;
+                }
+                if deps.contains_key("mocha") {
+                    return Runner::Mocha;
+                }
+                if deps.contains_key("ava") {
+                    return Runner::Ava;
+                }
+                if deps.contains_key("tape") {
+                    return Runner::Tape;
                 }
             }
         }
@@ -1506,6 +1569,62 @@ mod tests {
                 runner,
                 super::Runner::Unknown,
                 "no config should return unknown"
+            );
+        });
+    }
+
+    #[test]
+    fn detect_runner_mocha_config() {
+        with_cwd(|| {
+            use std::io::Write;
+            let mut f = std::fs::File::create(".mocharc.yml").unwrap();
+            writeln!(f, "").unwrap();
+            drop(f);
+            let runner = super::detect_runner();
+            assert_eq!(runner, super::Runner::Mocha, "should detect mocha config");
+        });
+    }
+
+    #[test]
+    fn detect_runner_mocha_devdeps() {
+        with_cwd(|| {
+            use std::io::Write;
+            let mut f = std::fs::File::create("package.json").unwrap();
+            writeln!(f, r#"{{"devDependencies": {{"mocha": "^10.0.0"}}}}"#).unwrap();
+            drop(f);
+            let runner = super::detect_runner();
+            assert_eq!(
+                runner,
+                super::Runner::Mocha,
+                "should detect mocha from devDeps"
+            );
+        });
+    }
+
+    #[test]
+    fn detect_runner_ava_devdeps() {
+        with_cwd(|| {
+            use std::io::Write;
+            let mut f = std::fs::File::create("package.json").unwrap();
+            writeln!(f, r#"{{"devDependencies": {{"ava": "^6.0.0"}}}}"#).unwrap();
+            drop(f);
+            let runner = super::detect_runner();
+            assert_eq!(runner, super::Runner::Ava, "should detect ava from devDeps");
+        });
+    }
+
+    #[test]
+    fn detect_runner_tape_devdeps() {
+        with_cwd(|| {
+            use std::io::Write;
+            let mut f = std::fs::File::create("package.json").unwrap();
+            writeln!(f, r#"{{"devDependencies": {{"tape": "^5.0.0"}}}}"#).unwrap();
+            drop(f);
+            let runner = super::detect_runner();
+            assert_eq!(
+                runner,
+                super::Runner::Tape,
+                "should detect tape from devDeps"
             );
         });
     }

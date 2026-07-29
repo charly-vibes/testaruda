@@ -446,7 +446,7 @@ OUTPUT_JSON="$(jq -n \
     --argjson discover_ok "$DISCOVER_OK" \
     --argjson discover_duration "$DISCOVER_DURATION" \
     --argjson discover_count "$DISCOVER_COUNT" \
-    --argfile discover_files "$DISCOVER_FILES_FILE" \
+    --arg discover_files "$(cat "$DISCOVER_FILES_FILE")" \
     --arg discover_error "$DISCOVER_ERROR" \
     --argjson fingerprint_ok "$FINGERPRINT_OK" \
     --argjson fingerprint_duration "$FINGERPRINT_DURATION" \
@@ -488,7 +488,7 @@ OUTPUT_JSON="$(jq -n \
       "ok": $discover_ok,
       "duration_ms": $discover_duration,
       "test_count": $discover_count,
-      "test_files": $discover_files,
+      "test_files": ($discover_files | fromjson),
       "error": ($discover_error | fromjson? // null)
     },
     "fingerprint": {
