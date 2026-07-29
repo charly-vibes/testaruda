@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/charly-vibes/testaruda/docs/schemas/agent-output.schema.json",
+  "title": "Testaruda Agent Output",
+  "description": "Structured JSON output for LLM coding agent consumption (TIA-AGENT-001).",
+  "type": "object",
+  "required": ["format", "summary", "changed_units", "selected"],
+  "properties": {
+    "format": {
+      "type": "string",
+      "description": "Protocol version identifier.",
+      "enum": ["testaruda-agent-v1"]
+    },
+    "summary": {
+      "type": "object",
+      "description": "Summary statistics for the agent output.",
+      "required": ["changed_count", "selected_count", "candidate_count", "has_coverage_gaps"],
+      "properties": {
+        "changed_count": { "type": "integer", "minimum": 0, "description": "Number of changed content units." },
+        "selected_count": { "type": "integer", "minimum": 0, "description": "Number of selected tests." },
+        "candidate_count": { "type": "integer", "minimum": 0, "description": "Number of candidate tests." },
+        "has_coverage_gaps": { "type": "boolean", "description": "Whether any coverage gaps were detected." }
+      }
+    },
+    "changed_units": {
+      "type": "array",
+      "description": "Content units that changed (from the change set).",
+      "items": {
+        "type": "object",
+        "required": ["id", "path", "kind", "unresolved"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 0, "description": "Store ID of the content unit." },
+          "path": { "type": "string", "description": "File path relative to project root." },
+          "symbol": { "type": "string", "description": "Symbol name (if applicable)." },
+          "kind": { "type": "string", "description": "Content unit kind (source, config, etc.)." },
+          "unresolved": { "type": "boolean", "description": "Whether the unit was unresolved (cold-start or missing file)." }
+        }
+      }
+    },
+    "selected": {
+      "type": "array",
+      "description": "Selected tests with reason chains.",
+      "items": {
+        "type": "object",
+        "required": ["id", "confidence", "always_run", "quarantined", "reason_chain"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 0, "description": "Store ID of the test item." },
+          "node_id": { "type": "string", "description": "Adapter-assigned node ID (human-readable)." },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1, "description": "Confidence in the selection decision (0.0–1.0)." },
+          "distance": { "type": "integer", "minimum": 0, "description": "Minimum distance from a changed unit (hops)." },
+          "always_run": { "type": "boolean", "description": "Whether this test is in the always-run set." },
+          "quarantined": { "type": "boolean", "description": "Whether this test is quarantined (TIA-SAFE-010)." },
+          "fallback_reason": { "type": "string", "description": "Human-readable explanation of why this test is in always_run state." },
+          "reason_chain": {
+            "type": "array",
+            "description": "Reason chain: witness edges explaining why this test was selected.",
+            "items": {
+              "type": "object",
+              "required": ["content_unit_id", "origin"],
+              "properties": {
+                "content_unit_id": { "type": "integer", "minimum": 0, "description": "Content unit ID this edge points to." },
+                "origin": { "type": "string", "description": "Origin of the dependency edge (static, runtime, manual)." },
+                "path": { "type": "string", "description": "Path of the content unit (resolved from store)." }
+              }
+            }
+          }
+        }
+      }
+    },
+    "skipped": {
+      "type": "array",
+      "description": "Tests that were candidates but not selected, with exclusion reasons.",
+      "items": {
+        "type": "object",
+        "required": ["id", "reason"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 0, "description": "Store ID of the test item." },
+          "node_id": { "type": "string", "description": "Adapter-assigned node ID (human-readable)." },
+          "reason": { "type": "string", "description": "Reason this test was excluded." }
+        }
+      }
+    },
+    "coverage_gaps": {
+      "type": "array",
+      "description": "Symbols that changed but have no covering test (TIA-AGENT-006).",
+      "items": {
+        "type": "object",
+        "required": ["symbol", "file"],
+        "properties": {
+          "symbol": { "type": "string", "description": "Name of the uncovered symbol." },
+          "file": { "type": "string", "description": "File path where the symbol is defined." }
+        }
+      }
+    }
+  }
+}

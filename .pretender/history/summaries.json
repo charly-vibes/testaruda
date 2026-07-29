@@ -1,0 +1,85 @@
+{
+  "top_hotspots": [],
+  "top_patterns": [
+    {
+      "rule_key": "min_assertions",
+      "role": "test",
+      "area": "target/scratch",
+      "count": 3395,
+      "distinct_files": 367,
+      "distinct_days": 1
+    },
+    {
+      "rule_key": "function_lines_max",
+      "role": "app",
+      "area": "target/scratch",
+      "count": 943,
+      "distinct_files": 459,
+      "distinct_days": 1
+    },
+    {
+      "rule_key": "params_max",
+      "role": "test",
+      "area": "target/scratch",
+      "count": 625,
+      "distinct_files": 88,
+      "distinct_days": 1
+    },
+    {
+      "rule_key": "cyclomatic_max",
+      "role": "app",
+      "area": "target/scratch",
+      "count": 543,
+      "distinct_files": 306,
+      "distinct_days": 1
+    },
+    {
+      "rule_key": "abc_max",
+      "role": "app",
+      "area": "target/scratch",
+      "count": 358,
+      "distinct_files": 224,
+      "distinct_days": 1
+    },
+    {
+      "rule_key": "function_lines_max",
+      "role": "app",
+      "area": "src",
+      "count": 336,
+      "distinct_files": 8,
+      "distinct_days": 1
+    },
+    {
+      "rule_key": "min_assertions",
+      "role": "test",
+      "area": "tests",
+      "count": 315,
+      "distinct_files": 9,
+      "distinct_days": 1
+    },
+    {
+      "rule_key": "cognitive_max",
+      "role": "app",
+      "area": "target/scratch",
+      "count": 302,
+      "distinct_files": 210,
+      "distinct_days": 1
+    },
+    {
+      "rule_key": "abc_max",
+      "role": "app",
+      "area": "src",
+      "count": 208,
+      "distinct_files": 7,
+      "distinct_days": 1
+    },
+    {
+      "rule_key": "cyclomatic_max",
+      "role": "test",
+      "area": "target/scratch",
+      "count": 188,
+      "distinct_files": 69,
+      "distinct_days": 1
+    }
+  ]
+}

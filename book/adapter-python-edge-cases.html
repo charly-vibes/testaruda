@@ -1,0 +1,1105 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Python Adapter Edge Cases - testaruda</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="Language-agnostic test selection engine">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="favicon-8114d1fc.png">
+        <link rel="stylesheet" href="css/variables-8adf115d.css">
+        <link rel="stylesheet" href="css/general-2459343d.css">
+        <link rel="stylesheet" href="css/chrome-ae938929.css">
+        <link rel="stylesheet" href="css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex-0e2e3039.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc-a440ede4.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">testaruda</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/charly-vibes/testaruda" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/charly-vibes/testaruda/edit/main/docs/adapter-python-edge-cases.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <span class=fa-svg id="git-edit-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M421.7 220.3l-11.3 11.3-22.6 22.6-205 205c-6.6 6.6-14.8 11.5-23.8 14.1L30.8 511c-8.4 2.5-17.5 .2-23.7-6.1S-1.5 489.7 1 481.2L38.7 353.1c2.6-9 7.5-17.2 14.1-23.8l205-205 22.6-22.6 11.3-11.3 33.9 33.9 62.1 62.1 33.9 33.9zM96 353.9l-9.3 9.3c-.9 .9-1.6 2.1-2 3.4l-25.3 86 86-25.3c1.3-.4 2.5-1.1 3.4-2l9.3-9.3H112c-8.8 0-16-7.2-16-16V353.9zM453.3 19.3l39.4 39.4c25 25 25 65.5 0 90.5l-14.5 14.5-22.6 22.6-11.3 11.3-33.9-33.9-62.1-62.1L314.3 67.7l11.3-11.3 22.6-22.6 14.5-14.5c25-25 65.5-25 90.5 0z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="python-adapter-edge-case-catalog"><a class="header" href="#python-adapter-edge-case-catalog">Python Adapter Edge Case Catalog</a></h1>
+<p><strong>Ticket:</strong> testaruda-64o</p>
+<p><strong>Status:</strong> Point-in-time engineering audit</p>
+<p><strong>Last updated:</strong> 2026-07-21</p>
+<p>This document catalogs unusual Python project structures that could break the
+Python adapter’s <code>discover</code>, <code>static-deps</code>, <code>fingerprint</code>, or <code>run-args</code> commands.
+Each edge case includes a severity rating and a recommendation.</p>
+<p>Behavior statements describe the implementation at the date above. They are
+engineering evidence, not a compatibility contract; verify resolved tickets
+and current integration tests before treating a finding as still open.</p>
+<h2 id="severity-scale"><a class="header" href="#severity-scale">Severity Scale</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Rating</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>blocker</strong></td><td>Produces incorrect results; must fix before production use</td></tr>
+<tr><td><strong>major</strong></td><td>Breaks common project patterns; should fix</td></tr>
+<tr><td><strong>minor</strong></td><td>Breaks uncommon patterns; fix when convenient</td></tr>
+<tr><td><strong>cosmetic</strong></td><td>Works correctly but could be improved</td></tr>
+</tbody>
+</table>
+</div>
+<hr>
+<h2 id="discover"><a class="header" href="#discover">Discover</a></h2>
+<h3 id="edge-1-src-layout-vs-flat-layout"><a class="header" href="#edge-1-src-layout-vs-flat-layout">Edge 1: src/ layout (vs flat layout)</a></h3>
+<p><strong>Scenario:</strong> Source code lives in <code>src/</code>, tests in <code>tests/</code>. Import paths use
+the package name as root (e.g., <code>from my_package.model import Model</code>).</p>
+<p><strong>Affected commands:</strong> discover, static-deps</p>
+<p><strong>Current behavior:</strong></p>
+<ul>
+<li><strong>Discover:</strong> Works correctly. WalkDir finds all files; <code>test_</code> / <code>_test.py</code>
+filter correctly excludes source files.</li>
+<li><strong>Static-deps:</strong> <strong>Broken.</strong> The adapter’s <code>file_path_to_module</code> converts
+<code>"src/my_package/model.py"</code> → <code>"src.my_package.model"</code>. But test imports use
+the package name without the <code>src.</code> prefix (e.g., <code>from my_package.model import Model</code>). The mismatch means no edges are created from changed files in <code>src/</code>
+to tests that import them.</li>
+</ul>
+<p><strong>Expected behavior:</strong> The adapter should detect that <code>src/</code> is a source root
+(e.g., via presence of <code>src/</code> directory with <code>__init__.py</code> or via configuration)
+and strip it from module path resolution. For <code>static-deps</code>, changing
+<code>src/my_package/model.py</code> should produce edges to tests importing
+<code>my_package.model</code>.</p>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code>my_project/
+├── src/
+│   └── my_package/
+│       ├── __init__.py
+│       └── model.py
+└── tests/
+    └── test_model.py    # from my_package.model import Model
+                         # adapter converts src/my_package/model.py → src.my_package.model
+                         # test imports my_package.model → no match
+</code></pre>
+<p><strong>Fixture needed?</strong> Yes — the <code>tests/fixtures/python-src-layout/</code> fixture
+(<code>testaruda-6yw</code>). The integration test <code>static_deps_src_layout_resolves_modules</code>
+documents this current limitation.</p>
+<p><strong>Severity:</strong> major (upgraded from cosmetic after integration testing)
+<strong>Recommendation:</strong> fix adapter — add source root detection (e.g., strip known
+source directories like <code>src/</code> from module path resolution)</p>
+<hr>
+<h3 id="edge-2-tests-in-separate-directory-tests-vs-co-located"><a class="header" href="#edge-2-tests-in-separate-directory-tests-vs-co-located">Edge 2: Tests in separate directory (tests/) vs co-located</a></h3>
+<p><strong>Scenario:</strong> Some projects put tests in a <code>tests/</code> directory, others co-locate
+them alongside source files (<code>src/package/test_*.py</code>).</p>
+<p><strong>Affected commands:</strong> discover</p>
+<p><strong>Current behavior:</strong> The WalkDir finds all <code>test_*.py</code> / <code>*_test.py</code> files
+regardless of location. Both patterns work.</p>
+<p><strong>Expected behavior:</strong> Same as current.</p>
+<p><strong>Minimal reproduction:</strong> Both layouts work:</p>
+<pre><code># Co-located
+src/myapp/test_models.py    # ← discovered
+src/myapp/models.py         # ← not discovered (not a test file)
+</code></pre>
+<pre><code># Separate
+tests/test_models.py        # ← discovered
+</code></pre>
+<p><strong>Fixture needed?</strong> No</p>
+<p><strong>Severity:</strong> cosmetic
+<strong>Recommendation:</strong> won’t fix</p>
+<hr>
+<h3 id="edge-3-namespace-packages-pep-420"><a class="header" href="#edge-3-namespace-packages-pep-420">Edge 3: Namespace packages (PEP 420)</a></h3>
+<p><strong>Scenario:</strong> A package directory without <code>__init__.py</code>. Python 3.3+ treats
+these as namespace packages, allowing multiple directories to contribute to
+the same package.</p>
+<p><strong>Affected commands:</strong> discover, static-deps</p>
+<p><strong>Current behavior:</strong> The adapter doesn’t check for <code>__init__.py</code> to determine
+package boundaries. Discover walks the directory tree and finds all test files.
+<code>file_path_to_module</code> works on file paths, not package structure, so namespace
+packages don’t affect path-to-module conversion.</p>
+<p><strong>However</strong>, import resolution for relative imports could be wrong. The
+<code>parse_python_imports</code> function resolves relative imports by counting dots and
+trimming from the base package path. For namespace packages, the resolution
+assumes <code>__init__.py</code> boundaries, which don’t exist.</p>
+<p><strong>Expected behavior:</strong> Relative imports in namespace packages should resolve
+correctly. This requires understanding that namespace packages don’t introduce
+a package level — they just expose subdirectories.</p>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code>project/
+├── pkg_a/
+│   └── model.py          # no __init__.py
+└── pkg_b/
+    └── test_model.py     # from ..pkg_a.model import Model
+                          # ← 2 dots: should go up 1 level (project root),
+                          #    then into pkg_a
+</code></pre>
+<p><strong>Fixture needed?</strong> Yes — synthetic fixture</p>
+<p><strong>Severity:</strong> minor
+<strong>Recommendation:</strong> fix adapter — relative import resolution should account for
+namespace packages</p>
+<hr>
+<h3 id="edge-4-__init__py-with-test-discovery-implications"><a class="header" href="#edge-4-__init__py-with-test-discovery-implications">Edge 4: <code>__init__.py</code> with test discovery implications</a></h3>
+<p><strong>Scenario:</strong> An <code>__init__.py</code> file that contains test functions, or test files
+placed inside a package directory alongside <code>__init__.py</code>.</p>
+<p><strong>Affected commands:</strong> discover</p>
+<p><strong>Current behavior:</strong> The adapter discovers <code>test_*.py</code> / <code>*_test.py</code> files
+regardless of directory. <code>__init__.py</code> is not a test file (doesn’t match the
+pattern), so it’s correctly excluded.</p>
+<p><strong>Expected behavior:</strong> Same as current.</p>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code>mypkg/
+├── __init__.py
+└── test_features.py    # ← discovered correctly
+</code></pre>
+<p><strong>Fixture needed?</strong> No</p>
+<p><strong>Severity:</strong> cosmetic
+<strong>Recommendation:</strong> won’t fix</p>
+<hr>
+<h3 id="edge-5-conftestpy-at-multiple-levels"><a class="header" href="#edge-5-conftestpy-at-multiple-levels">Edge 5: conftest.py at multiple levels</a></h3>
+<p><strong>Scenario:</strong> pytest <code>conftest.py</code> files at the project root, <code>tests/</code> directory,
+and nested test subdirectories (providing shared fixtures, hooks, and plugins).</p>
+<p><strong>Affected commands:</strong> discover</p>
+<p><strong>Current behavior:</strong> The adapter doesn’t treat <code>conftest.py</code> as a test file
+(doesn’t match <code>test_</code> or <code>_test.py</code>), so it’s correctly excluded from
+discovery results. This is fine because conftest files don’t contain tests
+(conventionally).</p>
+<p><strong>Expected behavior:</strong> Same as current.</p>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code>project/
+├── conftest.py
+├── tests/
+│   ├── conftest.py
+│   ├── test_a.py
+│   └── sub/
+│       ├── conftest.py
+│       └── test_b.py
+</code></pre>
+<p><strong>Fixture needed?</strong> No</p>
+<p><strong>Severity:</strong> cosmetic
+<strong>Recommendation:</strong> won’t fix</p>
+<hr>
+<h3 id="edge-6-non-standard-test-file-naming"><a class="header" href="#edge-6-non-standard-test-file-naming">Edge 6: Non-standard test file naming</a></h3>
+<p><strong>Scenario:</strong> Test files that don’t use the <code>test_</code> prefix or <code>_test.py</code> suffix:</p>
+<ul>
+<li><code>check_*.py</code> (nose convention)</li>
+<li><code>*_spec.py</code> (RSpec convention)</li>
+<li><code>test*.py</code> without underscore (e.g., <code>testmain.py</code>)</li>
+<li><code>*_test.py</code> with extra underscores (e.g., <code>feature_test.py</code> — this one works)</li>
+</ul>
+<p><strong>Affected commands:</strong> discover</p>
+<p><strong>Current behavior:</strong> The filter <code>fname.starts_with("test_") &amp;&amp; fname.ends_with(".py") || fname.ends_with("_test.py")</code> misses:</p>
+<ul>
+<li><code>check_*.py</code> files</li>
+<li><code>*_spec.py</code> files</li>
+<li><code>test*.py</code> files without underscore prefix (e.g., <code>testmain.py</code>)</li>
+</ul>
+<p><strong>Expected behavior:</strong> The adapter should also detect <code>check_*.py</code> and <code>*_spec.py</code>
+patterns, or make the test file pattern configurable.</p>
+<p><strong>Recommendation:</strong> Two sub-recommendations:</p>
+<ol>
+<li>Add <code>check_</code> prefix support for nose compatibility (e.g., <code>fname.starts_with("check_")</code>)</li>
+<li>Add <code>*_spec.py</code> suffix support for RSpec-like conventions (e.g., <code>fname.ends_with("_spec.py")</code>)
+Alternatively, make test file patterns configurable per project via <code>testaruda.toml</code>.</li>
+</ol>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code>tests/
+├── test_main.py        # ← discovered
+├── check_models.py    # ← NOT discovered
+├── api_spec.py        # ← NOT discovered
+└── testSmoke.py       # ← NOT discovered
+</code></pre>
+<p><strong>Fixture needed?</strong> Yes — synthetic fixture for <code>check_</code> and <code>_spec</code> patterns</p>
+<p><strong>Severity:</strong> major
+<strong>Recommendation:</strong> fix adapter — add <code>check_</code> prefix and <code>_spec.py</code> suffix, or
+make test file patterns configurable per project</p>
+<hr>
+<h3 id="edge-7-deeply-nested-packages"><a class="header" href="#edge-7-deeply-nested-packages">Edge 7: Deeply nested packages</a></h3>
+<p><strong>Scenario:</strong> Source code organized in deeply nested package directories
+(e.g., <code>src/a/b/c/d/e/f/model.py</code>).</p>
+<p><strong>Affected commands:</strong> discover, static-deps</p>
+<p><strong>Current behavior:</strong> WalkDir handles arbitrary nesting depth. <code>file_path_to_module</code>
+correctly converts <code>src/a/b/c/d/e/f/model.py</code> → <code>src.a.b.c.d.e.f.model</code>.
+Relative import resolution correctly handles deep nesting via dot counting.</p>
+<p><strong>Expected behavior:</strong> Same as current.</p>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code>src/a/b/c/d/e/f/
+├── __init__.py
+└── model.py
+tests/a/b/c/d/e/f/
+└── test_model.py     # from src.a.b.c.d.e.f.model import Model
+</code></pre>
+<p><strong>Fixture needed?</strong> No</p>
+<p><strong>Severity:</strong> cosmetic
+<strong>Recommendation:</strong> won’t fix</p>
+<hr>
+<h3 id="edge-8-non-utf-8-filenames-in-testssources"><a class="header" href="#edge-8-non-utf-8-filenames-in-testssources">Edge 8: Non-UTF-8 filenames in tests/sources</a></h3>
+<p><strong>Scenario:</strong> Test or source files with non-ASCII characters in their names
+(e.g., <code>test_ünicöde.py</code>, <code>test_日本語.py</code>, <code>test_emoji_😀.py</code>).</p>
+<p><strong>Affected commands:</strong> discover, static-deps, fingerprint</p>
+<p><strong>Current behavior:</strong> On Linux, file paths are byte sequences. Rust’s <code>std::fs</code>
+and <code>walkdir</code> yield <code>OsStr</code> paths. The adapter converts them via
+<code>file_name().to_string_lossy()</code>, which replaces non-UTF-8 byte sequences with
+<code>\u{FFFD}</code> (the Unicode replacement character). This means:</p>
+<ul>
+<li><strong>Valid UTF-8 Unicode filenames</strong> (e.g., <code>test_ünicöde.py</code>, <code>test_日本語.py</code>)
+work correctly on any modern Linux system with a UTF-8 locale.</li>
+<li><strong>Truly non-UTF-8 filenames</strong> (containing arbitrary bytes that don’t form
+valid UTF-8) will have those bytes replaced with <code>\u{FFFD}</code>, which could
+break pattern matching in <code>starts_with("test_")</code> and <code>ends_with("_test.py")</code>.
+This is extremely rare in practice.</li>
+</ul>
+<p><strong>Expected behavior:</strong> Test files with valid Unicode names should be discovered
+and fingerprinted correctly. Source files with Unicode names should resolve to
+valid module paths.</p>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code>tests/
+├── test_ünicöde.py    # ← works fine on UTF-8 Linux
+├── test_日本語.py      # ← works fine on UTF-8 Linux
+└── test_ascii.py      # ← always discovered
+</code></pre>
+<p><strong>Fixture needed?</strong> Yes — synthetic fixture with Unicode filenames</p>
+<p><strong>Severity:</strong> minor
+<strong>Recommendation:</strong> workaround — document that the adapter works on valid
+UTF-8 filesystems. Non-UTF-8 byte sequences in filenames may cause issues.</p>
+<hr>
+<h3 id="edge-9-symlinks-to-external-test-directories"><a class="header" href="#edge-9-symlinks-to-external-test-directories">Edge 9: Symlinks to external test directories</a></h3>
+<p><strong>Scenario:</strong> The <code>tests/</code> directory is a symlink to an external location
+(e.g., <code>tests/ -&gt; /shared/test-suite/</code>). Or individual test files are symlinks.</p>
+<p><strong>Affected commands:</strong> discover, static-deps, fingerprint</p>
+<p><strong>Current behavior:</strong> <code>WalkDir</code> uses <code>.follow_links(false)</code> by default — it
+does <strong>not</strong> follow symlinks to directories. This means:</p>
+<ul>
+<li><strong>Directory symlinks</strong> (e.g., <code>tests/ -&gt; /shared/test-suite/</code>) are returned
+as directory entries but their contents are <strong>not traversed</strong>. Test files
+inside the linked directory are silently omitted from discovery.</li>
+<li><strong>File symlinks</strong> (individual symlinked test files) are included as regular
+entries, so they are discovered and fingerprinted correctly.</li>
+<li><code>file_path_to_module</code> resolves the symlink path as-is (not the real path),
+which may not match the module’s actual import path if the link points
+outside the project tree.</li>
+</ul>
+<p><strong>Expected behavior:</strong> The adapter should either:</p>
+<ul>
+<li>Call <code>.follow_links(true)</code> to traverse directory symlinks and resolve
+paths to their real (canonical) locations, or</li>
+<li>Provide a configuration option to control symlink behavior</li>
+</ul>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code>my_project/
+├── tests/ -&gt; /shared/test-suite/   # symlink → NOT traversed
+│   └── test_shared.py              # ← silently missed
+├── src/
+│   └── model.py
+└── test_real.py                    # ← discovered
+</code></pre>
+<p><strong>Fixture needed?</strong> Yes — synthetic fixture with symlinks</p>
+<p><strong>Severity:</strong> major
+<strong>Recommendation:</strong> fix adapter — add <code>follow_links(true)</code> and canonical path
+resolution, or make symlink behavior configurable</p>
+<hr>
+<h3 id="edge-10-tox-environments-with-multiple-python-versions"><a class="header" href="#edge-10-tox-environments-with-multiple-python-versions">Edge 10: tox environments with multiple Python versions</a></h3>
+<p><strong>Scenario:</strong> Project uses <code>tox</code> to test against multiple Python versions.
+The <code>.tox/</code> directory contains virtual environments with vendored test file
+copies.</p>
+<p><strong>Affected commands:</strong> discover</p>
+<p><strong>Current behavior:</strong> The adapter explicitly excludes <code>.tox</code> from the WalkDir
+filter. This is correct — vendored tests in <code>.tox/</code> should not be discovered.</p>
+<p><strong>Expected behavior:</strong> Same as current.</p>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code>project/
+├── .tox/
+│   ├── py39/
+│   │   └── .../test_vendored.py    # ← excluded
+│   └── py310/
+│       └── .../test_vendored.py    # ← excluded
+├── tests/
+│   └── test_real.py                # ← discovered
+</code></pre>
+<p><strong>Fixture needed?</strong> No — the exclusion is present in code but untested (only <code>.venv</code> exclusion has a dedicated test)</p>
+<p><strong>Severity:</strong> cosmetic
+<strong>Recommendation:</strong> won’t fix</p>
+<hr>
+<h3 id="edge-11-editable-installs-pip-install--e-"><a class="header" href="#edge-11-editable-installs-pip-install--e-">Edge 11: Editable installs (pip install -e .)</a></h3>
+<p><strong>Scenario:</strong> When a package is installed in editable mode (<code>pip install -e .</code>),
+the source code is linked directly into site-packages. The adapter walks the
+project root, not site-packages, so this doesn’t affect discovery directly.</p>
+<p><strong>Affected commands:</strong> discover, static-deps</p>
+<p><strong>Current behavior:</strong> The adapter discovers tests within the project root only.
+Editable installs of <em>other</em> packages into the project’s environment don’t
+affect discovery. However, if the project has test files that import from
+editable-installed dependencies, the <code>static-deps</code> command will look for those
+dependencies’ source files in the project tree and won’t find them.</p>
+<p><strong>Expected behavior:</strong> The adapter should either:</p>
+<ul>
+<li>Track dependencies from editable installs (via <code>.egg-link</code> or <code>.pth</code> files),</li>
+<li>Or report them as unresolved dependencies.</li>
+</ul>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code>my_project/
+├── src/my_project/
+│   └── main.py
+├── tests/
+│   └── test_main.py       # import editable_pkg
+└── editable-pkg.egg-link  # points to /other/path/editable_pkg
+</code></pre>
+<p><strong>Fixture needed?</strong> Yes — synthetic fixture with <code>.egg-link</code> file</p>
+<p><strong>Severity:</strong> minor
+<strong>Recommendation:</strong> workaround — document that editable installs outside the
+project root are not tracked. The unresolved dependency list will include them.</p>
+<hr>
+<h2 id="static-deps"><a class="header" href="#static-deps">Static-deps</a></h2>
+<h3 id="edge-12-relative-imports--all-varieties"><a class="header" href="#edge-12-relative-imports--all-varieties">Edge 12: Relative imports — all varieties</a></h3>
+<p><strong>Scenario:</strong> Python relative imports in all their forms:</p>
+<ul>
+<li><code>from .module import X</code> — sibling module import</li>
+<li><code>from ..module import X</code> — parent package module import</li>
+<li><code>from . import X</code> — current package import</li>
+<li><code>from .. import X</code> — parent package import</li>
+<li><code>from ...module import X</code> — grandparent + module</li>
+</ul>
+<p><strong>Affected commands:</strong> static-deps</p>
+<p><strong>Current behavior:</strong> The <code>parse_python_imports</code> function handles all these
+varieties. It resolves relative imports by counting dots and trimming the
+base package path accordingly. The implementation has specific handling for
+<code>from . import X</code> (current package only) and <code>from .. import X</code> (parent
+package only, no module). The <code>parse_python_imports_relative_*</code> tests cover
+these cases.</p>
+<p><strong>Expected behavior:</strong> Same as current.</p>
+<p><strong>Minimal reproduction:</strong> Already covered by existing tests:</p>
+<ul>
+<li><code>test_parse_python_imports_relative_current_package</code></li>
+<li><code>test_parse_python_imports_relative_parent_package</code></li>
+<li><code>test_parse_python_imports_relative_import_current_package_only</code></li>
+<li><code>test_parse_python_imports_relative_from_double_dot</code></li>
+<li><code>test_parse_python_imports_relative_deep</code></li>
+<li><code>test_parse_python_imports_relative_above_root_skipped</code></li>
+</ul>
+<p><strong>Fixture needed?</strong> No — already tested</p>
+<p><strong>Severity:</strong> cosmetic
+<strong>Recommendation:</strong> won’t fix</p>
+<hr>
+<h3 id="edge-13-conditional-imports-tryexcept-importerror"><a class="header" href="#edge-13-conditional-imports-tryexcept-importerror">Edge 13: Conditional imports (try/except ImportError)</a></h3>
+<p><strong>Scenario:</strong> Imports guarded by <code>try/except ImportError</code> blocks for optional
+dependencies. For example, <code>try: import orjson; except ImportError: import json</code>.</p>
+<p><strong>Affected commands:</strong> static-deps</p>
+<p><strong>Current behavior:</strong> The adapter’s <code>parse_python_imports</code> does a simple
+line-based scan for <code>import </code> and <code>from </code>. It finds these imports regardless
+of surrounding control flow. This is correct — both branches’ imports are
+recorded as dependencies.</p>
+<p><strong>Expected behavior:</strong> Same as current.</p>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code class="language-python">try:
+    import orjson
+except ImportError:
+    import json
+</code></pre>
+<p>Both <code>orjson</code> and <code>json</code> are correctly found.</p>
+<p><strong>Fixture needed?</strong> No</p>
+<p><strong>Severity:</strong> cosmetic
+<strong>Recommendation:</strong> won’t fix</p>
+<hr>
+<h3 id="edge-14-dynamic-imports-importlibimport_module-import"><a class="header" href="#edge-14-dynamic-imports-importlibimport_module-import">Edge 14: Dynamic imports (importlib.import_module, <strong>import</strong>)</a></h3>
+<p><strong>Scenario:</strong> Imports performed at runtime via <code>importlib.import_module()</code> or
+<code>__import__()</code> with dynamic module names constructed from strings or variables.</p>
+<p><strong>Affected commands:</strong> static-deps</p>
+<p><strong>Current behavior:</strong> The adapter only scans for <code>import X</code> and <code>from X import Y</code>
+syntax patterns. Dynamic imports like <code>importlib.import_module("numpy")</code> are
+not detected. The argument to <code>import_module</code> may be a string literal (which
+could be parsed) or a variable (which can’t be statically analyzed).</p>
+<p><strong>Expected behavior:</strong> The adapter should detect <code>importlib.import_module()</code>
+calls with string literal arguments as additional dependencies. Variable-based
+dynamic imports are inherently undetectable and should be documented as a
+limitation.</p>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code class="language-python">import importlib
+
+# String literal — could be detected:
+np = importlib.import_module("numpy")
+
+# Variable — undetectable:
+module_name = "pandas"
+pd = importlib.import_module(module_name)
+</code></pre>
+<p><strong>Fixture needed?</strong> Yes — synthetic fixture with <code>importlib.import_module</code></p>
+<p><strong>Severity:</strong> blocker
+<strong>Recommendation:</strong> fix adapter — add detection of <code>importlib.import_module()</code>
+and <code>__import__()</code> calls with string literal arguments</p>
+<hr>
+<h3 id="edge-15-re-exports-from-x-import-y-as-z-from-x-import-"><a class="header" href="#edge-15-re-exports-from-x-import-y-as-z-from-x-import-">Edge 15: Re-exports (from x import y as z, from x import *)</a></h3>
+<p><strong>Scenario:</strong> Modules that re-export symbols from other modules:</p>
+<ul>
+<li><code>from x import y as z</code> — rename on import</li>
+<li><code>from x import *</code> — wildcard import</li>
+<li><code>from x import y</code> — used as if <code>y</code> is from the importing module</li>
+</ul>
+<p><strong>Affected commands:</strong> static-deps</p>
+<p><strong>Current behavior:</strong> The adapter correctly extracts the source module for
+all three patterns:</p>
+<ul>
+<li><code>from x import y as z</code> → dependency on <code>x</code> (the <code>as z</code> part is ignored)</li>
+<li><code>from x import *</code> → dependency on <code>x</code></li>
+<li><code>from x import y</code> → dependency on <code>x</code></li>
+</ul>
+<p>The adapter correctly records the dependency on the <em>source</em> module, not the
+importing module’s namespace.</p>
+<p><strong>Expected behavior:</strong> Same as current.</p>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code class="language-python"># package/__init__.py
+from .submodule import useful_function as fn
+from .another import *
+
+# test_file.py
+from package import fn   # ← dependency on package, which re-exports
+</code></pre>
+<p><strong>Fixture needed?</strong> No</p>
+<p><strong>Severity:</strong> cosmetic
+<strong>Recommendation:</strong> won’t fix</p>
+<hr>
+<h3 id="edge-16-circular-imports"><a class="header" href="#edge-16-circular-imports">Edge 16: Circular imports</a></h3>
+<p><strong>Scenario:</strong> Two modules that import each other (directly or transitively).</p>
+<p><strong>Affected commands:</strong> static-deps</p>
+<p><strong>Current behavior:</strong> The adapter’s <code>parse_python_imports</code> doesn’t perform
+recursive import resolution. It only records the first-level imports of each
+test file. Circular imports at the first level would create bidirectional
+edges, but the adapter doesn’t recurse so it won’t follow cycles.</p>
+<p><strong>Expected behavior:</strong> The adapter should handle circular imports gracefully
+by not recursing into them (which it already doesn’t). The static-deps result
+is correct for first-level imports.</p>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code class="language-python"># a.py
+from b import helper
+
+# b.py
+from a import config
+</code></pre>
+<p><strong>Fixture needed?</strong> No</p>
+<p><strong>Severity:</strong> cosmetic
+<strong>Recommendation:</strong> won’t fix</p>
+<hr>
+<h3 id="edge-17-imports-in-__init__py-package-re-exports"><a class="header" href="#edge-17-imports-in-__init__py-package-re-exports">Edge 17: Imports in <code>__init__.py</code> (package re-exports)</a></h3>
+<p><strong>Scenario:</strong> A package’s <code>__init__.py</code> that imports and re-exports symbols
+from submodules. Test files that import from the package (not the submodule)
+need to be resolved to the actual submodule for dependency tracking.</p>
+<p><strong>Affected commands:</strong> static-deps</p>
+<p><strong>Current behavior:</strong> The adapter records the import as a dependency on the
+package (e.g., <code>from mypkg import useful_func</code> → depends on <code>mypkg</code>).
+However, it doesn’t follow the re-export chain to find the actual submodule
+(e.g., <code>mypkg.submodule</code>). This means:</p>
+<ul>
+<li>If <code>mypkg/__init__.py</code> re-exports from <code>mypkg/submodule.py</code>, and the user
+changes <code>mypkg/submodule.py</code>, the adapter won’t find test files that import
+from <code>mypkg</code> (not <code>mypkg.submodule</code>).</li>
+</ul>
+<p>This is a different concern from Edge 15, which covers the parser correctly
+identifying the source module of a re-export. Edge 17 is about the dependency
+chain not being followed through <code>__init__.py</code>.</p>
+<p><strong>Expected behavior:</strong> The adapter should optionally follow <code>__init__.py</code>
+re-exports to build the full dependency graph. This is related to the
+symbol-level modeling capability.</p>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code>mypkg/
+├── __init__.py              # from .submodule import useful_func
+└── submodule.py             # changes here
+tests/
+└── test_features.py         # from mypkg import useful_func
+                             # ← dependency on mypkg, not mypkg.submodule
+                             #    so change to submodule.py won't be detected
+</code></pre>
+<p><strong>Fixture needed?</strong> Yes — synthetic fixture with <code>__init__.py</code> re-exports</p>
+<p><strong>Severity:</strong> major
+<strong>Recommendation:</strong> fix adapter — add <code>__init__.py</code> import resolution to follow
+re-export chains, or document as a limitation linked to <code>symbol_model_complete</code></p>
+<hr>
+<h3 id="edge-18-c-extension-modules-with-sopyd-files"><a class="header" href="#edge-18-c-extension-modules-with-sopyd-files">Edge 18: C extension modules with .so/.pyd files</a></h3>
+<p><strong>Scenario:</strong> Projects that use compiled C extensions (<code>.so</code> on Linux, <code>.pyd</code>
+on Windows) alongside or instead of pure Python modules.</p>
+<p><strong>Affected commands:</strong> static-deps, fingerprint</p>
+<p><strong>Current behavior:</strong> The adapter treats <code>.so</code> and <code>.pyd</code> files as opaque
+binary files. For <code>static-deps</code>, it can’t parse imports from them. For
+<code>fingerprint</code>, it can hash them (blake3 works on any binary input).</p>
+<p>Additionally, <code>file_path_to_module</code> produces a corrupted module name for
+<code>.so</code>/<code>.pyd</code> files. For example:
+<code>file_path_to_module("mypkg/_speedups.cpython-312-x86_64-linux-gnu.so")</code>
+→ <code>strip_suffix(".py")</code> has no match (file ends with <code>.so</code>)
+→ replaces <code>/</code> with <code>.</code> → <code>"mypkg._speedups.cpython-312-x86_64-linux-gnu.so"</code>
+→ the <code>.so</code> suffix and platform ABI tag are preserved in the module name,
+which won’t match any import statement.</p>
+<p><strong>Expected behavior:</strong> The adapter should:</p>
+<ul>
+<li>For <code>static-deps</code>: strip <code>.so</code>/<code>.pyd</code> <strong>and</strong> the platform ABI suffix
+(e.g., <code>.cpython-312-x86_64-linux-gnu</code>) from the module name derivation;
+skip import parsing on binary files; report them in the unresolved list</li>
+<li>For <code>fingerprint</code>: hash them as-is (already works)</li>
+</ul>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code>mypkg/
+├── __init__.py
+├── _speedups.cpython-312-x86_64-linux-gnu.so   # compiled extension
+└── pure.py
+tests/
+└── test_mypkg.py          # import mypkg._speedups  # ← can't resolve
+</code></pre>
+<p><strong>Fixture needed?</strong> Yes — synthetic fixture with a <code>.so</code> file (or simulant)</p>
+<p><strong>Severity:</strong> blocker
+<strong>Recommendation:</strong> fix adapter — strip <code>.so</code>/<code>.pyd</code> and ABI tag suffix from
+module name derivation; gracefully handle binary extension modules (skip
+import parsing, include in unresolved list)</p>
+<hr>
+<h3 id="edge-19-type-checking-only-imports-type_checking"><a class="header" href="#edge-19-type-checking-only-imports-type_checking">Edge 19: Type-checking-only imports (TYPE_CHECKING)</a></h3>
+<p><strong>Scenario:</strong> Imports placed inside <code>if TYPE_CHECKING:</code> blocks to avoid runtime
+imports. These are used for type hints only.</p>
+<p><strong>Affected commands:</strong> static-deps</p>
+<p><strong>Current behavior:</strong> The adapter’s line-based parser doesn’t distinguish
+between imports inside <code>if TYPE_CHECKING:</code> blocks and regular imports. This
+produces false positive dependency edges.</p>
+<p><strong>Expected behavior:</strong> The adapter should either:</p>
+<ul>
+<li>Skip imports inside <code>TYPE_CHECKING</code> blocks (correct behavior), or</li>
+<li>Include them but mark them with a lower weight (acceptable compromise)</li>
+</ul>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code class="language-python">from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from expensive_module import HeavyClass  # ← false positive dependency
+
+def get_heavy() -&gt; "HeavyClass":
+    ...
+</code></pre>
+<p><strong>Fixture needed?</strong> Yes — synthetic fixture with <code>TYPE_CHECKING</code> guard</p>
+<p><strong>Severity:</strong> minor
+<strong>Recommendation:</strong> fix adapter — add <code>TYPE_CHECKING</code> block detection in
+<code>parse_python_imports</code></p>
+<hr>
+<h3 id="edge-20-lazy-imports-inside-functionclass-bodies"><a class="header" href="#edge-20-lazy-imports-inside-functionclass-bodies">Edge 20: Lazy imports inside function/class bodies</a></h3>
+<p><strong>Scenario:</strong> Imports placed inside function or class bodies to defer import
+cost until first use.</p>
+<p><strong>Affected commands:</strong> static-deps</p>
+<p><strong>Current behavior:</strong> The adapter scans all lines of the file regardless of
+indentation or nesting. Lazy imports inside function bodies are correctly
+detected.</p>
+<p><strong>Expected behavior:</strong> Same as current.</p>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code class="language-python">def get_model():
+    from myapp.models import HeavyModel  # ← correctly detected
+    return HeavyModel()
+</code></pre>
+<p><strong>Fixture needed?</strong> No</p>
+<p><strong>Severity:</strong> cosmetic
+<strong>Recommendation:</strong> won’t fix</p>
+<hr>
+<h3 id="edge-21-syspath-manipulation"><a class="header" href="#edge-21-syspath-manipulation">Edge 21: sys.path manipulation</a></h3>
+<p><strong>Scenario:</strong> Projects that modify <code>sys.path</code> at runtime to add custom import
+paths. This can happen in:</p>
+<ul>
+<li><code>conftest.py</code> (inserting project root into <code>sys.path</code>)</li>
+<li><code>__init__.py</code> (adding sibling directories)</li>
+<li><code>setup.py</code> / <code>setup.cfg</code> configurations</li>
+</ul>
+<p><strong>Affected commands:</strong> static-deps</p>
+<p><strong>Current behavior:</strong> The adapter doesn’t read or track <code>sys.path</code> modifications.
+It resolves module paths purely from file paths. If a test file imports from
+a module that’s only accessible via a modified <code>sys.path</code>, the adapter won’t
+find the import resolution.</p>
+<p><strong>Expected behavior:</strong> The adapter should detect <code>sys.path</code> modifications in
+<code>conftest.py</code> and <code>__init__.py</code> files and adjust its module resolution
+accordingly. This is a complex feature — a simpler alternative is to document
+the limitation.</p>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code class="language-python"># conftest.py
+import sys
+sys.path.insert(0, "/path/to/other/project")
+
+# tests/test_integration.py
+from other_project import Something  # ← sys.path makes this work
+                                       #    but adapter can't resolve it
+</code></pre>
+<p><strong>Fixture needed?</strong> Yes — synthetic fixture with <code>sys.path</code> manipulation</p>
+<p><strong>Severity:</strong> major
+<strong>Recommendation:</strong> workaround — document that <code>sys.path</code> manipulation is not
+tracked. Affected imports will appear in the <code>unresolved</code> list.</p>
+<hr>
+<h3 id="edge-22-egg-link--pth-file-dependencies"><a class="header" href="#edge-22-egg-link--pth-file-dependencies">Edge 22: egg-link / pth file dependencies</a></h3>
+<p><strong>Scenario:</strong> Python packages installed via <code>pip install -e</code> create <code>.egg-link</code>
+files, and <code>.pth</code> files can extend <code>sys.path</code>. These are typically in
+site-packages, not the project root.</p>
+<p><strong>Affected commands:</strong> static-deps</p>
+<p><strong>Current behavior:</strong> The adapter walks only the project root directory. It
+doesn’t read <code>.egg-link</code> or <code>.pth</code> files. Dependencies that point to external
+packages (installed via <code>-e</code> flag) will be unresolved.</p>
+<p><strong>Expected behavior:</strong> The adapter should either:</p>
+<ul>
+<li>Read <code>.egg-link</code> files and add the linked paths to the search scope, or</li>
+<li>Report linked imports as unresolved with a clear message</li>
+</ul>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code># .eggs/some-app.egg-link  (typically in site-packages, not project root)
+/path/to/some-app
+
+# tests/test_some_app.py
+from some_app import helper  # ← unresolved because adapter can't find some_app
+</code></pre>
+<p><strong>Fixture needed?</strong> No — this is a site-packages concern, not a project-level
+fixture</p>
+<p><strong>Severity:</strong> minor
+<strong>Recommendation:</strong> workaround — document that editable installs outside the
+project root produce unresolved dependencies</p>
+<hr>
+<h2 id="fingerprint"><a class="header" href="#fingerprint">Fingerprint</a></h2>
+<h3 id="edge-23-very-large-files"><a class="header" href="#edge-23-very-large-files">Edge 23: Very large files</a></h3>
+<p><strong>Scenario:</strong> Test or source files that are very large (e.g., generated test
+data, long integration tests, fixtures).</p>
+<p><strong>Affected commands:</strong> fingerprint</p>
+<p><strong>Current behavior:</strong> The adapter reads the entire file into memory with
+<code>std::fs::read(file)</code>, then hashes it with blake3. For very large files
+(&gt;100MB), this could cause:</p>
+<ul>
+<li>High memory usage</li>
+<li>Slow fingerprinting</li>
+<li>Potential OOM on memory-constrained systems</li>
+</ul>
+<p><strong>Expected behavior:</strong> The adapter should stream the file through blake3 in
+chunks to bound memory usage.</p>
+<p><strong>Minimal reproduction:</strong> Create a 1GB Python file and fingerprint it:</p>
+<pre><code class="language-python"># tests/test_huge.py
+# ... 1GB of generated test data
+</code></pre>
+<p><strong>Fixture needed?</strong> No — use an existing large file or generate one</p>
+<p><strong>Severity:</strong> minor
+<strong>Recommendation:</strong> fix adapter — stream file content through blake3 in chunks
+(e.g., 64KB buffer)</p>
+<hr>
+<h3 id="edge-24-binary-files-checked-into-repo"><a class="header" href="#edge-24-binary-files-checked-into-repo">Edge 24: Binary files checked into repo</a></h3>
+<p><strong>Scenario:</strong> Repositories that contain binary files alongside Python code
+(e.g., <code>.png</code>, <code>.jpg</code>, <code>.zip</code>, <code>.pickle</code> test fixtures).</p>
+<p><strong>Affected commands:</strong> fingerprint</p>
+<p><strong>Current behavior:</strong> The adapter uses <code>blake3::hash</code> on raw bytes, which works
+for any file type. Binary files are hashed correctly.</p>
+<p><strong>Expected behavior:</strong> Same as current.</p>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code>tests/
+├── test_with_fixture.py
+└── fixtures/
+    └── test_data.pkl   # ← hashed correctly
+</code></pre>
+<p><strong>Fixture needed?</strong> No</p>
+<p><strong>Severity:</strong> cosmetic
+<strong>Recommendation:</strong> won’t fix</p>
+<hr>
+<h3 id="edge-25-empty-files"><a class="header" href="#edge-25-empty-files">Edge 25: Empty files</a></h3>
+<p><strong>Scenario:</strong> Test files or source files that are empty (zero bytes).</p>
+<p><strong>Affected commands:</strong> fingerprint</p>
+<p><strong>Current behavior:</strong> The adapter reads zero bytes and computes the blake3 hash
+of an empty input. This is deterministic and correct.</p>
+<p><strong>Expected behavior:</strong> Same as current.</p>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code>tests/
+└── test_empty.py   # empty file → blake3("") → deterministic hash
+</code></pre>
+<p><strong>Fixture needed?</strong> No</p>
+<p><strong>Severity:</strong> cosmetic
+<strong>Recommendation:</strong> won’t fix</p>
+<hr>
+<h3 id="edge-26-files-with-only-comments"><a class="header" href="#edge-26-files-with-only-comments">Edge 26: Files with only comments</a></h3>
+<p><strong>Scenario:</strong> Files that contain only comments and no executable code.</p>
+<p><strong>Affected commands:</strong> fingerprint</p>
+<p><strong>Current behavior:</strong> The adapter hashes the file content as-is. Comments are
+content, so the hash reflects the full file.</p>
+<p><strong>Expected behavior:</strong> Same as current. Changing a comment changes the hash,
+which is correct (the file changed, even if it’s only a comment).</p>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code class="language-python"># tests/test_placeholder.py
+# This test is a placeholder
+# TODO: write actual tests
+</code></pre>
+<p><strong>Fixture needed?</strong> No</p>
+<p><strong>Severity:</strong> cosmetic
+<strong>Recommendation:</strong> won’t fix</p>
+<hr>
+<h3 id="edge-27-generated-files-protobuf-grpc"><a class="header" href="#edge-27-generated-files-protobuf-grpc">Edge 27: Generated files (protobuf, grpc)</a></h3>
+<p><strong>Scenario:</strong> Files that are generated by code generators (protobuf, gRPC,
+OpenAPI generators) and checked into the repository.</p>
+<p><strong>Affected commands:</strong> fingerprint</p>
+<p><strong>Current behavior:</strong> The adapter hashes all files without distinguishing
+between hand-written and generated code. Generated files will be fingerprinted
+and their hashes will change when regenerated, causing unnecessary re-runs.</p>
+<p><strong>Expected behavior:</strong> The adapter should either:</p>
+<ul>
+<li>Allow users to exclude generated files from fingerprinting, or</li>
+<li>Detect generated file headers (e.g., <code>@generated</code> marker) and handle them
+differently</li>
+</ul>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code>project/
+├── proto/
+│   └── model_pb2.py    # generated by protoc — changes on every proto change
+├── src/
+│   └── service.py      # hand-written
+└── tests/
+    └── test_service.py
+</code></pre>
+<p><strong>Fixture needed?</strong> Yes — synthetic fixture with a generated file marker</p>
+<p><strong>Severity:</strong> minor
+<strong>Recommendation:</strong> workaround — document that generated files can be excluded
+via the project’s <code>.gitignore</code> or by adding them to the adapter’s exclude list</p>
+<hr>
+<h2 id="run-args"><a class="header" href="#run-args">Run-args</a></h2>
+<h3 id="edge-28-custom-pytest-configurations-pytestini-pyprojecttoml"><a class="header" href="#edge-28-custom-pytest-configurations-pytestini-pyprojecttoml">Edge 28: Custom pytest configurations (pytest.ini, pyproject.toml)</a></h3>
+<p><strong>Scenario:</strong> Projects that configure pytest through <code>pytest.ini</code>,
+<code>pyproject.toml</code> (under <code>[tool.pytest.ini_options]</code>), <code>setup.cfg</code>, or
+<code>tox.ini</code>.</p>
+<p><strong>Affected commands:</strong> run-args</p>
+<p><strong>Current behavior:</strong> The adapter generates <code>run-args</code> as:
+<code>pytest &lt;selected_files&gt; -v --junitxml=target/test-results.xml</code></p>
+<p>Pytest automatically discovers and applies configuration files in the project
+root. The adapter doesn’t need to read or pass them explicitly.</p>
+<p><strong>Expected behavior:</strong> Same as current.</p>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code class="language-ini"># pytest.ini
+[pytest]
+addopts = -ra --strict-markers
+testpaths = tests
+</code></pre>
+<p>Running <code>pytest tests/test_foo.py -v --junitxml=target/test-results.xml</code>
+will automatically pick up <code>addopts = -ra --strict-markers</code> from <code>pytest.ini</code>.</p>
+<p><strong>Fixture needed?</strong> No</p>
+<p><strong>Severity:</strong> cosmetic
+<strong>Recommendation:</strong> won’t fix</p>
+<hr>
+<h3 id="edge-29-parallel-test-runners-xdist"><a class="header" href="#edge-29-parallel-test-runners-xdist">Edge 29: Parallel test runners (xdist)</a></h3>
+<p><strong>Scenario:</strong> Projects that use <code>pytest-xdist</code> for parallel test execution
+(e.g., <code>pytest -n auto</code>).</p>
+<p><strong>Affected commands:</strong> run-args</p>
+<p><strong>Current behavior:</strong> The adapter’s <code>run-args</code> doesn’t include any <code>-n</code> flag.
+Tests run sequentially by default, which is slower but correct.</p>
+<p><strong>Expected behavior:</strong> The adapter should either:</p>
+<ul>
+<li>Add <code>-n auto</code> to run-args when xdist is available, or</li>
+<li>Make parallel execution configurable</li>
+</ul>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code># In pyproject.toml or requirements
+# pytest-xdist installed
+
+# Current adapter run-args:
+# pytest tests/test_foo.py tests/test_bar.py -v --junitxml=target/test-results.xml
+
+# Expected (with xdist):
+# pytest tests/test_foo.py tests/test_bar.py -v -n auto --junitxml=target/test-results.xml
+</code></pre>
+<p><strong>Fixture needed?</strong> No</p>
+<p><strong>Severity:</strong> major
+<strong>Recommendation:</strong> fix adapter — check for xdist availability and add <code>-n auto</code>
+to run-args when available, or make the parallel flag configurable</p>
+<hr>
+<h3 id="edge-30-test-markers-and-parametrization"><a class="header" href="#edge-30-test-markers-and-parametrization">Edge 30: Test markers and parametrization</a></h3>
+<p><strong>Scenario:</strong> Tests that use pytest markers (<code>@pytest.mark.slow</code>) or
+parametrization (<code>@pytest.mark.parametrize</code>).</p>
+<p><strong>Affected commands:</strong> run-args</p>
+<p><strong>Current behavior:</strong> The adapter passes selected test file paths to pytest.
+Pytest handles marker filtering and parametrization internally. The adapter
+doesn’t need to understand markers or parametrization.</p>
+<p><strong>Expected behavior:</strong> Same as current.</p>
+<p><strong>Minimal reproduction:</strong></p>
+<pre><code class="language-python">import pytest
+
+@pytest.mark.slow
+@pytest.mark.parametrize("n", range(100))
+def test_compute(n):
+    assert n ** 2 &gt;= 0
+</code></pre>
+<p>Running <code>pytest tests/test_compute.py -v --junitxml=target/test-results.xml</code>
+will run all 100 parametrized test cases.</p>
+<p><strong>Fixture needed?</strong> No</p>
+<p><strong>Severity:</strong> cosmetic
+<strong>Recommendation:</strong> won’t fix</p>
+<hr>
+<h2 id="summary"><a class="header" href="#summary">Summary</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>#</th><th>Edge Case</th><th>Severity</th><th>Recommendation</th><th>Fixture Needed</th></tr>
+</thead>
+<tbody>
+<tr><td>1</td><td>src/ layout</td><td><strong>major</strong></td><td>fix adapter</td><td>Yes</td></tr>
+<tr><td>2</td><td>Tests in separate dir vs co-located</td><td>cosmetic</td><td>won’t fix</td><td>No</td></tr>
+<tr><td>3</td><td>Namespace packages (PEP 420)</td><td>minor</td><td>fix adapter</td><td>Yes</td></tr>
+<tr><td>4</td><td><code>__init__.py</code> discovery implications</td><td>cosmetic</td><td>won’t fix</td><td>No</td></tr>
+<tr><td>5</td><td>conftest.py at multiple levels</td><td>cosmetic</td><td>won’t fix</td><td>No</td></tr>
+<tr><td>6</td><td>Non-standard test file naming</td><td><strong>major</strong></td><td>fix adapter</td><td>Yes</td></tr>
+<tr><td>7</td><td>Deeply nested packages</td><td>cosmetic</td><td>won’t fix</td><td>No</td></tr>
+<tr><td>8</td><td>Unicode filenames</td><td>minor</td><td>workaround</td><td>Yes</td></tr>
+<tr><td>9</td><td>Symlinks to external directories</td><td><strong>major</strong></td><td>fix adapter</td><td>Yes</td></tr>
+<tr><td>10</td><td>tox environments</td><td>cosmetic</td><td>won’t fix</td><td>No</td></tr>
+<tr><td>11</td><td>Editable installs (pip install -e)</td><td>minor</td><td>workaround</td><td>Yes</td></tr>
+<tr><td>12</td><td>Relative imports — all varieties</td><td>cosmetic</td><td>won’t fix</td><td>No</td></tr>
+<tr><td>13</td><td>Conditional imports</td><td>cosmetic</td><td>won’t fix</td><td>No</td></tr>
+<tr><td>14</td><td>Dynamic imports (importlib)</td><td><strong>blocker</strong></td><td>fix adapter</td><td>Yes</td></tr>
+<tr><td>15</td><td>Re-exports (from x import y as z)</td><td>cosmetic</td><td>won’t fix</td><td>No</td></tr>
+<tr><td>16</td><td>Circular imports</td><td>cosmetic</td><td>won’t fix</td><td>No</td></tr>
+<tr><td>17</td><td>Imports in <code>__init__.py</code> (re-exports)</td><td><strong>major</strong></td><td>fix adapter</td><td>Yes</td></tr>
+<tr><td>18</td><td>C extension modules (.so/.pyd)</td><td><strong>blocker</strong></td><td>fix adapter</td><td>Yes</td></tr>
+<tr><td>19</td><td>TYPE_CHECKING imports</td><td>minor</td><td>fix adapter</td><td>Yes</td></tr>
+<tr><td>20</td><td>Lazy imports inside functions</td><td>cosmetic</td><td>won’t fix</td><td>No</td></tr>
+<tr><td>21</td><td>sys.path manipulation</td><td><strong>major</strong></td><td>workaround</td><td>Yes</td></tr>
+<tr><td>22</td><td>egg-link / pth file deps</td><td>minor</td><td>workaround</td><td>No</td></tr>
+<tr><td>23</td><td>Very large files</td><td>minor</td><td>fix adapter</td><td>No</td></tr>
+<tr><td>24</td><td>Binary files in repo</td><td>cosmetic</td><td>won’t fix</td><td>No</td></tr>
+<tr><td>25</td><td>Empty files</td><td>cosmetic</td><td>won’t fix</td><td>No</td></tr>
+<tr><td>26</td><td>Files with only comments</td><td>cosmetic</td><td>won’t fix</td><td>No</td></tr>
+<tr><td>27</td><td>Generated files (protobuf, grpc)</td><td>minor</td><td>workaround</td><td>Yes</td></tr>
+<tr><td>28</td><td>Custom pytest configs</td><td>cosmetic</td><td>won’t fix</td><td>No</td></tr>
+<tr><td>29</td><td>Parallel test runners (xdist)</td><td><strong>major</strong></td><td>fix adapter</td><td>No</td></tr>
+<tr><td>30</td><td>Test markers and parametrization</td><td>cosmetic</td><td>won’t fix</td><td>No</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="priority-breakdown"><a class="header" href="#priority-breakdown">Priority breakdown</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Severity</th><th>Count</th><th>Tickets</th></tr>
+</thead>
+<tbody>
+<tr><td>blocker</td><td>2</td><td>14 (dynamic imports), 18 (C extensions)</td></tr>
+<tr><td>major</td><td>6</td><td>1 (src/ layout), 6 (non-standard naming), 9 (symlinks), 17 (<strong>init</strong>.py re-exports), 21 (sys.path), 29 (xdist)</td></tr>
+<tr><td>minor</td><td>7</td><td>3 (namespace packages), 8 (Unicode filenames), 11 (editable installs), 19 (TYPE_CHECKING), 22 (egg-link / pth), 23 (large files), 27 (generated files)</td></tr>
+<tr><td>cosmetic</td><td>15</td><td>rest</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="test-strategy"><a class="header" href="#test-strategy">Test strategy</a></h3>
+<p><strong>Can be tested with real-world codebases:</strong></p>
+<ul>
+<li>Non-standard test file naming (Edge 6) — <code>testSmoke.py</code> pattern</li>
+<li>Deeply nested packages (Edge 7)</li>
+<li>Imports in <code>__init__.py</code> (Edge 17)</li>
+<li>Lazy imports (Edge 20)</li>
+<li>Custom pytest configs (Edge 28)</li>
+<li>Test markers and parametrization (Edge 30)</li>
+</ul>
+<p><strong>Need synthetic fixtures:</strong></p>
+<ul>
+<li>src/ layout (Edge 1)</li>
+<li>Namespace packages (Edge 3)</li>
+<li>Non-standard naming variants (Edge 6) — <code>check_*</code> prefix and <code>_spec.py</code> suffix</li>
+<li>Unicode filenames (Edge 8)</li>
+<li>Symlinks (Edge 9)</li>
+<li>Editable installs (Edge 11)</li>
+<li>Dynamic imports (Edge 14)</li>
+<li>C extension modules (Edge 18)</li>
+<li>TYPE_CHECKING (Edge 19)</li>
+<li>sys.path manipulation (Edge 21)</li>
+<li>Generated files (Edge 27)</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="adapter-protocol.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="configuration.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="adapter-protocol.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="configuration.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr-ef4e11c1.min.js"></script>
+        <script src="mark-09e88c2c.min.js"></script>
+        <script src="searcher-c2a407aa.js"></script>
+
+        <script src="clipboard-1626706a.min.js"></script>
+        <script src="highlight-abc7f01d.js"></script>
+        <script src="book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>

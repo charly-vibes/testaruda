@@ -1,0 +1,672 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Software Requirements Specification - testaruda</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="Language-agnostic test selection engine">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="favicon-8114d1fc.png">
+        <link rel="stylesheet" href="css/variables-8adf115d.css">
+        <link rel="stylesheet" href="css/general-2459343d.css">
+        <link rel="stylesheet" href="css/chrome-ae938929.css">
+        <link rel="stylesheet" href="css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex-0e2e3039.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc-a440ede4.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">testaruda</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/charly-vibes/testaruda" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/charly-vibes/testaruda/edit/main/docs/tia-srs-ears.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <span class=fa-svg id="git-edit-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M421.7 220.3l-11.3 11.3-22.6 22.6-205 205c-6.6 6.6-14.8 11.5-23.8 14.1L30.8 511c-8.4 2.5-17.5 .2-23.7-6.1S-1.5 489.7 1 481.2L38.7 353.1c2.6-9 7.5-17.2 14.1-23.8l205-205 22.6-22.6 11.3-11.3 33.9 33.9 62.1 62.1 33.9 33.9zM96 353.9l-9.3 9.3c-.9 .9-1.6 2.1-2 3.4l-25.3 86 86-25.3c1.3-.4 2.5-1.1 3.4-2l9.3-9.3H112c-8.8 0-16-7.2-16-16V353.9zM453.3 19.3l39.4 39.4c25 25 25 65.5 0 90.5l-14.5 14.5-22.6 22.6-11.3 11.3-33.9-33.9-62.1-62.1L314.3 67.7l11.3-11.3 22.6-22.6 14.5-14.5c25-25 65.5-25 90.5 0z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="testaruda--software-requirements-specification"><a class="header" href="#testaruda--software-requirements-specification"><code>testaruda</code> — Software Requirements Specification</a></h1>
+<p><strong>Notation:</strong> EARS (Easy Approach to Requirements Syntax) · <strong>Status:</strong> Draft v0.3 · <strong>Date:</strong> 2026-07-07
+<strong>Changelog:</strong> v0.2 adds §8 (Engine &amp; Reference Architecture design constraints, <code>TIA-ENG-*</code>) and Appendix F (engine evaluation). v0.3 corrects safety-core defects: scopes TIA-ARCH-003 homomorphism to the positive reachability core; fixes confidence inversion for unresolved nodes in Appendix G rule set; rewrites TIA-CONF-002 to unify the dual confidence definitions; tightens TIA-CI-003 exit-code condition; softens TIA-ARCH-006 incrementality claim to match the reference implementation; wires TIA-AGENT-002 to TIA-SEL-005; adds completeness precondition to TIA-CHG-004 with protocol wiring in TIA-ADAPT-002/005; adds run-identity-key mechanism to TIA-RUN-005; clarifies transaction boundary in TIA-REL-002; scopes TIA-SAFE-002 fallback trigger to reachability-selected tests only.
+<strong>Note:</strong> Requirement IDs (<code>TIA-*</code>) are retained from the original <code>tia</code> project name for code traceability; the binary was renamed to <code>testaruda</code>.
+<strong>Subject:</strong> A language-agnostic CLI whose single responsibility is to compute, from a code change, the set of tests that must run — modeled as the transpose of a provenance-semiring dependency relation, evaluated incrementally, under a recall-first soundness invariant.</p>
+<hr>
+<h2 id="1-conventions"><a class="header" href="#1-conventions">1. Conventions</a></h2>
+<h3 id="11-ears-requirement-patterns"><a class="header" href="#11-ears-requirement-patterns">1.1 EARS requirement patterns</a></h3>
+<p>Every requirement is written in one of the EARS templates. The generic form is
+<code>&lt;precondition(s)&gt; &lt;trigger&gt; the &lt;entity&gt; shall &lt;response&gt;</code>.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Tag</th><th>Pattern</th><th>Skeleton</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>[U]</strong></td><td>Ubiquitous</td><td>The <code>&lt;entity&gt;</code> <strong>shall</strong> <code>&lt;response&gt;</code>.</td></tr>
+<tr><td><strong>[S]</strong></td><td>State-driven</td><td><strong>While</strong> <code>&lt;state&gt;</code>, the <code>&lt;entity&gt;</code> <strong>shall</strong> <code>&lt;response&gt;</code>.</td></tr>
+<tr><td><strong>[E]</strong></td><td>Event-driven</td><td><strong>When</strong> <code>&lt;trigger&gt;</code>, the <code>&lt;entity&gt;</code> <strong>shall</strong> <code>&lt;response&gt;</code>.</td></tr>
+<tr><td><strong>[O]</strong></td><td>Optional-feature</td><td><strong>Where</strong> <code>&lt;feature included&gt;</code>, the <code>&lt;entity&gt;</code> <strong>shall</strong> <code>&lt;response&gt;</code>.</td></tr>
+<tr><td><strong>[UW]</strong></td><td>Unwanted-behavior</td><td><strong>If</strong> <code>&lt;condition&gt;</code>, <strong>then</strong> the <code>&lt;entity&gt;</code> <strong>shall</strong> <code>&lt;response&gt;</code>.</td></tr>
+<tr><td><strong>[C]</strong></td><td>Complex</td><td>Combination of the above (e.g. While…When…).</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="12-system-entities"><a class="header" href="#12-system-entities">1.2 System entities</a></h3>
+<p><code>the core</code> (language-agnostic engine), <code>the CLI</code> (user-facing command surface), <code>an adapter</code> (per-language/per-framework plugin), <code>the store</code> (persistence layer), <code>the selector</code> (selection engine), <code>the ingestor</code> (runtime-feedback path).</p>
+<h3 id="13-identifiers-and-verification"><a class="header" href="#13-identifiers-and-verification">1.3 Identifiers and verification</a></h3>
+<p>Requirement IDs: <code>TIA-&lt;GROUP&gt;-&lt;NNN&gt;</code>. Each requirement carries a verification method:
+<strong>I</strong> = Inspection, <strong>A</strong> = Analysis, <strong>D</strong> = Demonstration, <strong>T</strong> = Test. “shall” denotes a binding requirement.</p>
+<h3 id="14-references"><a class="header" href="#14-references">1.4 References</a></h3>
+<p>[GKT07] Green, Karvounarakis, Tannen, <em>Provenance Semirings</em>, PODS 2007. · [BSalC] Mokhov, Mitchell, Peyton Jones, <em>Build Systems à la Carte</em>, ICFP 2018. · [CA19] Alvarez-Picallo, Eyers-Taylor, Peyton Jones, Ong, <em>Fixing Incremental Computation</em>, ESOP 2019. · [AI77] Cousot &amp; Cousot, <em>Abstract Interpretation</em>, POPL 1977. · [FCA-RTS] Leelahapant, <em>Predictive Regression Test Selection via Formal Concept Analysis</em>, Concordia 2006.</p>
+<hr>
+<h2 id="2-glossary"><a class="header" href="#2-glossary">2. Glossary</a></h2>
+<ul>
+<li><strong>Artifact</strong> — any tracked node: source file, symbol/block, config, fixture, lockfile, or external resource.</li>
+<li><strong>Content Unit (CU)</strong> — an artifact at the chosen granularity, identified by <code>(component, path, symbol?)</code> and carrying a content <strong>fingerprint</strong>.</li>
+<li><strong>Test item</strong> — an individually selectable/executable test, identified by <code>(component, adapter, node_id)</code>.</li>
+<li><strong>Edge</strong> — a dependency <code>test_item → CU</code> carrying an <strong>origin</strong> ∈ {<code>static</code>, <code>runtime</code>, <code>manual</code>}, a confidence, and an environment binding.</li>
+<li><strong>Semiring K</strong> — <code>(K, ⊕, ⊗, 0, 1)</code>. <code>⊕</code> fuses alternative dependency evidence; <code>⊗</code> composes along dependency paths.</li>
+<li><strong>Provenance semiring</strong> — the free/polynomial semiring <code>ℕ[Edges]</code> (the master semiring); concrete semirings are obtained from it by homomorphism [GKT07].</li>
+<li><strong>K-relation</strong> — the dependency data as a matrix over <code>K</code>.</li>
+<li><strong>Closure / star</strong> <code>D*</code> — reflexive-transitive closure of the dependency relation; the least fixpoint of the reachability rule.</li>
+<li><strong>Transpose</strong> <code>(D*)ᵀ</code> — the reversed relation; <strong>selection</strong> evaluates the change vector against the transpose.</li>
+<li><strong>Change set Δ</strong> — the set of CUs whose fingerprint differs between base and head.</li>
+<li><strong>Affected set</strong> — <code>Δ · (D*)ᵀ ⊕ always_run</code>, the tests selected to run.</li>
+<li><strong>Always-run set</strong> — previously-failed ∪ newly-added ∪ no-history ∪ quarantined tests.</li>
+<li><strong>Environment</strong> — a toolchain/OS/lockfile/env-var partition, keyed by a fingerprint.</li>
+<li><strong>Component</strong> — a coarse package/service node (the parallelization and cross-repo unit).</li>
+<li><strong>Manifest</strong> — a component’s exported interface fingerprints + version, for cross-repo edges.</li>
+<li><strong>Soundness / over-approximation</strong> — the modeled relation ⊒ the true semantic relation; guarantees recall.</li>
+<li><strong>Confidence</strong> — a <code>[0,1]</code> signal that gates fallback; not a probability that the suite is correct.</li>
+<li><strong>Missed-selection incident</strong> — a full run fails a test that selection would have skipped.</li>
+<li><strong>Shadow mode</strong> — compute and record a selection but still run everything (non-gating).</li>
+</ul>
+<hr>
+<h2 id="3-goals-and-non-goals-informative"><a class="header" href="#3-goals-and-non-goals-informative">3. Goals and Non-Goals (informative)</a></h2>
+<p><strong>Goals:</strong> compute the affected test set from a diff; fuse static, runtime, and historical dependency evidence; serve CI, local-dev, and LLM-agent consumers; compose across monorepos and multiple repos; guarantee recall by construction and bound residual risk.
+<strong>Non-Goals:</strong> the system is not a test runner, build system, coverage tool, or flaky-test fixer; it does not enforce hermetic builds; it does not mandate machine learning.</p>
+<hr>
+<h2 id="4-architectural-constraints-arch"><a class="header" href="#4-architectural-constraints-arch">4. Architectural Constraints (ARCH)</a></h2>
+<blockquote>
+<p>These bind the design to the unifying abstraction; downstream requirements instantiate them. They are <strong>engine-independent</strong>; the reference engine that realises them is pinned separately in §8 (<code>TIA-ENG-*</code>).</p>
+</blockquote>
+<ul>
+<li><strong>TIA-ARCH-001 [U]</strong> — The core <strong>shall</strong> represent all dependency data as a single K-relation valued in a configured commutative semiring. <em>(V: I, A)</em></li>
+<li><strong>TIA-ARCH-002 [U]</strong> — The core <strong>shall</strong> treat the provenance (polynomial) semiring as the master representation from which all other semiring values are derived. <em>(V: I, A)</em></li>
+<li><strong>TIA-ARCH-003 [U]</strong> — The core <strong>shall</strong> derive the positive reachability results (selection (Boolean), distance (tropical), cost/scheduling, and explanation (provenance polynomial — the master)) from the provenance representation by semiring homomorphism, such that no positively-derived result can disagree with the master computation. The always-run set (TIA-SAFE-007), confidence-threshold fallback (TIA-SAFE-002), and duration ranking (TIA-SEL-006) involve negation-as-failure or aggregation over external signals; they are not derived by semiring closure but contributed as input facts to the selection relation, and are not required to be homomorphic images of the provenance column. Path confidence (Viterbi) annotates the same paths but is likewise excluded from the homomorphism guarantee. <em>(V: A, T)</em></li>
+<li><strong>TIA-ARCH-004 [U]</strong> — The selector <strong>shall</strong> compute the affected set by evaluating the change set against the transpose of the transitive-closure relation. <em>(V: I, T)</em></li>
+<li><strong>TIA-ARCH-005 [U]</strong> — The core <strong>shall</strong> compute transitive dependency as the least fixpoint (semiring star) of the one-step dependency relation. <em>(V: I, T)</em></li>
+<li><strong>TIA-ARCH-006 [U]</strong> — The core <strong>shall</strong> compute selection as a scope-bounded recomputation restricted to the subgraph from which the change set is backward-reachable (i.e. the transitive reverse-closure of the changed content units), rather than the full graph. <em>(Informative note: for the reference engine, scope-bounding plus the content-addressed component cache (TIA-ENG-007/008) satisfies this requirement; full change-propagation (derivative) incrementality via differential dataflow is the documented scale-up path (TIA-ENG-013).)</em> <em>(V: A, T)</em></li>
+<li><strong>TIA-ARCH-007 [U]</strong> — The core <strong>shall</strong> fuse static, runtime, and manual edges by semiring addition over a common edge set, without origin-specific merge logic. <em>(V: I, T)</em></li>
+<li><strong>TIA-ARCH-008 [U]</strong> — The core <strong>shall</strong> contain no language- or framework-specific logic; all such logic <strong>shall</strong> reside behind the adapter interface. <em>(V: I)</em></li>
+<li><strong>TIA-ARCH-009 [U]</strong> — The core <strong>shall not</strong> execute tests, compile, or build; it <strong>shall</strong> only select tests and emit native-runner arguments for an external executor. <em>(V: I, D)</em></li>
+<li><strong>TIA-ARCH-010 [U]</strong> — The core <strong>shall</strong> compute selection across components and repositories by associative composition of per-unit K-relations, such that the result is independent of composition order. <em>(V: A, T)</em></li>
+</ul>
+<hr>
+<h2 id="5-functional-requirements"><a class="header" href="#5-functional-requirements">5. Functional Requirements</a></h2>
+<h3 id="51-core-data-model-core"><a class="header" href="#51-core-data-model-core">5.1 Core data model (CORE)</a></h3>
+<ul>
+<li><strong>TIA-CORE-001 [U]</strong> — The store <strong>shall</strong> identify each content unit by the tuple <code>(component, path, symbol?)</code>. <em>(V: I)</em></li>
+<li><strong>TIA-CORE-002 [U]</strong> — The store <strong>shall</strong> record, for each content unit, a content fingerprint computed from the normalized unit content. <em>(V: T)</em></li>
+<li><strong>TIA-CORE-003 [U]</strong> — The store <strong>shall</strong> classify each content unit by kind ∈ {<code>source</code>, <code>config</code>, <code>fixture</code>, <code>lockfile</code>, <code>external</code>}. <em>(V: I)</em></li>
+<li><strong>TIA-CORE-004 [U]</strong> — The store <strong>shall</strong> identify each test item by the tuple <code>(component, adapter, node_id)</code>. <em>(V: I)</em></li>
+<li><strong>TIA-CORE-005 [U]</strong> — The store <strong>shall</strong> record each dependency edge as <code>(test_item, content_unit, environment, origin, K-value)</code>. <em>(V: I)</em></li>
+<li><strong>TIA-CORE-006 [U]</strong> — The store <strong>shall</strong> permit static, runtime, and manual edges to coexist for the same <code>(test_item, content_unit, environment)</code> triple. <em>(V: I, T)</em></li>
+<li><strong>TIA-CORE-007 [U]</strong> — The store <strong>shall</strong> maintain a reverse index from content unit to dependent test items. <em>(V: T)</em></li>
+<li><strong>TIA-CORE-008 [U]</strong> — The store <strong>shall</strong> partition all edges and statistics by environment fingerprint. <em>(V: T)</em></li>
+<li><strong>TIA-CORE-009 [U]</strong> — The store <strong>shall</strong> record per-test run history including outcome, attempt count, duration, and error signature. <em>(V: I)</em></li>
+</ul>
+<h3 id="52-change-detection-chg"><a class="header" href="#52-change-detection-chg">5.2 Change detection (CHG)</a></h3>
+<ul>
+<li><strong>TIA-CHG-001 [E]</strong> — When invoked with a base and head revision, the core <strong>shall</strong> derive the changed file set from the version-control diff between them. <em>(V: T)</em></li>
+<li><strong>TIA-CHG-002 [O]</strong> — Where the caller supplies an explicit changed-file list, the core <strong>shall</strong> use that list as the change source in place of a diff. <em>(V: T)</em></li>
+<li><strong>TIA-CHG-003 [U]</strong> — The core <strong>shall</strong> compute the change set Δ as the content units whose fingerprint differs between base and head. <em>(V: T)</em></li>
+<li><strong>TIA-CHG-004 [O]</strong> — Where the responsible adapter declares symbol granularity <strong>and sets the <code>symbol_model_complete</code> capability flag to <code>true</code> in its handshake (TIA-ADAPT-002)</strong> (asserting that no dependency paths exist beyond those it enumerates for the file), the core <strong>shall</strong> fingerprint only the changed symbols/blocks so that whitespace-only or unrelated edits within a file yield no affected tests for unchanged symbols. If the adapter does not set <code>symbol_model_complete</code> (e.g. due to reflection, macros, or dynamic dispatch), the core <strong>shall</strong> fall back to file-level granularity for that file to preserve TIA-SAFE-001. <em>(V: T)</em></li>
+<li><strong>TIA-CHG-005 [U]</strong> — The core <strong>shall</strong> compute each test item’s dependency fingerprint as a function of its dependency content-unit fingerprints and its environment fingerprint, and <strong>shall</strong> select a test item if and only if its dependency fingerprint changed or it is in the always-run set. <em>(V: T)</em></li>
+<li><strong>TIA-CHG-006 [U]</strong> — The core <strong>shall</strong> treat lockfiles, configuration, and adapter-declared external resources as content units subject to change detection. <em>(V: T)</em></li>
+<li><strong>TIA-CHG-007 [UW]</strong> — If a changed file has a kind the core cannot model and no known edges, then the core <strong>shall</strong> raise a fallback signal for the affected component. <em>(V: T)</em></li>
+<li><strong>TIA-CHG-008 [S]</strong> — While operating in CI mode, the core <strong>shall not</strong> read the local working tree as a change source. <em>(V: I, T)</em></li>
+</ul>
+<h3 id="53-selection-engine-sel"><a class="header" href="#53-selection-engine-sel">5.3 Selection engine (SEL)</a></h3>
+<ul>
+<li><strong>TIA-SEL-001 [E]</strong> — When a change set is supplied, the selector <strong>shall</strong> compute the affected set as the union of the transpose-closure of Δ and the always-run set. <em>(V: T)</em></li>
+<li><strong>TIA-SEL-002 [U]</strong> — The selector <strong>shall</strong> scope reverse traversal to components reachable from the change set before enumerating candidate tests. <em>(V: A, T)</em></li>
+<li><strong>TIA-SEL-003 [O]</strong> — Where a semiring is specified, the selector <strong>shall</strong> evaluate the same selection query in that semiring (Boolean → affected set, Viterbi → confidence, tropical → change-to-test distance, cost → expected duration). <em>(V: T)</em></li>
+<li><strong>TIA-SEL-004 [U]</strong> — The selector <strong>shall</strong> never remove a static edge from consideration on the grounds that runtime evidence did not confirm it. <em>(V: I, T)</em></li>
+<li><strong>TIA-SEL-005 [O]</strong> — Where deterministic ordering is requested, the selector <strong>shall</strong> emit the affected set in a stable, reproducible order. <em>(V: T)</em></li>
+<li><strong>TIA-SEL-006 [O]</strong> — Where a duration ordering is requested, the selector <strong>shall</strong> order selected tests by descending recorded mean duration. <em>(V: T)</em></li>
+<li><strong>TIA-SEL-007 [O]</strong> — Where predictive ranking is enabled, the selector <strong>shall</strong> apply ranking only as a re-ordering or cap over the already-computed recall-safe affected set, and <strong>shall not</strong> remove any always-run member. <em>(V: I, T)</em></li>
+</ul>
+<h3 id="54-provenance-and-explainability-prov"><a class="header" href="#54-provenance-and-explainability-prov">5.4 Provenance and explainability (PROV)</a></h3>
+<ul>
+<li><strong>TIA-PROV-001 [U]</strong> — The core <strong>shall</strong> compute, for each selection, the provenance expression that derived it. <em>(V: T)</em></li>
+<li><strong>TIA-PROV-002 [E]</strong> — When a test item is selected, the core <strong>shall</strong> be able to produce its reason chain as the set of edges and changed content units that caused its selection, each annotated with origin. <em>(V: T)</em></li>
+<li><strong>TIA-PROV-003 [E]</strong> — When a test item is excluded, the core <strong>shall</strong> be able to produce an explicit exclusion reason. <em>(V: T)</em></li>
+<li><strong>TIA-PROV-004 [E]</strong> — When queried about a specific test, the core <strong>shall</strong> report whether and why that test was or was not selected for the current change set. <em>(V: D, T)</em></li>
+<li><strong>TIA-PROV-005 [U]</strong> — The store <strong>shall</strong> persist provenance such that a past selection can be re-explained without re-running selection. <em>(V: T)</em></li>
+</ul>
+<h3 id="55-runtime-feedback-run"><a class="header" href="#55-runtime-feedback-run">5.5 Runtime feedback (RUN)</a></h3>
+<ul>
+<li><strong>TIA-RUN-001 [E]</strong> — When test results and coverage are ingested, the ingestor <strong>shall</strong> create or update runtime edges with origin <code>runtime</code>. <em>(V: T)</em></li>
+<li><strong>TIA-RUN-002 [E]</strong> — When coverage indicates a test exercised a content unit not linked by any static edge, the ingestor <strong>shall</strong> record that runtime edge so the dependency becomes selectable on future changes. <em>(V: T)</em></li>
+<li><strong>TIA-RUN-003 [E]</strong> — When an adapter reports external inputs read at runtime (config files, env vars, fixture files, reflectively loaded modules), the ingestor <strong>shall</strong> record them as runtime edges to the corresponding content units. <em>(V: T)</em></li>
+<li><strong>TIA-RUN-004 [E]</strong> — When results are ingested, the ingestor <strong>shall</strong> update per-test run history, timing, and failure-rate statistics. <em>(V: T)</em></li>
+<li><strong>TIA-RUN-005 [U]</strong> — The ingestor <strong>shall</strong> be idempotent with respect to re-ingestion of the same run. Each run payload <strong>shall</strong> carry a unique run-identity key (a caller-supplied or adapter-generated opaque string, e.g. a UUID). Before performing any write, the ingestor <strong>shall</strong> check whether that key has already been recorded and skip ingestion if so. If no run-identity key is present in the payload, the ingestor <strong>shall</strong> reject the request with a diagnostic rather than proceed without dedup protection. <em>(V: T)</em></li>
+<li><strong>TIA-RUN-006 [S]</strong> — While ingesting a run, the ingestor <strong>shall</strong> record the environment fingerprint under which the run executed. <em>(V: T)</em></li>
+</ul>
+<h3 id="56-soundness-and-safety-safe"><a class="header" href="#56-soundness-and-safety-safe">5.6 Soundness and safety (SAFE)</a></h3>
+<blockquote>
+<p>TIA-SAFE-001 is the cardinal requirement; all other safety requirements exist to maintain it.</p>
+</blockquote>
+<ul>
+<li><strong>TIA-SAFE-001 [U]</strong> — The core <strong>shall</strong> maintain the invariant that the modeled dependency relation over-approximates the true semantic dependency relation, such that any test that could be affected by a change is selected. <em>(V: A, T)</em></li>
+<li><strong>TIA-SAFE-002 [UW]</strong> — If the minimum Viterbi path confidence (TIA-CONF-001) across the <strong>reachability-selected</strong> tests in a component falls below the configured threshold, then the core <strong>shall</strong> fall back to selecting all tests in that component. If no reachability-selected tests exist for a component (i.e. the component’s selection consists solely of always-run members from TIA-SAFE-007), TIA-SAFE-002 does not apply — TIA-SAFE-007 already provides sufficient recall for that component. <em>(V: T)</em></li>
+<li><strong>TIA-SAFE-003 [U]</strong> — The core <strong>shall</strong> scope confidence-driven fallback to the affected component(s) and <strong>shall not</strong> escalate to a global full run unless every affected component is below threshold. <em>(V: T)</em></li>
+<li><strong>TIA-SAFE-004 [UW]</strong> — If an adapter reports unresolved files it cannot statically analyze, then the core <strong>shall</strong> treat the dependents of those files conservatively by force-including them or raising a component fallback. <em>(V: T)</em></li>
+<li><strong>TIA-SAFE-005 [E]</strong> — When the environment fingerprint or a lockfile changes, the core <strong>shall</strong> schedule a full run for the affected environment. <em>(V: T)</em></li>
+<li><strong>TIA-SAFE-006 [U]</strong> — The core <strong>shall</strong> support a configurable periodic full-run schedule independent of change-based selection. <em>(V: D)</em></li>
+<li><strong>TIA-SAFE-007 [U]</strong> — The core <strong>shall</strong> include in the always-run set every test that failed in its last recorded run, every newly added test, every test with no recorded history, and every quarantined test. <em>(V: T)</em></li>
+<li><strong>TIA-SAFE-008 [E]</strong> — When a full run fails a test that the most recent selection would have skipped, the core <strong>shall</strong> record a missed-selection incident and create a <code>manual</code> edge that forces the test on the implicated change in future. <em>(V: T)</em></li>
+<li><strong>TIA-SAFE-009 [O]</strong> — Where the user defines must-run rules (e.g. path globs mapped to tests), the core <strong>shall</strong> force-select the mapped tests when matching files change. <em>(V: T)</em></li>
+<li><strong>TIA-SAFE-010 [U]</strong> — The core <strong>shall</strong> treat a quarantined test as selected-and-run while excluding its outcome from pass/fail trust calculations; quarantine <strong>shall not</strong> mean skip. <em>(V: I, T)</em></li>
+<li><strong>TIA-SAFE-011 [E]</strong> — When a test produces inconsistent outcomes across retried attempts in one run, the core <strong>shall</strong> record the outcome as flaky and update its flakiness score. <em>(V: T)</em></li>
+<li><strong>TIA-SAFE-012 [O]</strong> — Where predictive ranking training is enabled, the core <strong>shall</strong> exclude flaky-labeled outcomes from the training labels. <em>(V: I, A)</em></li>
+</ul>
+<h3 id="57-confidence-scoring-conf"><a class="header" href="#57-confidence-scoring-conf">5.7 Confidence scoring (CONF)</a></h3>
+<ul>
+<li><strong>TIA-CONF-001 [U]</strong> — The core <strong>shall</strong> compute a selection confidence in the range <code>[0,1]</code>. <em>(V: T)</em></li>
+<li><strong>TIA-CONF-002 [U]</strong> — The core <strong>shall</strong> apply a per-invocation confidence floor derived from at least coverage freshness, adapter resolution ratio, history depth, and environment match, such that the effective path confidence reported by TIA-CONF-001 reflects the quality of the dependency evidence for the current invocation. These are invocation-level quality signals and <strong>shall not</strong> mutate stored edge weights, ensuring TIA-REL-001 (deterministic selections for identical store state) is preserved. <em>(V: I, A)</em></li>
+<li><strong>TIA-CONF-003 [U]</strong> — The core <strong>shall</strong> report the confidence value to every consumer interface. <em>(V: T)</em></li>
+<li><strong>TIA-CONF-004 [U]</strong> — The core <strong>shall</strong> document, wherever confidence is reported, that confidence gates fallback and is not a probability that the suite is correct. <em>(V: I)</em></li>
+</ul>
+<h3 id="58-language-adapter-interface-adapt"><a class="header" href="#58-language-adapter-interface-adapt">5.8 Language adapter interface (ADAPT)</a></h3>
+<ul>
+<li><strong>TIA-ADAPT-001 [U]</strong> — The core <strong>shall</strong> communicate with adapters using JSON request/response over standard input and output, with diagnostics on standard error and status via exit code. <em>(V: I, T)</em></li>
+<li><strong>TIA-ADAPT-002 [E]</strong> — When the core starts an adapter, the adapter <strong>shall</strong> return a handshake declaring its name, version, supported protocol version, languages, granularity, and capability flags. Capability flags <strong>shall</strong> include at minimum: <code>symbol_model_complete</code> (boolean — used by TIA-CHG-004 to permit sub-file granularity narrowing). <em>(V: T)</em></li>
+<li><strong>TIA-ADAPT-003 [U]</strong> — An adapter <strong>shall</strong> implement the commands <code>discover</code>, <code>static-deps</code>, <code>fingerprint</code>, <code>run-args</code>, and <code>ingest</code>. <em>(V: I, T)</em></li>
+<li><strong>TIA-ADAPT-004 [E]</strong> — When invoked with <code>discover</code>, an adapter <strong>shall</strong> enumerate test items in scope with their node id, suite kind, and file. <em>(V: T)</em></li>
+<li><strong>TIA-ADAPT-005 [E]</strong> — When invoked with <code>static-deps</code> and a changed-file set, an adapter <strong>shall</strong> return candidate test items, K-valued edges, and a list of files it could not resolve. When <code>symbol_model_complete</code> is <code>true</code>, the adapter <strong>shall</strong> also return per-symbol edges; otherwise the core treats all edges as file-level (TIA-CHG-004). <em>(V: T)</em></li>
+<li><strong>TIA-ADAPT-006 [E]</strong> — When invoked with <code>fingerprint</code>, an adapter <strong>shall</strong> return content fingerprints at its declared granularity. <em>(V: T)</em></li>
+<li><strong>TIA-ADAPT-007 [E]</strong> — When invoked with <code>run-args</code> and a selected set, an adapter <strong>shall</strong> return the native runner arguments and a collection path, and <strong>shall not</strong> execute the tests. <em>(V: I, T)</em></li>
+<li><strong>TIA-ADAPT-008 [E]</strong> — When invoked with <code>ingest</code> and a run’s output, an adapter <strong>shall</strong> return runtime edges, per-test results, and observed external inputs. <em>(V: T)</em></li>
+<li><strong>TIA-ADAPT-009 [U]</strong> — An adapter <strong>shall</strong> emit dependency edges as semiring values, defaulting to the multiplicative identity where it has no finer weight. <em>(V: I)</em></li>
+<li><strong>TIA-ADAPT-010 [UW]</strong> — If an adapter does not declare a capability, then the core <strong>shall</strong> degrade gracefully for that capability rather than fail, applying conservative defaults. <em>(V: T)</em></li>
+<li><strong>TIA-ADAPT-011 [UW]</strong> — If an adapter’s protocol version is incompatible with the core, then the core <strong>shall</strong> refuse to use it and report the mismatch. <em>(V: T)</em></li>
+<li><strong>TIA-ADAPT-012 [UW]</strong> — If an adapter fails, times out, or returns malformed output, then the core <strong>shall</strong> fall back to selecting all tests in the affected component and record the failure. <em>(V: T)</em></li>
+<li><strong>TIA-ADAPT-013 [U]</strong> — The core <strong>shall</strong> invoke adapters with least privilege and a configurable timeout. <em>(V: I, T)</em></li>
+</ul>
+<h3 id="59-composability-comp"><a class="header" href="#59-composability-comp">5.9 Composability (COMP)</a></h3>
+<ul>
+<li><strong>TIA-COMP-001 [U]</strong> — The store <strong>shall</strong> maintain a component graph distinct from the fine-grained test-to-content-unit graph. <em>(V: I)</em></li>
+<li><strong>TIA-COMP-002 [U]</strong> — The store <strong>shall</strong> record inter-component dependency edges with an origin. <em>(V: I)</em></li>
+<li><strong>TIA-COMP-003 [E]</strong> — When computing selection in a monorepo, the core <strong>shall</strong> first resolve affected components bottom-up from the change set, then select within them. <em>(V: T)</em></li>
+<li><strong>TIA-COMP-004 [O]</strong> — Where multi-repo operation is configured, each repository <strong>shall</strong> be able to export a manifest of its components, their public-interface fingerprints, and a version. <em>(V: T)</em></li>
+<li><strong>TIA-COMP-005 [E]</strong> — When a consumer repository records a dependency on another repository, the core <strong>shall</strong> record an edge to that repository’s published interface fingerprint and version. <em>(V: T)</em></li>
+<li><strong>TIA-COMP-006 [E]</strong> — When a published interface fingerprint changes, the core <strong>shall</strong> mark dependent tests in consumer repositories as affected. <em>(V: T)</em></li>
+<li><strong>TIA-COMP-007 [U]</strong> — The core <strong>shall</strong> aggregate manifests across repositories without requiring a global lock or single shared database. <em>(V: A, D)</em></li>
+<li><strong>TIA-COMP-008 [U]</strong> — The core <strong>shall</strong> compute per-component selection in parallel. <em>(V: D, T)</em></li>
+<li><strong>TIA-COMP-009 [U]</strong> — The core <strong>shall</strong> produce identical affected sets regardless of the order in which components or repositories are composed. <em>(V: A, T)</em></li>
+<li><strong>TIA-COMP-010 [U]</strong> — The core <strong>shall</strong> key a component’s cached selection decision on its dependency fingerprint, and <strong>shall</strong> reuse the cached decision when the fingerprint is unchanged. <em>(V: T)</em></li>
+<li><strong>TIA-COMP-011 [O]</strong> — Where a remote cache is configured, the core <strong>shall</strong> share and retrieve cached selection decisions across machines through a local-then-remote lookup. <em>(V: T)</em></li>
+<li><strong>TIA-COMP-012 [O]</strong> — Where sharding is requested, the core <strong>shall</strong> emit a balanced shard plan computed over recorded test durations. <em>(V: T)</em></li>
+</ul>
+<h3 id="510-persistence-and-store-store"><a class="header" href="#510-persistence-and-store-store">5.10 Persistence and store (STORE)</a></h3>
+<ul>
+<li><strong>TIA-STORE-001 [U]</strong> — The store <strong>shall</strong> persist the queryable index in an embedded transactional database. <em>(V: I)</em></li>
+<li><strong>TIA-STORE-002 [U]</strong> — The store <strong>shall</strong> persist large per-run payloads in a content-addressed blob store, deduplicated by content hash. <em>(V: T)</em></li>
+<li><strong>TIA-STORE-003 [U]</strong> — The store <strong>shall</strong> support export and import of the dependency graph and provenance in a documented interchange format. <em>(V: T)</em></li>
+<li><strong>TIA-STORE-004 [E]</strong> — When the store schema version differs from the running core, the core <strong>shall</strong> migrate or refuse with a clear diagnostic rather than corrupt data. <em>(V: T)</em></li>
+<li><strong>TIA-STORE-005 [U]</strong> — The store <strong>shall</strong> support concurrent reads during an in-progress write. <em>(V: T)</em></li>
+</ul>
+<h3 id="511-ci-consumer-ci"><a class="header" href="#511-ci-consumer-ci">5.11 CI consumer (CI)</a></h3>
+<ul>
+<li><strong>TIA-CI-001 [E]</strong> — When selection completes successfully, the CLI <strong>shall</strong> exit with code <code>0</code>. <em>(V: T)</em></li>
+<li><strong>TIA-CI-002 [UW]</strong> — If confidence requires a full run, then the CLI <strong>shall</strong> exit with code <code>10</code> to signal “run everything.” <em>(V: T)</em></li>
+<li><strong>TIA-CI-003 [E]</strong> — When the full selection set (reachability ∪ always-run ∪ fallback, where fallback is scoped per affected component per TIA-SAFE-003) is empty, the CLI <strong>shall</strong> exit with code <code>20</code> to signal “safe to skip.” <em>(V: T)</em></li>
+<li><strong>TIA-CI-004 [UW]</strong> — If a non-recoverable error occurs, then the CLI <strong>shall</strong> exit with a non-zero code distinct from <code>10</code> and <code>20</code>. <em>(V: T)</em></li>
+<li><strong>TIA-CI-005 [U]</strong> — The CLI <strong>shall</strong> treat exit code <code>10</code> and any unknown condition as “run all tests,” never as “run no tests.” <em>(V: I, T)</em></li>
+<li><strong>TIA-CI-006 [O]</strong> — Where a machine-readable format is requested, the CLI <strong>shall</strong> emit the selection plan as JSON or a runner-native plan. <em>(V: T)</em></li>
+<li><strong>TIA-CI-007 [O]</strong> — Where shadow mode is enabled, the CLI <strong>shall</strong> compute and record the selection but report that all tests should run. <em>(V: D, T)</em></li>
+<li><strong>TIA-CI-008 [E]</strong> — When a CI run finishes, the CLI <strong>shall</strong> accept ingestion of its results to update the model. <em>(V: T)</em></li>
+</ul>
+<h3 id="512-local-developer-consumer-local"><a class="header" href="#512-local-developer-consumer-local">5.12 Local-developer consumer (LOCAL)</a></h3>
+<ul>
+<li><strong>TIA-LOCAL-001 [E]</strong> — When invoked locally against the working tree, the CLI <strong>shall</strong> compute selection from uncommitted changes. <em>(V: T)</em></li>
+<li><strong>TIA-LOCAL-002 [O]</strong> — Where a daemon is running, the CLI <strong>shall</strong> reuse a cached in-memory graph to return selection with low latency. <em>(V: D, T)</em></li>
+<li><strong>TIA-LOCAL-003 [O]</strong> — Where watch mode is enabled, the CLI <strong>shall</strong> recompute the affected set on each saved change. <em>(V: D)</em></li>
+<li><strong>TIA-LOCAL-004 [U]</strong> — The CLI <strong>shall</strong> always re-run tests that failed in the developer’s most recent local run. <em>(V: T)</em></li>
+<li><strong>TIA-LOCAL-005 [U]</strong> — The CLI <strong>shall</strong> operate without network access in local mode. <em>(V: T)</em></li>
+</ul>
+<h3 id="513-llm-agent-consumer-agent"><a class="header" href="#513-llm-agent-consumer-agent">5.13 LLM-agent consumer (AGENT)</a></h3>
+<ul>
+<li><strong>TIA-AGENT-001 [O]</strong> — Where the agent output format is requested, the CLI <strong>shall</strong> emit a structured JSON object containing the selection, per-test reasons, confidence, changed units, and summary statistics. <em>(V: T)</em></li>
+<li><strong>TIA-AGENT-002 [U]</strong> — Given the same change set and store state, the CLI in agent mode <strong>shall</strong> produce byte-stable output. Agent mode <strong>shall</strong> implicitly enforce deterministic output ordering (TIA-SEL-005) regardless of parallel evaluation (TIA-COMP-008), without requiring a separate flag from the caller. <em>(V: T)</em></li>
+<li><strong>TIA-AGENT-003 [E]</strong> — When the agent requests an explanation, the CLI <strong>shall</strong> include for each selected test its reason chain and for each skipped test its exclusion reason. <em>(V: T)</em></li>
+<li><strong>TIA-AGENT-004 [E]</strong> — When the agent queries a specific test, the CLI <strong>shall</strong> answer why that test was or was not selected. <em>(V: T)</em></li>
+<li><strong>TIA-AGENT-005 [O]</strong> — Where pre-edit mode is requested, the CLI <strong>shall</strong> report the blast radius of a proposed change without requiring the edit to be applied. <em>(V: D, T)</em></li>
+<li><strong>TIA-AGENT-006 [E]</strong> — When a changed symbol has no covering test, the CLI <strong>shall</strong> surface that coverage gap in agent output. <em>(V: T)</em></li>
+<li><strong>TIA-AGENT-007 [S]</strong> — While serving an agent or a merge gate, the CLI <strong>shall</strong> default to deterministic selection and <strong>shall not</strong> apply non-deterministic predictive ranking unless explicitly enabled. <em>(V: I, T)</em></li>
+</ul>
+<h3 id="514-observability-obs"><a class="header" href="#514-observability-obs">5.14 Observability (OBS)</a></h3>
+<ul>
+<li><strong>TIA-OBS-001 [E]</strong> — When requested, the core <strong>shall</strong> export the current dependency graph in a documented format. <em>(V: T)</em></li>
+<li><strong>TIA-OBS-002 [U]</strong> — The core <strong>shall</strong> be able to explain any selection it produced. <em>(V: D)</em></li>
+<li><strong>TIA-OBS-003 [U]</strong> — The core <strong>shall</strong> emit metrics including selection rate, estimated time saved, fallback rate, flakiness rate, and missed-selection count. <em>(V: T)</em></li>
+<li><strong>TIA-OBS-004 [U]</strong> — The core <strong>shall</strong> emit structured logs for each selection and ingestion. <em>(V: I)</em></li>
+</ul>
+<hr>
+<h2 id="6-non-functional-requirements"><a class="header" href="#6-non-functional-requirements">6. Non-Functional Requirements</a></h2>
+<h3 id="61-performance-perf"><a class="header" href="#61-performance-perf">6.1 Performance (PERF)</a></h3>
+<ul>
+<li><strong>TIA-PERF-001 [U]</strong> — The core <strong>shall</strong> scale incremental selection time with the size of the change set rather than the size of the full test suite. <em>(V: A, T)</em></li>
+<li><strong>TIA-PERF-002 [S]</strong> — While a warm local daemon is available, the CLI <strong>shall</strong> return selection for a single-file change within an interactive latency budget. <em>(V: T)</em></li>
+<li><strong>TIA-PERF-003 [U]</strong> — The core <strong>shall</strong> bound its own selection overhead to a small fraction of the time saved by running fewer tests. <em>(V: A)</em></li>
+</ul>
+<h3 id="62-reliability-rel"><a class="header" href="#62-reliability-rel">6.2 Reliability (REL)</a></h3>
+<ul>
+<li><strong>TIA-REL-001 [S]</strong> — While in deterministic mode, the core <strong>shall</strong> produce identical selections for identical inputs and store state. <em>(V: T)</em></li>
+<li><strong>TIA-REL-002 [U]</strong> — The core <strong>shall</strong> make ingestion crash-safe, leaving the store consistent after an interrupted operation. Each ingestion <strong>shall</strong> execute within a single database transaction (or equivalent write-ahead-log mechanism) so that a crash during ingestion leaves the store in its pre-ingestion state. Idempotency of re-ingestion is provided by the run-identity key (TIA-RUN-005). <em>(V: T)</em></li>
+</ul>
+<h3 id="63-security-sec"><a class="header" href="#63-security-sec">6.3 Security (SEC)</a></h3>
+<ul>
+<li><strong>TIA-SEC-001 [U]</strong> — The core <strong>shall not</strong> execute arbitrary repository code as part of selection. <em>(V: I, A)</em></li>
+<li><strong>TIA-SEC-002 [U]</strong> — The core <strong>shall</strong> run adapters under least privilege with bounded resource limits. <em>(V: I, T)</em></li>
+<li><strong>TIA-SEC-003 [U]</strong> — The core <strong>shall</strong> include only an allowlisted, hashed representation of environment variables in cache and environment keys, and <strong>shall not</strong> store raw secret values. <em>(V: I, T)</em></li>
+</ul>
+<h3 id="64-portability-and-maintainability-port"><a class="header" href="#64-portability-and-maintainability-port">6.4 Portability and maintainability (PORT)</a></h3>
+<ul>
+<li><strong>TIA-PORT-001 [U]</strong> — The core <strong>shall</strong> be usable across languages and test frameworks solely through adapters, with no core changes required to add a language. <em>(V: I, D)</em></li>
+<li><strong>TIA-PORT-002 [U]</strong> — The adapter protocol <strong>shall</strong> permit adapters to be implemented in any language and versioned independently of the core. <em>(V: I)</em></li>
+<li><strong>TIA-PORT-003 [U]</strong> — The core <strong>shall</strong> declare a protocol-compatibility policy and reject adapters outside the supported version range. <em>(V: I, T)</em></li>
+</ul>
+<h3 id="65-scalability-scale"><a class="header" href="#65-scalability-scale">6.5 Scalability (SCALE)</a></h3>
+<ul>
+<li><strong>TIA-SCALE-001 [U]</strong> — The core <strong>shall</strong> support monorepos containing many components without recomputing the full graph per change. <em>(V: A, T)</em></li>
+<li><strong>TIA-SCALE-002 [U]</strong> — The core <strong>shall</strong> support federation across multiple repositories without a single shared write bottleneck. <em>(V: A, D)</em></li>
+</ul>
+<hr>
+<h2 id="7-verification-and-rollout"><a class="header" href="#7-verification-and-rollout">7. Verification and Rollout</a></h2>
+<ul>
+<li><strong>TIA-VER-001 [U]</strong> — The system <strong>shall</strong> be verifiable in shadow mode, computing selections without gating, before it is permitted to gate. <em>(V: D)</em></li>
+<li><strong>TIA-VER-002 [U]</strong> — The system <strong>shall</strong> record zero missed-selection incidents over a defined evaluation window as the precondition for enabling enforcing mode. <em>(V: A, T)</em></li>
+<li><strong>TIA-VER-003 [U]</strong> — The system <strong>shall</strong> use periodic full-run reconciliation as a continuous verification mechanism for the over-approximation invariant. <em>(V: A, D)</em></li>
+<li><strong>TIA-VER-004 [U]</strong> — The soundness invariant (TIA-SAFE-001) <strong>shall</strong> be verified by a seeded-fault recall test in which every seeded regression’s fault-revealing test is selected. <em>(V: T)</em></li>
+<li><strong>TIA-VER-005 [O]</strong> — Where predictive ranking is enabled, it <strong>shall</strong> pass a calibration gate meeting defined test-failure-recall and change-recall targets on a held-out recent window before promotion. <em>(V: T)</em></li>
+</ul>
+<hr>
+<h2 id="8-engine-and-reference-architecture-design-constraints"><a class="header" href="#8-engine-and-reference-architecture-design-constraints">8. Engine and Reference Architecture (Design Constraints)</a></h2>
+<blockquote>
+<p>§4 (ARCH) is binding and <strong>engine-independent</strong>: it constrains the abstraction (a provenance-semiring K-relation, selection as its transpose, soundness as over-approximation). This section pins the <strong>reference implementation</strong> that realises §4 with the least code. <code>TIA-ENG-*</code> requirements bind the reference build; they do not constrain the abstraction, which remains portable per TIA-ENG-012.</p>
+</blockquote>
+<h3 id="81-decision"><a class="header" href="#81-decision">8.1 Decision</a></h3>
+<p>The reference implementation is a single Rust binary embedding <strong>Ascent</strong> (a Datalog-style logic language with lattice support) as the in-process selection engine. Change scoping is active today; the store’s content-addressed component-cache primitives (TIA-COMP-010) are not yet integrated into the selection path. <strong>Soufflé</strong> serves as an out-of-process provenance oracle for validation and full why-provenance. <strong>DBSP/Feldera</strong> is the documented scale-up path for long-running, fully-incremental, retraction-aware selection. <strong>DDlog</strong> is rejected (archived/unmaintained).</p>
+<h3 id="82-concern--mechanism"><a class="header" href="#82-concern--mechanism">8.2 Concern → mechanism</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Spec concern</th><th>Reference mechanism</th></tr>
+</thead>
+<tbody>
+<tr><td>Transitive closure (ARCH-005)</td><td>Ascent recursive rule, union-find–backed relation (BYODS)</td></tr>
+<tr><td>Semiring layer (ARCH-001/003, SEL-003)</td><td>Ascent <code>lattice</code> columns: Boolean (selection), Viterbi-max (confidence), tropical-min (distance)</td></tr>
+<tr><td>Incremental selection (ARCH-006, PERF-001)</td><td>change scoping + component cache (COMP-010); batch over the scoped residual</td></tr>
+<tr><td>Parallel per-component (COMP-008)</td><td>Ascent <code>ascent_par!</code> on rayon</td></tr>
+<tr><td>Explanation (PROV-002, AGENT-003)</td><td>minimal-witness derivation as a lattice value</td></tr>
+<tr><td>Full why-provenance / validation</td><td>out-of-process Soufflé oracle</td></tr>
+<tr><td>Persistence (STORE)</td><td>SQLite + CAS (§5.10); engine holds working state only</td></tr>
+<tr><td>Scale-up to streaming IVM</td><td>re-target rule set to DBSP</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="83-design-constraint-requirements-eng"><a class="header" href="#83-design-constraint-requirements-eng">8.3 Design-constraint requirements (ENG)</a></h3>
+<ul>
+<li><strong>TIA-ENG-001 [U]</strong> — The reference implementation <strong>shall</strong> be distributed as a single statically linked binary that embeds the selection engine in-process. <em>(V: I, D)</em></li>
+<li><strong>TIA-ENG-002 [U]</strong> — The reference implementation <strong>shall not</strong> require a separate engine process to compute a selection. <em>(V: I)</em></li>
+<li><strong>TIA-ENG-003 [U]</strong> — The reference implementation <strong>shall</strong> use Ascent as the embedded logic engine for the selection query. <em>(V: I)</em></li>
+<li><strong>TIA-ENG-004 [U]</strong> — The reference implementation <strong>shall</strong> represent each semiring as a lattice column so that selection, confidence, and distance are produced by the same rule set under different lattice types. <em>(V: I, T)</em></li>
+<li><strong>TIA-ENG-005 [U]</strong> — The reference implementation <strong>shall</strong> compute transitive dependency closure using a union-find–backed relation. <em>(V: T)</em></li>
+<li><strong>TIA-ENG-006 [U]</strong> — The reference implementation <strong>shall</strong> evaluate per-component selection using the engine’s data-parallel mode. <em>(V: D, T)</em></li>
+<li><strong>TIA-ENG-007 [U]</strong> — The reference implementation <strong>shall</strong> provide cross-invocation incrementality through change scoping and the content-addressed component cache (TIA-COMP-010) rather than a persistent streaming engine. <em>(V: A, T)</em></li>
+<li><strong>TIA-ENG-008 [U]</strong> — The reference implementation <strong>shall</strong> evaluate the selection query over only the change-scoped residual subgraph. <em>(V: A, T)</em></li>
+<li><strong>TIA-ENG-009 [U]</strong> — For explanation, the reference implementation <strong>shall</strong> compute a minimal-witness derivation (a single shortest reason chain) as a lattice value sufficient to satisfy TIA-PROV-002 and TIA-AGENT-003, without requiring full why-provenance for routine selection. <em>(V: T)</em></li>
+<li><strong>TIA-ENG-010 [O]</strong> — Where full why-provenance or independent validation is required, the reference implementation <strong>shall</strong> be able to evaluate the same rule set through an out-of-process Soufflé oracle. <em>(V: D)</em></li>
+<li><strong>TIA-ENG-011 [S]</strong> — While operating in shadow mode (TIA-VER-001), the reference implementation <strong>shall</strong> be able to cross-check its selections against the Soufflé oracle and flag divergences. <em>(V: D, T)</em></li>
+<li><strong>TIA-ENG-012 [U]</strong> — The selection rule set <strong>shall</strong> be engine-independent, such that it can be re-targeted to an alternative engine without changing the dependency model or any <code>TIA-ARCH-*</code> behaviour. <em>(V: A)</em></li>
+<li><strong>TIA-ENG-013 [O]</strong> — Where long-running, fully-incremental selection at monorepo scale with retractions is required, the system <strong>shall</strong> be re-targetable to a streaming incremental engine (e.g. DBSP) as a documented scale-up path. <em>(V: A)</em></li>
+<li><strong>TIA-ENG-014 [UW]</strong> — If a selected engine becomes unmaintained, then the system <strong>shall</strong> be re-targetable to an alternative engine through the engine-independent rule set without loss of <code>TIA-ARCH-*</code> behaviour. <em>(V: A)</em></li>
+<li><strong>TIA-ENG-015 [U]</strong> — The reference implementation <strong>shall</strong> persist the dependency graph and statistics in the store of §5.10 independently of the engine’s in-memory working state. <em>(V: I)</em></li>
+<li><strong>TIA-ENG-016 [U]</strong> — The reference implementation core <strong>shall</strong> be memory-safe and <strong>shall</strong> isolate untrusted adapter execution to subprocesses (cf. TIA-SEC-002), keeping the engine free of repository code execution. <em>(V: I, A)</em></li>
+</ul>
+<h3 id="84-rejected-alternatives-informative"><a class="header" href="#84-rejected-alternatives-informative">8.4 Rejected alternatives (informative)</a></h3>
+<p><strong>DDlog</strong> — cleanest conceptual match (incremental Datalog on differential dataflow) but archived; rejected on maintenance risk (see TIA-ENG-014). <strong>Pure DBSP/differential-dataflow for v1</strong> — true IVM, but Z-sets are an abelian <em>group</em> (signed weights) whereas the master provenance semiring has no additive inverses, making why-provenance awkward; also heavier than the cache-based incrementality requires. Retained as scale-up only (TIA-ENG-013). <strong>Soufflé as the primary engine</strong> — gold-standard built-in provenance, but compiles to C++ and is not a Rust-embeddable library; retained as oracle (TIA-ENG-010). <strong>CozoDB</strong> — bundles engine + persistence, but semiring/provenance are not first-class; viable fast-prototype substitute, not the reference.</p>
+<hr>
+<h2 id="appendix-a--semiring-instantiations"><a class="header" href="#appendix-a--semiring-instantiations">Appendix A — Semiring instantiations</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Quantity</th><th>Semiring K</th><th>⊕</th><th>⊗</th><th>0</th><th>1</th><th>Yields</th></tr>
+</thead>
+<tbody>
+<tr><td>Affected set</td><td>Boolean</td><td>∨</td><td>∧</td><td>false</td><td>true</td><td>which tests to run</td></tr>
+<tr><td>Confidence</td><td>Viterbi <code>[0,1]</code></td><td>max</td><td>×</td><td>0</td><td>1</td><td>path confidence per test (minimum across component gates TIA-SAFE-002 fallback)</td></tr>
+<tr><td>Distance</td><td>Tropical <code>(ℝ⁺∪∞)</code></td><td>min</td><td>+</td><td>∞</td><td>0</td><td>change-to-test graph distance</td></tr>
+<tr><td>Explanation</td><td>Provenance <code>ℕ[Edges]</code></td><td>+</td><td>×</td><td>0</td><td>1</td><td>reason chains (master)</td></tr>
+<tr><td>Scheduling</td><td>Cost / expected-time</td><td>min</td><td>+</td><td>∞</td><td>0</td><td>shard ordering</td></tr>
+</tbody>
+</table>
+</div>
+<p>The positively-derived columns (selection, distance, scheduling, and explanation) are homomorphic images of the provenance column (TIA-ARCH-003). Path confidence annotates the same paths but is not a homomorphic image of the provenance column. Always-run and fallback members of the affected set are contributed as input facts to the selection relation, not derived by semiring closure (see TIA-ARCH-003).</p>
+<h2 id="appendix-b--cli-exit-codes"><a class="header" href="#appendix-b--cli-exit-codes">Appendix B — CLI exit codes</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Code</th><th>Meaning</th><th>CI action</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td>Selection computed</td><td>run selected set</td></tr>
+<tr><td>10</td><td>Low confidence / fallback</td><td>run all tests</td></tr>
+<tr><td>20</td><td>Full selection empty (reachability ∪ always-run ∪ fallback all empty)</td><td>safe to skip stage</td></tr>
+<tr><td>other ≠ 0</td><td>Hard error</td><td>run all tests</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="appendix-c--adapter-command-summary"><a class="header" href="#appendix-c--adapter-command-summary">Appendix C — Adapter command summary</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Command</th><th>Input</th><th>Output</th></tr>
+</thead>
+<tbody>
+<tr><td>handshake (<code>adapter-info</code>)</td><td>—</td><td>name, version, protocol, languages, granularity, capabilities</td></tr>
+<tr><td><code>discover</code></td><td>paths, component</td><td>test items</td></tr>
+<tr><td><code>static-deps</code></td><td>changed files</td><td>candidate tests, K-edges, unresolved files</td></tr>
+<tr><td><code>fingerprint</code></td><td>files/symbols</td><td>content fingerprints</td></tr>
+<tr><td><code>run-args</code></td><td>selected set</td><td>native runner argv, collection path</td></tr>
+<tr><td><code>ingest</code></td><td>run output, coverage</td><td>runtime edges, results, external inputs</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="appendix-d--verification-legend"><a class="header" href="#appendix-d--verification-legend">Appendix D — Verification legend</a></h2>
+<p><strong>I</strong> Inspection · <strong>A</strong> Analysis · <strong>D</strong> Demonstration · <strong>T</strong> Test.</p>
+<h2 id="appendix-e--ears-pattern-legend"><a class="header" href="#appendix-e--ears-pattern-legend">Appendix E — EARS pattern legend</a></h2>
+<p><strong>[U]</strong> Ubiquitous · <strong>[S]</strong> State-driven (While) · <strong>[E]</strong> Event-driven (When) · <strong>[O]</strong> Optional-feature (Where) · <strong>[UW]</strong> Unwanted-behavior (If/Then) · <strong>[C]</strong> Complex.</p>
+<h2 id="appendix-f--engine-evaluation-informative"><a class="header" href="#appendix-f--engine-evaluation-informative">Appendix F — Engine evaluation (informative)</a></h2>
+<p>Evaluated against the abstraction in §4 and the “easy to implement” priority. The decisive reframing: <strong>“incremental” is satisfiable by change-scoping + the component cache (COMP-010), not only by a streaming IVM engine</strong> — which favours an embeddable batch engine with lattice support over a heavier streaming one.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Engine</th><th>Embed / lang</th><th>“Incremental”</th><th>Semiring / lattice</th><th>Provenance</th><th>Persistence</th><th>Status</th><th>Role</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Ascent</strong></td><td>Rust macro, in-binary</td><td>batch + cache</td><td><strong>native <code>lattice</code></strong></td><td>build (minimal-witness)</td><td>none (use §5.10)</td><td>active</td><td><strong>reference engine</strong></td></tr>
+<tr><td><strong>Soufflé</strong></td><td>C++, compile/shell-out</td><td>batch; IVM in research forks</td><td>limited</td><td><strong>native proof trees</strong></td><td>none</td><td>mature</td><td>validation oracle</td></tr>
+<tr><td><strong>CozoDB</strong></td><td>Rust, in-binary</td><td>batch</td><td>aggregations</td><td>not native</td><td><strong>built-in (MVCC)</strong></td><td>active</td><td>prototype substitute</td></tr>
+<tr><td><strong>DBSP / Feldera</strong></td><td>Rust lib</td><td><strong>true IVM (Z-sets)</strong></td><td>group, not semiring</td><td>not native</td><td>via platform</td><td>active</td><td>scale-up path</td></tr>
+<tr><td><strong>DDlog</strong></td><td>Rust (generated)</td><td>true IVM</td><td>—</td><td>—</td><td>—</td><td><strong>archived</strong></td><td>rejected</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Why Ascent for the reference build:</strong> its <code>lattice</code> feature <em>is</em> the semiring layer (its shortest-path <code>Dual&lt;u32&gt;</code> example is the tropical distance semiring), it embeds with no FFI or separate process, it parallelises via rayon, and BYODS union-find gives efficient transitive closure — so transitive closure, the semiring instantiations (SEL-003), and parallel selection (COMP-008) fall out of the tool. The one gap, provenance, is closed with a minimal-witness lattice column (TIA-ENG-009); full why-provenance is delegated to the Soufflé oracle (TIA-ENG-010). Because the rule set is engine-independent (TIA-ENG-012), this choice is reversible.</p>
+<h2 id="appendix-g--reference-rule-set-verified"><a class="header" href="#appendix-g--reference-rule-set-verified">Appendix G — Reference rule set (verified)</a></h2>
+<p>The entire core selection path is <strong>40 lines</strong> of Ascent declarations + rules (104 lines including a worked example and assertions). It compiles and runs on rustc/cargo 1.75 with ascent 0.8; the full runnable file is <code>tia_core_selection.rs</code>. The rule block:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>ascent! {
+    // EDB (scoped residual): facts loaded from the store
+    relation changed(u32);                    relation unresolved(u32);
+    relation cu_dep(u32, u32, Origin, u32);   relation test_dep(u32, u32, Origin, u32);
+    relation always_run(u32);  relation comp_fallback(u32);  relation test_comp(u32, u32);
+
+    // Boolean selection = reverse reachability (ARCH-004/005, SEL-001)
+    relation impacted(u32);  relation affected(u32);
+    impacted(c) &lt;-- changed(c);
+    impacted(c) &lt;-- unresolved(c);                          // over-approximate (SAFE-004)
+    impacted(a) &lt;-- cu_dep(a, b, _, _), impacted(b);
+    affected(t) &lt;-- test_dep(t, c, _, _), impacted(c);
+    affected(t) &lt;-- always_run(t);                          // SAFE-007 union
+    affected(t) &lt;-- comp_fallback(k), test_comp(t, k);      // fallback
+
+    // Confidence (Viterbi: lub = max, product along path) — ppm integers
+    lattice impact_conf(u32, u32);  lattice test_conf(u32, u32);
+    impact_conf(c, ONE) &lt;-- changed(c);
+    impact_conf(c, 0)   &lt;-- unresolved(c);     // unresolved → zero confidence; triggers SAFE-002 fallback
+    // Note: changed(c) and unresolved(c) are mutually exclusive by definition — a file is either
+    // fingerprint-diffed (changed) or unanalysable (unresolved), never both.
+    impact_conf(a, ((*w as u64 * *d as u64)/ONE as u64) as u32) &lt;-- cu_dep(a,b,_,w), impact_conf(b,d);
+    test_conf(t,  ((*w as u64 * *d as u64)/ONE as u64) as u32) &lt;-- test_dep(t,c,_,w), impact_conf(c,d);
+    // No test_conf seed for always_run(t): these tests are selected by SAFE-007 (input fact), not
+    // by path evidence. Absent test_conf entry means SAFE-002 does not apply to them (TIA-SAFE-002).
+
+    // Distance (tropical min-plus: Dual flips lub to min)
+    lattice impact_dist(u32, Dual&lt;u32&gt;);  lattice test_dist(u32, Dual&lt;u32&gt;);
+    impact_dist(c, Dual(0)) &lt;-- changed(c);
+    impact_dist(c, Dual(0)) &lt;-- unresolved(c);
+    impact_dist(a, Dual(d+1)) &lt;-- cu_dep(a,b,_,_), impact_dist(b, ?Dual(d));
+    test_dist(t, Dual(d+1)) &lt;-- test_dep(t,c,_,_), impact_dist(c, ?Dual(d));
+
+    // Minimal-witness predecessors (TIA-ENG-009): edges on a shortest reason chain
+    relation cu_pred(u32, u32, Origin);  relation test_pred(u32, u32, Origin);
+    cu_pred(a,b,o) &lt;-- cu_dep(a,b,o,_), impact_dist(a, ?Dual(da)), impact_dist(b, ?Dual(db)), if *da == *db+1;
+    test_pred(t,c,o) &lt;-- test_dep(t,c,o,_), test_dist(t, ?Dual(dt)), impact_dist(c, ?Dual(dc)), if *dt == *dc+1;
+}
+<span class="boring">}</span></code></pre>
+<p><strong>Worked example output</strong> (developer edits <code>session.py</code>; <code>test_totp</code> reaches it <em>only</em> through a runtime-observed edge that static import analysis cannot see — TIA-RUN-002):</p>
+<pre><code>affected = [100, 102, 900]
+  test 100: conf=0.640 dist=Some(2) witness=[(11,Static),(10,Static)]   # static path
+  test 102: conf=1.000 dist=Some(2) witness=[(20,Runtime),(10,Runtime)] # RUNTIME-only path
+  test 900: conf=none  dist=None    witness=None                        # always-run (input fact; no test_conf entry; SAFE-002 does not apply)
+// Assertions: reachability-selected tests 100 and 102 verified; test 900 has no conf entry by design.
+</code></pre>
+<p><code>test_invoice</code> (101) is correctly excluded (precision); <code>test_totp</code> (102) is caught solely by the runtime edge (the fusion thesis); confidence <code>0.640 = 0.8×0.8</code> is the Viterbi product; distance is the tropical hop count; the witness is the minimal reason chain. One EDB load + <code>p.run()</code> per invocation; swap <code>ascent!</code>→<code>ascent_par!</code> for the parallel evaluator (COMP-008). Cross-run incrementality is the cache (TIA-ENG-007), not the engine.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="specification.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="evaluations/index.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="specification.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="evaluations/index.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr-ef4e11c1.min.js"></script>
+        <script src="mark-09e88c2c.min.js"></script>
+        <script src="searcher-c2a407aa.js"></script>
+
+        <script src="clipboard-1626706a.min.js"></script>
+        <script src="highlight-abc7f01d.js"></script>
+        <script src="book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>

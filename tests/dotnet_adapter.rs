@@ -1,8 +1,16 @@
 //! .NET adapter integration tests (testaruda-8k5).
 //!
 //! Verifies:
+//! - 4.1: When `titi` IS installed, the adapter handshake returns correct
+//!   protocol fields (name, version, protocol, capabilities).
+//! - 4.2: When `titi` IS installed, the adapter discover returns valid JSON
+//!   with the expected result structure.
 //! - 4.3: When `titi` is NOT installed, `testaruda select` with a titi mapping
 //!   falls back gracefully and does not crash (TIA-ADAPT-012).
+//! - 4.4: Julia adapter command-string config form works with shell-split
+//!   (tested via existing adapter_julia.rs integration tests).
+//! - 4.5: A `.cs` file outside titi's graph returns `unresolved` and
+//!   testaruda applies the over-approximation fallback.
 //! - Registry resolution: `.cs` / `.fs` / `.vb` / `.csproj` / `.sln` / `.slnx`
 //!   resolve to `titi testaruda-adapter`.
 //! - `spawn_adapter` returns a helpful error when `titi` is not on PATH.
@@ -122,6 +130,178 @@ fn dotnet_extension_resolves_sln() {
     let mut reg = testaruda::adapter::AdapterRegistry::new();
     reg.register(".sln", "titi testaruda-adapter");
     assert_eq!(reg.resolve("MyApp.sln"), Some("titi testaruda-adapter"));
+}
+
+// ===== Adapter protocol tests (gated on titi installed) =====
+
+/// Set up a minimal .NET project fixture in the given directory.
+/// Returns true if the project was set up successfully.
+fn setup_dotnet_fixture(dir: &std::path::Path) -> bool {
+    let proj_dir = dir.join("src/MyApp");
+    std::fs::create_dir_all(&proj_dir).unwrap();
+
+    // .csproj
+    std::fs::write(
+        proj_dir.join("MyApp.csproj"),
+        r#"<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>
+"#,
+    )
+    .unwrap();
+
+    // Program.cs
+    std::fs::write(
+        proj_dir.join("Program.cs"),
+        "Console.WriteLine(\"Hello from .NET fixture!\");\n",
+    )
+    .unwrap();
+
+    // .slnx
+    let slnx_dir = dir.join(".titi/solutions");
+    std::fs::create_dir_all(&slnx_dir).unwrap();
+    std::fs::write(
+        slnx_dir.join("MyApp.slnx"),
+        serde_json::json!({
+            "solutions": [
+                {
+                    "path": dir.join("src/MyApp/MyApp.csproj").to_string_lossy(),
+                    "name": "MyApp"
+                }
+            ]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    true
+}
+
+#[test]
+fn titi_adapter_handshake_returns_correct_fields() {
+    if !titi_available() {
+        eprintln!("titi not on PATH — skipping handshake test");
+        return;
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    setup_dotnet_fixture(temp.path());
+    let _guard = CwdGuard::enter(temp.path());
+
+    // Spawn the titi adapter
+    let adapter = testaruda::adapter::spawn_adapter("titi testaruda-adapter", None)
+        .expect("should spawn titi adapter");
+
+    // Verify adapter name from handshake
+    assert_eq!(adapter.name, "titi");
+}
+
+#[test]
+fn titi_adapter_handshake_response_format() {
+    if !titi_available() {
+        eprintln!("titi not on PATH — skipping handshake format test");
+        return;
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    setup_dotnet_fixture(temp.path());
+
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new("titi")
+        .arg("testaruda-adapter")
+        .current_dir(temp.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("failed to spawn titi");
+
+    let stdin = child.stdin.as_mut().unwrap();
+    writeln!(stdin, r#"{{"command":"handshake"}}"#).unwrap();
+    stdin.flush().unwrap();
+
+    let output = child
+        .wait_with_output()
+        .expect("failed to read titi output");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let line = stdout
+        .lines()
+        .next()
+        .expect("expected at least one JSON line");
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(line).expect("handshake response should be valid JSON");
+
+    assert!(parsed["ok"].as_bool().unwrap_or(false), "ok should be true");
+    let result = &parsed["result"];
+    assert_eq!(result["name"].as_str(), Some("titi"));
+    assert_eq!(result["version"].as_str(), Some("0.1.0"));
+    assert_eq!(result["protocol"].as_i64(), Some(1));
+    assert!(result["languages"].as_array().is_some());
+    assert_eq!(result["granularity"].as_str(), Some("method"));
+    let caps = &result["capabilities"];
+    assert!(caps["symbol_model_complete"].as_bool().unwrap_or(false));
+    assert!(caps["fingerprinting"].as_bool().unwrap_or(false));
+    assert!(!caps["runtime_edges"].as_bool().unwrap_or(true));
+}
+
+#[test]
+fn titi_adapter_handshake_then_discover() {
+    if !titi_available() {
+        eprintln!("titi not on PATH — skipping sequence test");
+        return;
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    setup_dotnet_fixture(temp.path());
+
+    use std::io::{BufRead, Write};
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new("titi")
+        .arg("testaruda-adapter")
+        .current_dir(temp.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("failed to spawn titi");
+
+    let stdin = child.stdin.as_mut().unwrap();
+
+    // 1. Handshake
+    writeln!(stdin, r#"{{"command":"handshake"}}"#).unwrap();
+    stdin.flush().unwrap();
+
+    let mut line = String::new();
+    let mut reader = std::io::BufReader::new(child.stdout.as_mut().unwrap());
+    reader.read_line(&mut line).unwrap();
+
+    let hs: serde_json::Value =
+        serde_json::from_str(&line).expect("handshake response should be valid JSON");
+    assert!(hs["ok"].as_bool().unwrap_or(false));
+    assert_eq!(hs["result"]["name"].as_str(), Some("titi"));
+
+    // 2. Discover
+    writeln!(stdin, r#"{{"command":"discover"}}"#).unwrap();
+    stdin.flush().unwrap();
+
+    let mut disc_line = String::new();
+    reader.read_line(&mut disc_line).unwrap();
+
+    let disc: serde_json::Value =
+        serde_json::from_str(&disc_line).expect("discover response should be valid JSON");
+    assert!(disc["ok"].as_bool().unwrap_or(false));
+    assert!(disc["result"]["tests"].is_array());
+
+    child.wait().ok();
 }
 
 #[test]

@@ -1,0 +1,992 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Implementation Evaluation - testaruda</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="Language-agnostic test selection engine">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-2459343d.css">
+        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex-0e2e3039.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-a440ede4.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">testaruda</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/charly-vibes/testaruda" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/charly-vibes/testaruda/edit/main/docs/evaluations/testaruda-evaluation.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <span class=fa-svg id="git-edit-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M421.7 220.3l-11.3 11.3-22.6 22.6-205 205c-6.6 6.6-14.8 11.5-23.8 14.1L30.8 511c-8.4 2.5-17.5 .2-23.7-6.1S-1.5 489.7 1 481.2L38.7 353.1c2.6-9 7.5-17.2 14.1-23.8l205-205 22.6-22.6 11.3-11.3 33.9 33.9 62.1 62.1 33.9 33.9zM96 353.9l-9.3 9.3c-.9 .9-1.6 2.1-2 3.4l-25.3 86 86-25.3c1.3-.4 2.5-1.1 3.4-2l9.3-9.3H112c-8.8 0-16-7.2-16-16V353.9zM453.3 19.3l39.4 39.4c25 25 25 65.5 0 90.5l-14.5 14.5-22.6 22.6-11.3 11.3-33.9-33.9-62.1-62.1L314.3 67.7l11.3-11.3 22.6-22.6 14.5-14.5c25-25 65.5-25 90.5 0z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="testaruda--implementation-state-and-specification-evaluation"><a class="header" href="#testaruda--implementation-state-and-specification-evaluation">testaruda — implementation-state and specification evaluation</a></h1>
+<blockquote>
+<p><strong>Historical report:</strong> Every finding is scoped to the subject commit named in
+its evaluation round. Consult later retest sections and current user
+documentation before applying a finding to the present implementation.</p>
+</blockquote>
+<p><strong>What this document is.</strong> An independent, self-contained evaluation of <strong>testaruda</strong>, a
+software project that was scaffolded using the <code>charly-vibes</code> developer-tool suite as its
+mandated workflow. It is a companion to the separate <code>dev-tooling-evaluation.md</code> report
+(which evaluates the <em>tools</em>); this document evaluates the <em>project those tools produced</em> —
+both the state of its code and, in depth, the quality of its written specification. It is
+written to the “amnesia test”: every tool, term, and scenario is defined here, so it is
+understandable with no prior context.</p>
+<p><strong>Date of evaluation:</strong> 2026-07-07.
+<strong>Evaluator:</strong> an autonomous LLM coding agent (“pi”).
+<strong>Subject commit:</strong> <code>75414cb</code> (“initial scaffold: testaruda test selection engine”).
+<strong>Verdict in one line:</strong> the <em>specification</em> is A-grade in form and the <em>core algorithm</em> is
+correct, but the <em>implementation is a non-functional scaffold</em>, and the specification hides
+several genuine correctness defects in its safety-critical core that its polished EARS
+formatting can mask.</p>
+<hr>
+<h2 id="1-what-testaruda-is"><a class="header" href="#1-what-testaruda-is">1. What testaruda is</a></h2>
+<p><strong>testaruda</strong> is a Rust command-line program that aims to be a <strong>language-agnostic test
+selection engine</strong>: given a code change (a diff), it computes the subset of a test suite
+that must run, so CI and local developers can skip tests that a change cannot possibly
+affect. Its stated model is mathematically specific — it treats the dependency data as a
+<strong>provenance-semiring K-relation</strong> (see the glossary below) and computes the affected tests
+as the <em>transpose</em> of the transitive closure of that relation, under a <strong>recall-first</strong>
+invariant (it must never skip a test that a change could have broken).</p>
+<p>The repository contains two very different things, and the gap between them is the story of
+this evaluation:</p>
+<ol>
+<li>
+<p><strong>A specification</strong> — <code>docs/tia-srs-ears.md</code>, a ~130-requirement Software Requirements
+Specification written in <strong>EARS</strong> notation (Easy Approach to Requirements Syntax, a
+template discipline where every requirement is typed as Ubiquitous / Event-driven /
+State-driven / Optional / Unwanted-behaviour). It is titled “<code>tia</code> — SRS” (an earlier
+name for the project) and is thorough, literature-grounded, and well-structured.</p>
+</li>
+<li>
+<p><strong>An implementation</strong> — ~816 lines of Rust across <code>src/</code> that builds cleanly and passes
+6 trivial unit tests, but, as shown below, cannot actually select a test end-to-end.</p>
+</li>
+</ol>
+<h3 id="glossary-terms-used-throughout"><a class="header" href="#glossary-terms-used-throughout">Glossary (terms used throughout)</a></h3>
+<ul>
+<li><strong>Semiring</strong> — an algebraic structure <code>(K, ⊕, ⊗, 0, 1)</code>: a set with an “add” operation
+<code>⊕</code>, a “multiply” operation <code>⊗</code>, and identity elements. Unlike ordinary arithmetic, a
+semiring has <strong>no subtraction</strong> (no additive inverse). This missing-subtraction property
+is central to finding <strong>S1</strong> below.</li>
+<li><strong>Provenance semiring</strong> — the “free” semiring <code>ℕ[Edges]</code> (formally, polynomials whose
+variables are dependency edges). A classic result (Green-Karvounarakis-Tannen, <em>Provenance
+Semirings</em>, PODS 2007) says this is <em>universal</em>: for <strong>positive</strong> database queries (no
+negation, no aggregation), every other semiring result can be obtained from it by a unique
+structure-preserving map (a <strong>homomorphism</strong>). testaruda calls this its “master” semiring.</li>
+<li><strong>K-relation</strong> — the dependency graph represented as a matrix of semiring values.</li>
+<li><strong>Transpose / reverse reachability</strong> — dependencies point <em>test → code</em>; to find which
+tests a <em>code</em> change affects you follow the edges backwards. This reversed traversal is
+the transpose, and it is the correct core idea.</li>
+<li><strong>Recall-first / over-approximation</strong> — the system must model <em>at least</em> every true
+dependency (it may model spurious extra ones). This guarantees no affected test is ever
+missed (“recall”), at the cost of sometimes running more than strictly necessary.</li>
+<li><strong>Ascent</strong> — a Rust library that embeds a Datalog-style logic language (rules + a
+fixpoint solver) directly in a Rust binary, with support for <strong>lattice</strong> columns (values
+that combine by a least-upper-bound). testaruda uses Ascent as its selection engine.</li>
+<li><strong>EDB / IDB</strong> — in Datalog, the <strong>E</strong>xtensional <strong>D</strong>ata<strong>B</strong>ase is the input facts; the
+<strong>I</strong>ntensional <strong>D</strong>ata<strong>B</strong>ase is the relations derived by the rules.</li>
+</ul>
+<h3 id="the-charly-vibes-tools-wired-into-the-project"><a class="header" href="#the-charly-vibes-tools-wired-into-the-project">The <code>charly-vibes</code> tools wired into the project</a></h3>
+<p>testaruda is set up to be driven by the same four-tool suite evaluated in the companion
+report. For self-containment: <strong>wai</strong> (<code>wai</code>) tracks the <em>why</em> behind decisions;
+<strong>dont</strong> (<code>dont</code>) forces claims to be grounded in file+line evidence; <strong>pretender</strong>
+(<code>pretender</code>) checks per-function code complexity; <strong>espectacular</strong> (<code>ah</code>) verifies that
+written Given/When/Then specs map to real tests. Two supporting tools also appear:
+<strong>beads</strong> (<code>bd</code>, a git-native issue tracker) and <strong>openspec</strong> (a spec-driven-development
+scaffolder whose <code>openspec/</code> directory <code>espectacular</code> reads).</p>
+<hr>
+<h2 id="2-evaluation-scenario-method-environment"><a class="header" href="#2-evaluation-scenario-method-environment">2. Evaluation scenario, method, environment</a></h2>
+<ul>
+<li><strong>What was evaluated:</strong> the checked-in state of the testaruda repository at commit
+<code>75414cb</code> — its Rust sources, its build/test behaviour, its own tooling wiring, and its
+specification document.</li>
+<li><strong>Method:</strong> (a) build the binary (<code>cargo build --release</code>) and run its own test suite;
+(b) exercise every CLI subcommand end-to-end against a throwaway git repo; (c) run the
+project’s own quality tools (<code>pretender</code>, <code>ah</code>); (d) read the full SRS and check its
+mathematical and logical claims against the referenced literature and against the
+project’s own reference rule set.</li>
+<li><strong>Environment:</strong> macOS on Apple Silicon; Rust toolchain installed from source (the
+<code>charly-vibes</code> tools ship no prebuilt binaries — see companion report F9). <code>clippy</code> was
+<strong>not</strong> installable in the toolchain, so lint could not be run.</li>
+</ul>
+<p>Severity legend: 🔴 blocker · 🟡 friction/defect · 🟢 papercut/documentation · 💡 suggestion.
+Findings are namespaced: <strong>I#</strong> = implementation, <strong>S#</strong> = specification.</p>
+<hr>
+<h2 id="3-implementation-state-findings"><a class="header" href="#3-implementation-state-findings">3. Implementation-state findings</a></h2>
+<p>Build and unit tests pass:</p>
+<pre><code>$ cargo build --release        # clean, ~53s
+$ cargo test --release         # 6 passed (all trivial: semiring algebra + arg parsing)
+</code></pre>
+<p>The 6 tests only exercise pure helper functions (the three semiring <code>add</code>/<code>mul</code> laws, an
+argument-split, and “the Ascent program type exists”). None exercises an actual selection.</p>
+<h3 id="-i1--there-is-no-data-ingress-path-for-the-dependency-graph-selection-can-never-fire"><a class="header" href="#-i1--there-is-no-data-ingress-path-for-the-dependency-graph-selection-can-never-fire">🔴 I1 — There is no data-ingress path for the dependency graph; selection can never fire.</a></h3>
+<p>The entire purpose is to select tests from a dependency graph. But every <code>INSERT</code> statement
+in the codebase writes to only two of the six tables — <code>content_units</code> and <code>run_history</code>.
+<strong>Nothing</strong> ever writes <code>test_items</code>, <code>dependency_edges</code>, or <code>reverse_index</code>. Consequently
+the <code>test_dep</code> relation the engine reads is always empty, so the rule that selects a test
+(<code>affected(t) &lt;-- test_dep(t, c, _, _), impacted(c)</code>) can never produce output. The
+language-adapter protocol — the only specified mechanism to populate edges (see §5.8 of the
+SRS) — is entirely unimplemented (no subprocess is ever spawned). Demonstrated:</p>
+<pre><code>$ testaruda select --files "src/foo.rs,src/bar.rs"
+{ "changed_count": 0, "selected_count": 0, "tests": [] }
+</code></pre>
+<p>Selection is structurally incapable of returning a non-empty set. This is the headline
+defect: the tool cannot do the one thing it exists to do.</p>
+<h3 id="-i2--ingest-is-broken-by-a-foreign-key-violation"><a class="header" href="#-i2--ingest-is-broken-by-a-foreign-key-violation">🔴 I2 — <code>ingest</code> is broken by a foreign-key violation.</a></h3>
+<p><code>ingest</code> writes to <code>run_history</code>, which has a foreign key to <code>test_items</code>, but never ensures
+the referenced test item exists (and per I1 nothing else creates test items):</p>
+<pre><code>$ echo '{"run_id":"r1","tests":[{"id":1,"outcome":"failed"}]}' &gt; res.json
+$ testaruda ingest res.json
+Error:   × Failed to insert run result: FOREIGN KEY constraint failed
+</code></pre>
+<p>The runtime-feedback path (SRS §5.5) and the always-run set (which reads previously-failed
+tests from <code>run_history</code>) are therefore both unreachable.</p>
+<h3 id="-i3--ci-exit-codes-are-not-implemented-violates-srs-511"><a class="header" href="#-i3--ci-exit-codes-are-not-implemented-violates-srs-511">🔴 I3 — CI exit codes are not implemented (violates SRS §5.11).</a></h3>
+<p>The SRS and <code>docs/cli.md</code> promise a CI contract: exit <code>20</code> = “no tests affected, safe to
+skip”, exit <code>10</code> = “low confidence, run everything”, other-nonzero = hard error. Actual:</p>
+<pre><code>$ testaruda select --files "x.rs"; echo $?   # no tests affected → spec requires 20
+0
+</code></pre>
+<p>Only <code>0</code> (success) and <code>1</code> (error) are ever returned. The safety-critical exit semantics —
+including the rule “treat unknown conditions as run-all, never run-none” — are absent.</p>
+<h3 id="-i4--select-misclassifies-genuinely-changed-files-as-unresolved-on-first-sight"><a class="header" href="#-i4--select-misclassifies-genuinely-changed-files-as-unresolved-on-first-sight">🔴 I4 — <code>select</code> misclassifies genuinely-changed files as “unresolved” on first sight.</a></h3>
+<p>On first encounter a changed path is not yet in <code>content_units</code>, so it is bucketed as
+<code>unresolved</code> (and inserted). A <em>second</em> run of the same file then reports it as <code>changed</code>:</p>
+<pre><code>$ testaruda select --files "src/foo.rs"   # 1st run → changed_count: 0
+$ testaruda select --files "src/foo.rs"   # 2nd run → changed_count: 1
+</code></pre>
+<p>Same input, store-dependent output that flips classification. Worse, <code>unresolved</code> files are
+supposed to trigger conservative force-include or component fallback (the recall guard); here
+they are silently created and produce nothing, and the count is never surfaced. This is a
+recall-relevant bug against the cardinal invariant.</p>
+<h3 id="-i5--espectacular-ah-is-wired-but-the-project-scaffold-is-incomplete"><a class="header" href="#-i5--espectacular-ah-is-wired-but-the-project-scaffold-is-incomplete">🟡 I5 — espectacular (<code>ah</code>) is wired but the project scaffold is incomplete.</a></h3>
+<p>The project ships <code>.espectacular/config.toml</code> pointing <code>specs = "openspec/specs"</code> and
+<code>changes = "openspec/changes"</code>, but those directories were never created (the <code>openspec/</code>
+folder contains only <code>AGENTS.md</code> and <code>project.md</code>). So the project’s declared spec-gate
+cannot run:</p>
+<pre><code>$ ah check
+No such file or directory (os error 2)   # exit 2 (correct failure code)
+</code></pre>
+<p>Two sub-points: (a) this is primarily a <em>project</em> defect — the scaffold is half-finished;
+(b) it exposes a <em>tool</em> papercut recorded separately as <strong>F26</strong> in the companion report:
+<code>ah check</code>’s error is a bare <code>errno</code> message that names neither the missing path nor the
+misconfigured setting, whereas <code>ah doctor</code> diagnoses it precisely
+(<code>missing-path: specs directory not found: …/openspec/specs</code>). <code>ah check</code> exits <code>2</code>
+correctly — there is <strong>no</strong> silent-success bug here (an earlier note to the contrary was a
+shell-pipe artifact and is retracted).</p>
+<h3 id="-i6--the-justfile-does-not-parse"><a class="header" href="#-i6--the-justfile-does-not-parse">🟡 I6 — The <code>justfile</code> does not parse.</a></h3>
+<p><code>just</code> is the task runner referenced by the README and the project’s own instructions. Its
+<code>justfile</code> has Markdown prose and a fenced <code>```bash</code> code block prepended above the
+real recipes, so the parser dies:</p>
+<pre><code>$ just --list
+error: unknown start of token '&lt;'  ——▶ justfile:36:1   (an HTML comment on line 36)
+</code></pre>
+<p>Every recipe (<code>just test</code>, <code>just build</code>, <code>just check</code>, <code>just ah</code>) is unusable. This looks
+like a documentation snippet accidentally committed into the recipe file.</p>
+<h3 id="-i7--a-fully-documented-config-file-is-never-read"><a class="header" href="#-i7--a-fully-documented-config-file-is-never-read">🟢 I7 — A fully-documented config file is never read.</a></h3>
+<p><code>docs/configuration.md</code> specifies a detailed <code>testaruda.toml</code> (<code>[store]</code>, <code>[confidence] threshold</code>, <code>[semiring] default</code>, <code>[ci] shadow</code>, <code>[adapters]</code>, <code>[always_run] patterns</code>), and
+the crate docs advertise “Config: <code>testaruda.toml</code>”. No code parses it — the <code>toml</code> and
+<code>serde_yaml</code> crates are unused, <code>init</code> never writes it, and the confidence-threshold fallback
+it configures is unimplemented. <code>init</code>’s message “Create store and config” is false; it only
+creates the store.</p>
+<h3 id="-i8--several-declared-dependencies-are-entirely-unused"><a class="header" href="#-i8--several-declared-dependencies-are-entirely-unused">🟢 I8 — Several declared dependencies are entirely unused.</a></h3>
+<p><code>blake3</code> (content fingerprinting — a <em>specified</em> feature), <code>similar</code> (diffing), <code>uuid</code>,
+<code>rayon</code> + <code>ascent-byods-rels</code> (the parallel / union-find engine path the SRS reference
+architecture mandates), <code>toml</code>, and <code>serde_yaml</code> are all in <code>Cargo.toml</code> but referenced
+nowhere in <code>src/</code>. Content fingerprinting is stubbed to the literal string <code>"unknown"</code>, so
+change-detection-by-fingerprint (a core requirement) does not exist.</p>
+<h3 id="-i9--pretender-advisories-minor-non-blocking"><a class="header" href="#-i9--pretender-advisories-minor-non-blocking">🟢 I9 — <code>pretender</code> advisories (minor, non-blocking).</a></h3>
+<p><code>pretender check src/</code> flagged 5 functions over the 40-line / ABC-30 advisory thresholds
+(<code>main</code> 67 lines, <code>load_selection_context</code> 68, <code>from_diff</code> 64, <code>initialize</code> 53,
+<code>engine::select</code> 49) and exited <code>0</code>. All advisory; reasonable to defer. This is the one tool
+that worked exactly as intended here (a corroboration of the companion report’s positive note
+on <code>pretender</code>).</p>
+<h3 id="-i10--the-oracle-subcommand-is-a-no-op-stub"><a class="header" href="#-i10--the-oracle-subcommand-is-a-no-op-stub">🟢 I10 — The <code>oracle</code> subcommand is a no-op stub.</a></h3>
+<p><code>testaruda oracle</code> prints a banner and exits <code>0</code>; with a program argument it shells out to
+<code>souffle</code> and dumps stdout with no parsing or cross-validation. The Soufflé validation oracle
+and shadow-mode divergence check (SRS §8.3) are not implemented.</p>
+<hr>
+<h2 id="4-specification-evaluation"><a class="header" href="#4-specification-evaluation">4. Specification evaluation</a></h2>
+<p>The SRS was reviewed on its own merits (independent of the code) for <strong>correctness</strong>
+(are the claims true?), <strong>coherence</strong> (do requirements contradict each other?), and
+<strong>completeness</strong> (what is missing?). The verdict is <strong>NEEDS RESOLUTION</strong>: the form is
+excellent, but there are real correctness defects concentrated in the safety-critical core,
+where they are easy to miss precisely because the surrounding formatting is so clean.</p>
+<h3 id="-s1--the-homomorphism-claim-arch-003-is-provably-too-strong-the-safety-machinery-lives-outside-it"><a class="header" href="#-s1--the-homomorphism-claim-arch-003-is-provably-too-strong-the-safety-machinery-lives-outside-it">🔴 S1 — The homomorphism claim (ARCH-003) is provably too strong; the safety machinery lives outside it.</a></h3>
+<p>Requirement <strong>TIA-ARCH-003</strong> (a <em>binding</em> Ubiquitous requirement) states that concrete
+results are derived “by semiring homomorphism, such that <strong>no derived result can disagree
+with the master</strong> computation.” The universal property that would justify this
+(Green-Karvounarakis-Tannen) holds <strong>only for positive queries</strong> — no negation, no
+aggregation. But the spec’s own safety features are exactly negation/aggregation:</p>
+<ul>
+<li>the <strong>always-run set</strong> (SAFE-007) is defined by “tests with <strong>no recorded history</strong>”,
+“<strong>newly added</strong> tests”, “test that <strong>failed in its last</strong> run” — negation-as-failure and
+temporal argmax;</li>
+<li>the <strong>confidence fallback</strong> (SAFE-002) is a threshold predicate over an aggregate;</li>
+<li><strong>duration ranking</strong> (SEL-006) is an aggregation.</li>
+</ul>
+<p>The spec’s own reference rule set proves the point: it selects always-run tests with the rule
+<code>affected(t) &lt;-- always_run(t)</code>, where <code>always_run</code> is an <em>independent input relation</em>, not
+something derived from the provenance polynomial. So the Boolean “affected” set already
+contains members with <strong>no provenance in the master</strong> — a derived result exceeds the master
+by construction. ARCH-003 is contradicted by SAFE-007 and by the spec’s own Appendix G.
+(§8.4 already concedes the “no additive inverses” problem when rejecting a streaming engine;
+the same missing-subtraction gap invalidates the universality claim wherever negation enters.)
+<strong>Fix:</strong> scope ARCH-003 to “the positive reachability core”, and state explicitly that
+always-run and fallback are unioned <em>outside</em> the semiring derivation.</p>
+<h3 id="-s2--the-confidence-column-inverts-the-very-signal-the-fallback-depends-on"><a class="header" href="#-s2--the-confidence-column-inverts-the-very-signal-the-fallback-depends-on">🔴 S2 — The confidence column inverts the very signal the fallback depends on.</a></h3>
+<p>The spec’s reference rule set seeds confidence at the maximum value (<code>ONE</code> = 1.0) for
+<code>unresolved</code> content units (files the analyzer <em>could not</em> resolve) and for <code>always_run</code>
+tests (forced in <em>because there is no evidence</em>). But confidence is what gates the safety
+fallback (SAFE-002: “if confidence &lt; threshold, run everything”). So the rule set assigns
+<strong>highest confidence exactly where the model is weakest</strong>, which would <em>suppress</em> the
+fallback that is meant to protect those cases. This is a concrete, latent soundness bug in
+the specification’s own “verified” reference rule set. <strong>Fix:</strong> unresolved / always-run nodes
+must <em>lower</em> confidence (or be excluded from the confidence column), never set it to 1.0.</p>
+<h3 id="-s3--confidence-is-defined-two-incompatible-ways"><a class="header" href="#-s3--confidence-is-defined-two-incompatible-ways">🔴 S3 — “Confidence” is defined two incompatible ways.</a></h3>
+<ul>
+<li>Appendix A + SEL-003 + the reference rule set define confidence as a <strong>Viterbi path-product</strong>
+of edge weights (a per-test graph quantity; the worked example computes <code>0.8 × 0.8 = 0.64</code>).</li>
+<li><strong>CONF-002</strong> defines confidence as derived from “coverage freshness, adapter resolution
+ratio, history depth, and environment match” — a per-selection aggregate of four <em>external</em>
+signals, none of which appears anywhere in the rule set.</li>
+</ul>
+<p>These are different quantities with different types. SAFE-002 triggers fallback on
+“confidence” without saying <strong>which</strong> — and it is the safety-critical trigger. <strong>Fix:</strong> pick
+one definition or name them distinctly (e.g. <code>path_confidence</code> vs <code>selection_confidence</code>) and
+state which one gates fallback.</p>
+<h3 id="-s4--the-safe-to-skip-exit-code-ci-003-contradicts-the-always-run-rule-safe-007"><a class="header" href="#-s4--the-safe-to-skip-exit-code-ci-003-contradicts-the-always-run-rule-safe-007">🔴 S4 — The “safe to skip” exit code (CI-003) contradicts the always-run rule (SAFE-007).</a></h3>
+<p><strong>CI-003</strong> says: “When <strong>no tests are affected</strong>, the CLI shall exit <code>20</code>” (safe to skip the
+test stage). But <strong>SAFE-007</strong> forces the always-run set to include every previously-failed,
+newly-added, no-history, and quarantined test. On a fresh store <em>every</em> test has no history,
+so always-run is the whole suite; in general it is rarely empty. “No tests affected” (an empty
+reachability set) can be true while always-run is non-empty — yet CI-003 would emit “safe to
+skip”, dropping tests SAFE-007 mandates. For a recall-first tool, telling CI to run <em>nothing</em>
+is the single highest-risk output, and it is guarded only on the reachability set. <strong>Fix:</strong>
+condition exit-<code>20</code> on the <strong>full</strong> selection (reachability ∪ always-run ∪ fallback) being
+empty.</p>
+<h3 id="-s5--arch-006-mandates-derivative-incrementality-the-reference-engine-only-does-scoped-batch"><a class="header" href="#-s5--arch-006-mandates-derivative-incrementality-the-reference-engine-only-does-scoped-batch">🟡 S5 — ARCH-006 mandates <em>derivative</em> incrementality; the reference engine only does <em>scoped batch</em>.</a></h3>
+<p><strong>ARCH-006</strong> (binding) requires computing selection “as the change-propagation (<strong>derivative</strong>)
+of the reachability query, recomputing <strong>only relations affected by the change set</strong>.” The
+reference-engine requirements (ENG-007/008) and Appendix F instead redefine “incremental” as
+change-scoping + a result cache over a residual subgraph, explicitly “<strong>rather than</strong> a
+streaming engine”. A batch Ascent run over a scoped subgraph still recomputes relations the
+change did not touch <em>within that scope</em> — that is re-scoping, not the derivative ARCH-006
+literally requires. The spec resolves this by <em>redefining the word</em> in an appendix, not by
+satisfying the requirement as written; as stated ARCH-006 is unverifiable against the chosen
+engine. <strong>Fix:</strong> soften ARCH-006 to “scope-bounded recomputation”, or state that the reference
+build only partially satisfies it.</p>
+<h3 id="-s6--unconditional-byte-stability-agent-002-versus-optional-ordering-sel-005-under-mandated-parallelism-comp-008"><a class="header" href="#-s6--unconditional-byte-stability-agent-002-versus-optional-ordering-sel-005-under-mandated-parallelism-comp-008">🟡 S6 — Unconditional byte-stability (AGENT-002) versus optional ordering (SEL-005) under mandated parallelism (COMP-008).</a></h3>
+<p><strong>AGENT-002</strong> demands byte-stable output for identical inputs — always. <strong>SEL-005</strong> makes
+stable ordering happen only “<strong>where requested</strong>.” <strong>COMP-008/ENG-006</strong> mandate <em>parallel</em>
+per-component evaluation, which reorders results. Byte-stability requires a total order the
+spec only promises on request, so AGENT mode must implicitly force SEL-005 or AGENT-002 is
+unsatisfiable under parallelism. The dependency is not wired.</p>
+<h3 id="-s7--symbol-granularity-narrowing-chg-004-has-an-unstated-soundness-precondition"><a class="header" href="#-s7--symbol-granularity-narrowing-chg-004-has-an-unstated-soundness-precondition">🟡 S7 — Symbol-granularity narrowing (CHG-004) has an unstated soundness precondition.</a></h3>
+<p><strong>CHG-004</strong> lets the system fingerprint individual symbols so that “unrelated edits within a
+file yield <strong>no</strong> affected tests for unchanged symbols.” This narrows selection below file
+granularity and is sound <strong>only if</strong> the symbol-level dependency model is complete for that
+file — but reflection, macros, dynamic dispatch, and string references routinely defeat
+symbol resolution. A test depending on symbol <em>X</em> through an unmodeled path, when sibling
+symbol <em>Y</em> changes, would be wrongly excluded, violating the cardinal recall invariant. The
+existing guard (SAFE-004) covers <em>unresolved files</em>, not <em>partially-resolved</em> ones. <strong>Fix:</strong>
+state the precondition — symbol narrowing is permitted only under a declared-complete symbol
+model, else fall back to file granularity.</p>
+<h3 id="-s8--idempotency-run-005-and-crash-safety-rel-002-are-asserted-with-no-enabling-mechanism"><a class="header" href="#-s8--idempotency-run-005-and-crash-safety-rel-002-are-asserted-with-no-enabling-mechanism">🟡 S8 — Idempotency (RUN-005) and crash-safety (REL-002) are asserted with no enabling mechanism.</a></h3>
+<p>Ingesting a run updates running statistics (mean duration, failure rate, flakiness) — inherently
+non-idempotent — yet <strong>RUN-005</strong> requires idempotent re-ingestion with no required run-identity
+key or dedup/event-log mechanism to make it achievable. <strong>REL-002</strong> (crash-safe, consistent
+after interruption) has the same shape: a property with no stated transactional boundary.</p>
+<h3 id="-lower-severity-specification-gaps"><a class="header" href="#-lower-severity-specification-gaps">🟢 Lower-severity specification gaps</a></h3>
+<ul>
+<li><strong>No retraction/deletion semantics.</strong> When a content unit or test is deleted, nothing
+specifies pruning the graph or reverse index; retraction appears only as a future scale-up
+path. Stale edges over-select (recall-safe) but corrupt explanations and metrics. State
+“no retraction in v1; stale = conservative” explicitly.</li>
+<li><strong>Scope coherence.</strong> The spec calls this a “single responsibility” CLI, then specifies a
+daemon, watch mode, remote cache, sharding, ML ranking, multi-repo federation, and a blob
+store. The non-goals exclude “test runner / build system”, but the surface rivals one —
+flag for minimum-viable-product scoping.</li>
+<li><strong>Naming drift.</strong> The SRS is still headed “<code>tia</code> — SRS” with all <code>TIA-*</code> requirement IDs,
+though the project was renamed to <code>testaruda</code>; the document itself was never re-headed.
+Since the project conventions ask for <code>TIA-*</code> IDs in code doc-comments, this is a
+traceability smell.</li>
+</ul>
+<hr>
+<h2 id="5-what-is-genuinely-strong"><a class="header" href="#5-what-is-genuinely-strong">5. What is genuinely strong</a></h2>
+<ul>
+<li><strong>EARS discipline is real.</strong> Every requirement is typed and carries an explicit
+verification method (Inspection / Analysis / Demonstration / Test). This is better than
+most production SRSs.</li>
+<li><strong>The abstraction/reference split</strong> (binding, engine-independent architecture in §4 versus
+a separately-justified, explicitly-reversible reference engine in §8) is excellent design
+hygiene.</li>
+<li><strong>The core selection semantics are correct.</strong> Reverse reachability = transpose closure for
+selection is right; the Boolean / tropical-distance / Viterbi-confidence lattice
+instantiation is a legitimate and elegant realization; the engine-evaluation appendix is
+honest about trade-offs.</li>
+<li><strong>Recall-first framing is coherent</strong> as a philosophy — which is exactly why the
+confidence-inversion (S2) and exit-code (S4) defects matter: they quietly betray the stated
+invariant.</li>
+<li><strong>pretender</strong> worked exactly as intended against this code (I9).</li>
+</ul>
+<hr>
+<h2 id="6-prioritized-recommendations"><a class="header" href="#6-prioritized-recommendations">6. Prioritized recommendations</a></h2>
+<ol>
+<li><strong>Resolve the safety-core specification defects first (S1–S4).</strong> They are small textual
+fixes, but each one currently undermines the recall-first invariant that is the tool’s
+entire reason to exist. Do these before any further implementation, because they change
+what “correct” means.</li>
+<li><strong>Then the coherence items (S5–S8):</strong> reconcile ARCH-006 with the batch engine, wire
+AGENT-002 to SEL-005, state CHG-004’s precondition, and give RUN-005/REL-002 an enabling
+mechanism.</li>
+<li><strong>For the implementation, close the ingress gap (I1) and the ingest FK bug (I2) before
+anything else</strong> — until edges and test items can be created, the engine is a demo. Then
+wire the CI exit-code contract (I3, small and safety-critical) and fix the
+changed-vs-unresolved classification (I4, a soundness bug).</li>
+<li><strong>Finish or delete the half-built scaffolding:</strong> complete the <code>openspec/</code> layout so <code>ah</code>
+runs (I5), repair the <code>justfile</code> (I6), and either implement <code>testaruda.toml</code> (I7) and the
+unused dependencies (I8) or remove the promises so the docs match reality.</li>
+</ol>
+<hr>
+<p><em>This document is the self-contained, standalone companion to <code>dev-tooling-evaluation.md</code>.
+The tool-level papercut surfaced during this evaluation is recorded there as finding F26.</em></p>
+<hr>
+<h2 id="7-retest-round--2026-07-10-the-project-has-become-spec-and-ticket-only"><a class="header" href="#7-retest-round--2026-07-10-the-project-has-become-spec-and-ticket-only">7. Retest round — 2026-07-10: the project has become spec-and-ticket-only</a></h2>
+<p><strong>Subject commit:</strong> <code>94fcc5c</code> (up from <code>75414cb</code>). <strong>Read-only constraint:</strong> per this
+evaluation round’s scope, <code>testaruda</code>’s repository (like the other four <code>charly-vibes</code>
+tools) was treated as read-only — this section is a pure retest against the pulled state,
+with zero commits or edits made to the project.</p>
+<p><strong>Headline finding: in the five commits since the last evaluation, zero lines of <code>src/</code>,
+<code>Cargo.toml</code>, or <code>justfile</code> changed.</strong> <code>git diff --stat 75414cb..94fcc5c</code> touches <strong>177
+files / +3223 −2 lines</strong>, and every one of them is under <code>openspec/specs/</code>,
+<code>.espectacular/</code> (contract files), <code>.beads/</code> (the issue tracker’s own store), or docs
+(<code>docs/tia-srs-ears.md</code>). The implementation is <strong>byte-for-byte the same 816-line, 6-test
+skeleton</strong> evaluated in §2–3 above. In plain terms: <strong>all work in this window was
+specification and ticket-writing; the code did not move.</strong> This matches the project’s own
+beads backlog exactly — 19 of 20 tracked issues are still <code>open</code>/<code>in_progress</code>, and 4 of
+those are priority-1 <code>feature</code> tickets covering exactly the missing pieces this section
+re-confirms (<code>testaruda-6js</code> adapter protocol, <code>testaruda-gbs</code> CI exit codes,
+<code>testaruda-9uw</code> adapter subprocess management, <code>testaruda-imo</code> content fingerprinting).</p>
+<h3 id="the-specification-surface-grew-by-17-formal-spec-documents--and-confirms-0155-scenarios-have-real-test-coverage"><a class="header" href="#the-specification-surface-grew-by-17-formal-spec-documents--and-confirms-0155-scenarios-have-real-test-coverage">The specification surface grew by 17 formal spec documents — and confirms 0/155 scenarios have real test coverage</a></h3>
+<p>The <code>openspec/specs/</code> tree now has <strong>18 requirement areas</strong> (adapter-protocol,
+agent-mode, architectural-constraints, change-detection, ci-integration, composability,
+confidence-scoring, core-data-model, engine, local-mode, non-functional, observability,
+persistence, provenance, runtime-feedback, safety, selection-engine, verification;
+1,539 total lines), each with an <code>espectacular</code> (<code>ah</code>) contract file per scenario —
+<strong>154 scenario contracts</strong>, one more than the SRS’s original ~130 EARS requirements. This
+is a genuine specification-completeness improvement: I5 (“scaffold half-finished, <code>ah check</code> cannot even run”) from §3 is <strong>fixed</strong> — the <code>specs/</code> and <code>changes/</code> directories
+<code>.espectacular/config.toml</code> requires now exist and <code>ah check</code> runs (does not error out).</p>
+<p>However, running it end-to-end (<code>ah check</code>) surfaces the real state precisely:</p>
+<pre><code>$ ah check
+... (155 findings, all kind "no-tests-ran")
+summary: { "structural": 0, "execution": 155, "passed": 0,
+           "counts_by_kind": { "no-tests-ran": 155 } }
+</code></pre>
+<p><strong>0 of 155 declared scenarios have a passing, scenario-specific test.</strong> Every contract’s
+<code>test.command</code> is the same blanket <code>cargo test</code> invocation (verified by inspecting the
+contract TOML files: each declares <code>command = "cargo test"</code> rather than a filtered test
+name), and since the codebase’s only 6 real tests are generic semiring-algebra/arg-parsing
+unit tests with no per-scenario naming convention, <code>ah</code>’s discovery logic cannot match any
+of them to a declared scenario — so every one of the 155 reports the <code>no-tests-ran</code>
+execution failure, regardless of whether the underlying feature exists. This is exactly
+what “only specs and tickets” means in practice: <strong>a fully-formed, EARS-grounded
+requirements tree and a matching contract-per-requirement scaffold, wired to zero verified
+behavior.</strong> The polish of the specification (still deserved — see §5) makes this easy to
+miss if one reads only the spec tree and not <code>ah check</code>’s output.</p>
+<h3 id="i1i4-the-safety-critical-implementation-blockers-all-still-reproduce-unchanged"><a class="header" href="#i1i4-the-safety-critical-implementation-blockers-all-still-reproduce-unchanged">I1–I4 (the safety-critical implementation blockers) all still reproduce, unchanged</a></h3>
+<p>Retested against a fresh scratch repo with the rebuilt <code>94fcc5c</code> binary:</p>
+<ul>
+<li><strong>I1 (selection can never fire)</strong> — <code>testaruda select --files "foo.rs"</code> still returns
+<code>{"changed_count": 0, "selected_count": 0, "tests": []}</code> on first sight of a file.</li>
+<li><strong>I4 (changed-vs-unresolved flip)</strong> — running the identical <code>select</code> a second time still
+flips <code>changed_count</code> from <code>0</code> to <code>1</code> for the same input, confirming the store-dependent
+misclassification is unchanged.</li>
+<li><strong>I2 (ingest FK violation)</strong> — <code>testaruda ingest res.json</code> still fails identically:
+<code>Error: × Failed to insert run result: FOREIGN KEY constraint failed</code>.</li>
+<li><strong>I6 (justfile does not parse)</strong> — <code>just --list</code> still fails with the identical
+<code>error: unknown start of token '&lt;'</code> at the same line (a leftover Markdown/HTML comment
+block above the real recipes).</li>
+<li><strong>I3, I7–I8</strong> were not independently re-run this round but are corroborated by the zero
+<code>src/</code>/<code>Cargo.toml</code> diff: the CI exit-code contract, <code>testaruda.toml</code> parsing, and the
+unused-dependency list (<code>blake3</code>, <code>similar</code>, <code>uuid</code>, <code>rayon</code>, <code>ascent-byods-rels</code>, <code>toml</code>,
+<code>serde_yaml</code>) are line-for-line the same code, so they are unchanged by construction.</li>
+</ul>
+<h3 id="net-assessment"><a class="header" href="#net-assessment">Net assessment</a></h3>
+<p>The user-facing framing for this round (“testaruda should now have only specs and
+tickets”) is <strong>factually confirmed</strong>, with one caveat worth flagging: the repository is
+not <em>purely</em> specs and tickets — the original 816-line implementation skeleton from §2–3
+is still checked in and still builds — but no implementation <em>work</em> has occurred since the
+last evaluation; every commit in the intervening window added specification, contracts, or
+ticket-tracking metadata. The specification-side investment (§4’s S1–S8 findings, still
+unresolved and unretested this round since no spec-content commits touched those specific
+clauses per a quick diff check) has not yet been spent on paying down I1/I2/I4/I6, which
+remain the actual blockers to the tool doing anything. The most valuable next increment,
+unchanged from §6’s recommendation, is still: wire a data-ingress path (I1) so the 154
+freshly-written scenario contracts have <em>something</em> to test against — at that point,
+<code>ah check</code>’s 155/155 “no-tests-ran” figure becomes a real, trustworthy completeness metric
+instead of a placeholder.</p>
+<hr>
+<h2 id="8-deep-evaluation--is-the-specification-actually-going-to-produce-a-correct-tool"><a class="header" href="#8-deep-evaluation--is-the-specification-actually-going-to-produce-a-correct-tool">8. Deep evaluation — is the specification actually going to produce a correct tool?</a></h2>
+<p><strong>Scope of this section.</strong> §7 established that testaruda is currently “specs and tickets
+only” (zero implementation movement across the last 5 commits). This section asks the
+next question: if the current backlog is executed as written, will it actually produce a
+<em>correct</em>, safe test-selection engine — or does the plan itself have defects that would
+carry through into the code? This required (a) verifying that the SRS fixes claimed in
+the v0.3 changelog are real and coherent, not just changelog text; (b) checking the
+<code>openspec/specs/</code> tree (which drives the 154 test contracts) is not stale relative to the
+SRS; (c) reading the beads ticket backlog’s dependency graph and acceptance criteria for
+whether they actually close the implementation gaps (I1–I10) in the right order; and
+(d) hunting for <em>new</em> defects the previous two evaluation rounds didn’t have reason to look
+for. Read-only throughout — no changes made to the project.</p>
+<h3 id="81-the-headline-positive-finding-srs-v03-genuinely-fixed-all-eight-4-specification-defects-s1s8"><a class="header" href="#81-the-headline-positive-finding-srs-v03-genuinely-fixed-all-eight-4-specification-defects-s1s8">8.1 The headline positive finding: SRS v0.3 genuinely fixed all eight §4 specification defects (S1–S8)</a></h3>
+<p>This is not just a changelog claim. Every fix was independently verified against the
+actual requirement text and, for S1/S2, against the reference Ascent rule set in
+Appendix G:</p>
+<ul>
+<li><strong>S1 (ARCH-003 homomorphism claim too strong)</strong> — now explicitly scoped: “The
+always-run set (TIA-SAFE-007), confidence-threshold fallback (TIA-SAFE-002), and
+duration ranking (TIA-SEL-006) … are not derived by semiring closure but contributed
+as input facts … and are not required to be homomorphic images.” Exactly the
+suggested fix.</li>
+<li><strong>S2 (confidence inversion for unresolved nodes)</strong> — verified in the actual rule set,
+not just prose: <code>impact_conf(c, 0) &lt;-- unresolved(c);</code> (was seeded at <code>ONE</code> before).
+Unresolved nodes now correctly get <strong>zero</strong> confidence, which <em>triggers</em> the SAFE-002
+fallback instead of suppressing it.</li>
+<li><strong>S3 (two incompatible confidence definitions)</strong> — CONF-002 is now explicitly a
+<em>modifier</em> of CONF-001’s Viterbi value (“such that the effective path confidence
+reported by TIA-CONF-001 reflects the quality of the dependency evidence”), not a
+competing definition. The dual-definition contradiction is resolved by subordination,
+not by picking one arbitrarily.</li>
+<li><strong>S4 (exit-20 contradicts always-run)</strong> — CI-003 now reads “When the full selection set
+(reachability ∪ always-run ∪ fallback) is empty, … exit <code>20</code>” — the exact union the
+original review said was missing.</li>
+<li><strong>S5 (ARCH-006 derivative-incrementality overclaim)</strong> — softened to “scope-bounded
+recomputation restricted to the subgraph … rather than the full graph,” with an
+informative note naming the reference engine’s actual mechanism (component cache) and
+differential dataflow as an explicit future scale-up path, not a present claim.</li>
+<li><strong>S6 (AGENT-002/SEL-005/COMP-008 unwired)</strong> — AGENT-002 now reads “Agent mode SHALL
+implicitly enforce deterministic output ordering (TIA-SEL-005) regardless of parallel
+evaluation (TIA-COMP-008), without requiring a separate flag.”</li>
+<li><strong>S7 (CHG-004 missing precondition)</strong> — now gated on a new capability flag,
+<code>symbol_model_complete</code>, wired through matching new sub-requirements TIA-ADAPT-002/005,
+with an explicit fallback to file-level granularity when the flag is absent or false.</li>
+<li><strong>S8 (RUN-005/REL-002 no enabling mechanism)</strong> — RUN-005 now specifies a mandatory
+run-identity key with reject-if-absent semantics; REL-002 now specifies a transaction/WAL
+boundary and explicitly delegates idempotency to RUN-005’s key rather than asserting it
+independently.</li>
+</ul>
+<p><strong>This is an unusually disciplined correction pass</strong> — every fix addresses the <em>root
+cause</em> named in the original finding (not a surface patch), and none introduces an
+observable new contradiction (checked pairwise against the related requirements each one
+touches, e.g. SAFE-002 ↔ SAFE-007, CONF-001 ↔ CONF-002, RUN-005 ↔ REL-002).</p>
+<h3 id="82-the-openspecspecs-tree-is-in-perfect-sync-with-the-srs--no-drift"><a class="header" href="#82-the-openspecspecs-tree-is-in-perfect-sync-with-the-srs--no-drift">8.2 The <code>openspec/specs/</code> tree is in perfect sync with the SRS — no drift</a></h3>
+<p>Given the SRS and the openspec specs are two separate documents (the SRS predates
+openspec adoption; openspec’s 154 contracts are generated from <code>openspec/specs/*.md</code>,
+not from the SRS directly), there was a real risk that the SRS v0.3 fixes landed in one
+document but not the other. Checked exhaustively:</p>
+<pre><code>$ # requirement IDs defined in openspec/specs/*/spec.md
+$ rg -o 'Requirement: (TIA-[A-Z]+-[0-9]+)' -r '$1' openspec/specs/*/spec.md | sort -u | wc -l
+149
+$ # requirement IDs with a [tag] in the SRS
+$ rg -o '\*\*(TIA-[A-Z]+-[0-9]+) \[' -r '$1' docs/tia-srs-ears.md | sort -u | wc -l
+149
+$ # set difference both directions
+$ comm -23 srs_ids.txt openspec_ids.txt   # in SRS, missing from openspec
+(empty)
+$ comm -13 srs_ids.txt openspec_ids.txt   # in openspec, missing from SRS
+(empty)
+</code></pre>
+<p><strong>149/149 exact correspondence, zero missing either direction.</strong> Spot-checked the
+requirement <em>text</em> (not just the ID) for all eight S1–S8-affected requirements
+(ARCH-003, CI-003, CHG-004, AGENT-002, RUN-005, REL-002, CONF-001/002) — all are
+byte-identical or effectively identical between the two documents. Additionally checked
+every <code>TIA-*</code> cross-reference used in prose <em>within</em> <code>openspec/specs/</code> (e.g. CI-003’s
+reference to <code>TIA-SAFE-003</code>, CHG-004’s reference to <code>TIA-ADAPT-002</code>) — <strong>zero dangling
+references</strong>: every ID referenced anywhere resolves to a real, defined requirement
+somewhere in the tree. This is a genuinely well-maintained specification corpus; the risk
+that the project is building 154 test contracts against a stale or diverged copy of the
+requirements is not realized.</p>
+<h3 id="83-the-ticket-backlogs-dependency-graph-correctly-targets-i1-the-core-blocker-in-the-right-order"><a class="header" href="#83-the-ticket-backlogs-dependency-graph-correctly-targets-i1-the-core-blocker-in-the-right-order">8.3 The ticket backlog’s dependency graph correctly targets I1 (the core blocker) in the right order</a></h3>
+<p>The four priority-1 tickets are, encouragingly, exactly the right ones:</p>
+<ul>
+<li><strong><code>testaruda-9uw</code></strong> (Implement adapter protocol subprocess management) — acceptance
+criteria explicitly include “<code>discover</code> enumerates test items stored in DB,” which
+directly closes the “nothing ever writes <code>test_items</code>” half of I1.</li>
+<li><strong><code>testaruda-6js</code></strong> (static-deps + fingerprint commands), correctly <code>blocks</code>-dependent
+on <code>9uw</code> — its acceptance would populate <code>dependency_edges</code>/<code>reverse_index</code>, the other
+half of I1.</li>
+<li><strong><code>testaruda-p84</code></strong> (run-args + ingest commands), correctly dependent on <code>6js</code> —
+completes the adapter protocol’s write path with runtime edges.</li>
+<li><strong><code>testaruda-gbs</code></strong> (CI exit codes + shadow mode), correctly dependent on <code>x1i</code>
+(deterministic ordering) — targets I3 directly, and its acceptance criteria
+(<code>0</code>/<code>10</code>/<code>20</code>/error-distinct) match the now-fixed CI-003 union condition exactly, not
+the old broken version.</li>
+</ul>
+<p>This sequencing is sound: the original I1 finding was specifically that the engine’s
+<em>read</em>-side Datalog rules were already correct (<code>affected(t) &lt;-- test_dep(t, c, _, _), impacted(c)</code>) — the bug was purely that nothing ever populated the EDB. The ticket plan
+does not propose touching the (already-correct) rule set; it proposes wiring up exactly
+the missing write path, via the adapter protocol, in the minimal necessary order
+(discover → static-deps → ingest). This is the right fix shape, not a rewrite in search of
+one.</p>
+<p>The reference rule set itself (Appendix G) also shows a specific, deliberate design choice
+that reduces future risk: confidence is computed in <strong>fixed-point <code>ppm</code> integers</strong>
+(parts-per-million), not floating point. Combined with Ascent’s lattice-join semantics
+being genuinely commutative/associative for <code>max</code>/<code>min</code>/multiply-along-path, this means
+the mandated parallel evaluation (TIA-COMP-008) cannot introduce floating-point
+non-associativity nondeterminism into confidence scores — a failure mode that would have
+been easy to miss and hard to diagnose (silently different confidence values between two
+parallel runs of the identical selection). This was not explicitly called out as a risk
+in the original review; it is verified here as a risk that was avoided.</p>
+<h3 id="84-new-findings-three-gaps-in-the-plan-that-werent-visible-in-34"><a class="header" href="#84-new-findings-three-gaps-in-the-plan-that-werent-visible-in-34">8.4 New findings: three gaps in the plan that weren’t visible in §3/§4</a></h3>
+<p><strong>S9 (new, 🟡) — no specification requirement covers a content unit’s classification on
+its very first observation, which is exactly the condition under which I4 (the
+changed-vs-unresolved flip) manifests.</strong> TIA-CHG-003 defines the change set as “content
+units whose fingerprint differs between base and head” — this presupposes a <em>prior</em>
+fingerprint of record to compare against. TIA-REL-001 promises deterministic selections
+“for identical store state” — but the store state genuinely differs between I4’s two
+runs (the first run inserts a new, previously-absent <code>content_units</code> row), so REL-001
+does not formally cover this case either. <strong>No contract or scenario in any of the 18 spec
+areas addresses “what classification does a never-before-seen content unit receive, and
+is that classification stable on immediate re-invocation with no intervening change?”</strong>
+Practically: even after <code>testaruda-imo</code> (content fingerprinting) lands, there is no
+acceptance criterion or espectacular scenario that would catch a regression of I4 — the
+bug could be “fixed” by accident as a side effect of proper fingerprinting, or could
+persist silently, and either way nothing in the current plan would notice. <strong>Suggested
+fix:</strong> add a <code>TIA-CHG-009</code> (or similar) requiring idempotent classification of a content
+unit across repeated invocations absent any intervening change, with an explicit rule for
+the cold-start case (no prior fingerprint of record ⇒ treat as <code>unresolved</code>, consistently,
+not <code>changed</code> on a coin-flip of insertion order).</p>
+<p><strong>Backlog gap A (🟡) — <code>testaruda-mfx</code> (idempotent ingestion) has no formal dependency on
+<code>testaruda-9uw</code>, but its correctness depends on <code>test_items</code> already existing.</strong> I2 (the
+original FK-violation defect: <code>ingest</code> writes to <code>run_history</code>, which has a foreign key to
+<code>test_items</code>, but nothing ensures the referenced row exists) is not explicitly re-targeted
+by any single ticket — the closest candidate, <code>testaruda-mfx</code>, is scoped purely to
+dedup/idempotency-key semantics and crash safety (TIA-RUN-005/REL-002); its acceptance
+criteria test “duplicate key skipped,” “missing key rejected,” and “crash leaves
+pre-ingestion state” — <strong>none of them test “ingest succeeds once the referenced test item
+exists”</strong>, i.e. none of them re-verify I2 is actually closed. In practice <code>mfx</code> would very
+likely be implemented after <code>9uw</code> simply because it is priority-2 and <code>9uw</code> is
+priority-1, so the FK-violation symptom will probably disappear as a side effect — but the
+beads dependency graph does not <em>enforce</em> this ordering (<code>mfx</code> shows <code>deps: []</code>), and no
+acceptance criterion anywhere explicitly re-tests the original I2 reproduction command.
+<strong>Suggested fix:</strong> add <code>mfx --deps blocks:9uw</code> (or equivalent, using beads’ explicit
+dependency syntax — see the companion <code>dev-tooling-evaluation.md</code> finding <strong>F14</strong> for the
+direction-of-<code>--deps</code> footgun to watch for when adding this) and add an acceptance
+criterion to <code>mfx</code> (or a new contract) that directly re-runs I2’s original reproduction:
+<code>testaruda ingest</code> against a run payload referencing a test item that <em>does</em> exist, after
+<code>discover</code> has populated it.</p>
+<p><strong>Backlog gap B (🟡) — I6 (the justfile that cannot be parsed, blocking every <code>just</code>
+recipe including <code>just test</code>/<code>just check</code>) has no ticket anywhere in the backlog and is
+not mentioned in any tracked document.</strong> Searched the full beads issue set (all 20
+issues, titles and descriptions) and every tracked file in the repository for “justfile”
+outside of the <code>justfile</code> itself — zero hits. This is a previously-documented (§3, I6),
+independently-reproduced (§7) defect that blocks the project’s own stated task-runner
+workflow, and it has fallen out of tracking entirely between evaluation rounds — neither
+carried forward as a ticket nor superseded by a spec requirement (task-runner hygiene is
+not modeled by any <code>TIA-*</code> requirement, correctly, since it’s tooling rather than product
+behavior — but it still needs a ticket). <strong>Suggested fix:</strong> file a beads issue for I6; it
+is a small, self-contained fix (remove the accidentally-committed Markdown/HTML block
+above the real recipes).</p>
+<hr>
+<h3 id="85-the-empirical-validation-mechanism-for-the-core-invariant-exists-and-is-correctly-scoped-but-not-yet-elevated"><a class="header" href="#85-the-empirical-validation-mechanism-for-the-core-invariant-exists-and-is-correctly-scoped-but-not-yet-elevated">8.5 The empirical validation mechanism for the core invariant exists and is correctly scoped, but not yet elevated</a></h3>
+<p><strong>TIA-VER-004</strong> (“Seeded-fault recall test… SHALL be verified by a seeded-fault recall
+test in which every seeded regression’s fault-revealing test is selected”) is exactly the
+right mechanism to empirically validate the tool’s entire reason to exist — the
+recall-first / over-approximation invariant (TIA-SAFE-001) — via mutation-style testing
+rather than by inspection alone. Its ticket, <code>testaruda-q39</code>, correctly frames it as “the
+verification gate for the soundness invariant.” It is scoped at priority 2, which is
+defensible (it needs the adapter protocol’s priority-1 tickets to exist first, since a
+seeded-fault test needs real dependency edges to select against) — but it is worth calling
+out explicitly, since it is the one ticket in the entire backlog whose job is to <em>prove</em>
+that everything else actually achieves the invariant the whole tool exists to guarantee,
+and it should not slip behind priority-3 feature work (predictive ranking, Soufflé oracle,
+environment fingerprinting) once priority-1/2 adapter work lands.</p>
+<h3 id="86-updated-verdict"><a class="header" href="#86-updated-verdict">8.6 Updated verdict</a></h3>
+<p><strong>The plan, as currently written, is sound and is targeting the right things in the right
+order.</strong> The specification is complete (149/149 SRS↔openspec correspondence), internally
+consistent (zero dangling cross-references), and — most importantly — the eight
+safety-critical defects found in the previous evaluation round were genuinely fixed at the
+root cause, not patched over, and the fixes propagate correctly through the derived
+contract tree. The ticket backlog’s priority-1 sequence (discover → static-deps/fingerprint
+→ run-args/ingest, then CI exit codes) is exactly the minimal path to closing I1, the
+single defect that made the tool structurally incapable of its core job. The three new
+findings in §8.4 (S9, and backlog gaps A/B) are all real but all low-severity and
+cheap to fix — they are the kind of gaps a careful pre-implementation review is <em>supposed</em>
+to catch, which is itself a point in favor of the specification discipline on display here.
+<strong>Net recommendation: proceed with the current priority-1 ticket sequence as planned; file
+three small follow-up tickets (S9’s cold-start classification rule, mfx’s dependency edge
+onto 9uw plus a direct I2 regression check, and I6’s justfile fix) before or alongside
+that work, and keep <code>testaruda-q39</code> (seeded-fault recall) from sliding behind priority-3
+feature tickets once the adapter protocol lands.</strong></p>
+<hr>
+<h2 id="9-retest-round--2026-07-14-a-real-implementation-landed-but-one-wire-format-bug-still-blocks-the-core-loop-end-to-end"><a class="header" href="#9-retest-round--2026-07-14-a-real-implementation-landed-but-one-wire-format-bug-still-blocks-the-core-loop-end-to-end">9. Retest round — 2026-07-14: a real implementation landed, but one wire-format bug still blocks the core loop end-to-end</a></h2>
+<p><strong>Subject commit:</strong> <code>da0072b</code> (tagged <code>v0.1.0</code>), up from <code>94fcc5c</code> — 16 commits, +7,520/−320
+lines across <code>src/adapter.rs</code>, <code>src/agent.rs</code>, two new adapter binaries
+(<code>src/bin/adapter-{rust,python}.rs</code>), <code>src/config.rs</code>, <code>src/store.rs</code>, and two new test files
+(<code>tests/ordering.rs</code>, <code>tests/seeded_fault.rs</code>). Unlike the §7 retest (spec/tickets only, zero
+code movement), this window is the opposite: real, substantial implementation work. Read-write
+for the update step only — <code>git pull --ff-only</code> then <code>cargo build --release</code>; no source edits
+were made to testaruda for this evaluation, everything below is black-box CLI exercise plus
+read-only source inspection to find root causes. Unit test count rose from 6 to <strong>86</strong> (77 lib +
+7 bin + 1 ordering + 1 seeded-fault), all passing. The beads backlog is <strong>18/21 issues closed</strong>
+(17 more than §7’s snapshot, which recorded 1 closed of 20 total); only 3 open, all priority-3 (Soufflé oracle bridge, environment
+fingerprinting, graph export/import) — i.e., by the tracker’s own account, every priority-1/2
+safety-critical item is done.</p>
+<h3 id="91-confirmed-fixed-i3-i4-i6-i7-and-part-of-i8"><a class="header" href="#91-confirmed-fixed-i3-i4-i6-i7-and-part-of-i8">9.1 Confirmed fixed: I3, I4, I6, I7, and part of I8</a></h3>
+<p>Each retested end-to-end against a fresh scratch git repo with the rebuilt <code>da0072b</code> binary:</p>
+<ul>
+<li><strong>I3 (CI exit codes absent)</strong> — ✅ <strong>fixed</strong>. <code>select</code> with an empty selection now exits
+<code>20</code>; <code>select --shadow</code> exits <code>10</code>. Matches the SRS’s now-fixed CI-003 union condition (S4).</li>
+<li><strong>I4 (changed-vs-unresolved classification flip)</strong> — ✅ <strong>fixed</strong>. Running <code>select</code> twice on
+the same unchanged file now reports <code>changed_count: 0</code> both times (was <code>0</code> then <code>1</code>); editing
+the file’s content correctly flips it to <code>changed_count: 1</code> on the next run. This matches the
+S9 fix suggested in §8.4 (idempotent cold-start classification) — verified via the store’s
+<code>content_units</code> table, which now records one stable row with a real fingerprint (see I8)
+rather than being created inconsistently.</li>
+<li><strong>I6 (justfile does not parse)</strong> — ✅ <strong>fixed</strong>. <code>just --list</code> now lists all 16 recipes
+cleanly (<code>ah</code>, <code>build</code>, <code>check</code>, <code>clean</code>, <code>clippy</code>, <code>default</code>, <code>doc</code>, <code>explain</code>, <code>fmt</code>,
+<code>fmt-check</code>, <code>ingest</code>, <code>init</code>, <code>release</code>, <code>select</code>, <code>test</code>, <code>test-v</code>); the stray
+Markdown/HTML block above the recipes is gone.</li>
+<li><strong>I7 (testaruda.toml never read)</strong> — ✅ <strong>fixed</strong>. <code>src/config.rs</code> now parses
+<code>testaruda.toml</code> via <code>toml::from_str</code> and drives adapter-extension resolution; confirmed by
+reading the file and by <code>init</code>’s <code>testaruda.toml</code> actually being consulted at adapter-spawn
+time.</li>
+<li><strong>I8 (unused dependencies)</strong> — 🟡 <strong>partially fixed</strong>. <code>blake3</code> (content fingerprinting,
+called via <code>blake3::hash(...)</code> in 3 files — both adapter binaries and <code>store.rs</code>) and <code>toml</code>
+(config parsing, called via <code>toml::from_str(...)</code> in 1 file, <code>config.rs</code>) are now genuinely
+used — the two dependencies that mattered most for I1/I7 are wired in. <code>similar</code>, <code>uuid</code>,
+<code>rayon</code>, <code>ascent-byods-rels</code>, and <code>serde_yaml</code> remain declared in <code>Cargo.toml</code> and referenced
+nowhere in <code>src/</code> (checked via each crate’s actual <code>::</code> call syntax, not a bare-word search —
+a bare-word grep for “toml”/“blake3” overcounts by also matching unrelated mentions of the
+filename <code>testaruda.toml</code> in comments and strings).</li>
+</ul>
+<h3 id="92--i11-new--i1-and-i2-still-reproduce-end-to-end-but-the-root-cause-has-moved-a-single-response-envelope-mismatch-breaks-every-adapter-handshake"><a class="header" href="#92--i11-new--i1-and-i2-still-reproduce-end-to-end-but-the-root-cause-has-moved-a-single-response-envelope-mismatch-breaks-every-adapter-handshake">9.2 🔴 I11 (new) — I1 and I2 still reproduce end-to-end, but the root cause has moved: a single response-envelope mismatch breaks every adapter handshake</a></h3>
+<p>This is the headline finding. The discover/static-deps/fingerprint/run-args/ingest logic that
+I1 originally found completely absent has genuinely been implemented (<code>src/adapter.rs</code>,
+932 lines; two real adapter binaries that each correctly discover tests and emit fingerprints
+when invoked directly) — but the pipeline still cannot select a single test against a real
+adapter (a separate binary, one per language, that testaruda spawns as a subprocess and talks
+to over JSON lines on stdin/stdout — see §1’s “Adapters” table), because of one concrete bug in
+the very first exchange of that conversation, the <strong>handshake</strong>: before doing anything else,
+testaruda sends <code>{"command":"handshake"}</code> and expects the adapter to answer with its name,
+protocol version, and capabilities, so testaruda knows it is safe to proceed. Here is that
+exchange failing:</p>
+<pre><code>$ testaruda select --files "src/foo.rs"
+  ⚠️  Failed to spawn testaruda-adapter-rust: JSON error: missing field `name`
+ℹ️  no tests selected
+{ "changed_count": 1, "selected_count": 0, "tests": [] }
+</code></pre>
+<p>Root cause, isolated by reading <code>src/adapter.rs</code> and invoking the adapter binary directly:</p>
+<pre><code>$ echo '{"command":"handshake"}' | testaruda-adapter-rust
+{"ok":true,"result":{"capabilities":{...},"granularity":"symbol",
+  "languages":["rust"],"name":"rust-adapter","protocol":1,"version":"0.1.0"}}
+</code></pre>
+<p>Both adapter binaries correctly wrap <strong>every</strong> response in an <code>{"ok": bool, "result": {...}}</code>
+envelope (verified in <code>src/bin/adapter-rust.rs</code>: <code>json!({"ok": true, "result": result})</code>, and
+this envelope shape is exactly what <code>DiscoverResponse</code>/<code>StaticDepsResponse</code>/etc. in
+<code>adapter.rs</code> expect — each has a <code>result: Option&lt;...&gt;</code> field). But the handshake path is the
+one exception: <code>AdapterIO::spawn</code> does</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let hs: Handshake = io.send(&amp;AdapterCommand::handshake())?;   // adapter.rs:159
+<span class="boring">}</span></code></pre>
+<p>and <code>Handshake</code> is defined with <code>name</code>/<code>version</code>/<code>protocol</code> as <strong>top-level</strong> fields (no
+<code>result</code> wrapper) — so deserializing the real envelope into <code>Handshake</code> fails with exactly the
+observed <code>missing field \</code>name`<code>error,</code>spawn()<code>returns</code>Err<code>before</code>discover()<code>is ever called, and the entire adapter session is aborted at the first round-trip. Confirmed with a minimal Python repro that deserializes the adapter's raw stdout directly:</code>‘name’ in resp<code>is</code>False<code>, </code>‘name’ in resp[‘result’]<code>is</code>True<code>. The bug is in </code>AdapterIO::spawn<code>itself, which is shared code invoked identically regardless of which adapter binary is spawned, and both</code>testaruda-adapter-rust<code>and</code>testaruda-adapter-python<code>were independently confirmed (by piping the handshake command to each directly) to answer with the same enveloped shape — so the defect affects every configured adapter, not just Rust's. One caveat worth naming precisely: in a scratch repo with both a</code>.rs<code>and a</code>.py<code>file staged,</code>discover<code>/</code>select<code>only ever reported the</code>testaruda-adapter-rust<code>failure and silently never attempted</code>testaruda-adapter-python<code>at all (confirmed by temporarily removing the rust binary from</code>PATH`, which changed the error
+from a JSON-parse failure to a “binary not found” failure — still only for rust). Whether that
+is a second, adapter-fan-out defect or simply this test repo’s layout not tripping the python
+path was not tracked down further here; it does not change the diagnosis above, which was
+verified directly against both binaries in isolation, not only inferred by analogy.</p>
+<p><strong>This one bug is now the sole cause of both I1 and I2:</strong> dropped a test item directly into
+<code>store.db</code> with <code>sqlite3</code> (bypassing the broken handshake) and re-ran <code>ingest</code> against the
+same payload that previously hit <code>FOREIGN KEY constraint failed</code> — it succeeded immediately
+(<code>✅ Run ingested</code>, exit <code>0</code>). So I2 is not an independent defect anymore; it is a downstream
+symptom of I11, exactly as I1 always was. Fixing the envelope mismatch in the handshake
+deserialization path (either strip the envelope before decoding, or give <code>Handshake</code> the same
+<code>result: Option&lt;...&gt;</code> shape as every other response type) should resolve both I1 and I2 in one
+change.</p>
+<p><strong>Why this survived 86 passing tests and a closed, fully-checked-off ticket
+(<code>testaruda-9uw</code>, closed 2026-07-13, acceptance criterion “discover enumerates test items
+stored in DB” checked <code>[x]</code>):</strong> the unit test that exercises this exact deserialization,
+<code>test_handshake_deserialization</code> (adapter.rs:637), hand-constructs the JSON <strong>without</strong> the
+envelope and asserts it decodes — it never round-trips through a spawned subprocess, so it
+cannot see the mismatch. The espectacular contract meant to guard this scenario,
+<code>.espectacular/adapter-protocol/handshake-response.toml</code>, runs exactly that unit test
+(<code>cargo test adapter::tests::test_handshake</code>) and nothing that spawns a real adapter binary.
+This generalizes a concern from §7/§8 in a sharper form: even where a contract <em>was</em> narrowed
+from the old blanket <code>cargo test</code> (closing part of the earlier “no-tests-ran everywhere”
+criticism — <code>ah check</code> now reports 8/155 scenarios passing, up from 0/155), the specific named
+test it was narrowed to still never crosses the process boundary the feature is actually about.
+A contract can be “passing” and specific while still not testing the thing that matters.
+<strong>Suggested fix:</strong> (a) fix the envelope bug (small, one struct or one deserialization step);
+(b) add — and point the <code>handshake-response</code>/<code>test-discovery</code> contracts at — an integration
+test that spawns the <strong>real</strong> <code>testaruda-adapter-rust</code> binary via <code>AdapterIO::spawn</code> and
+asserts a live discover call returns test items, not a hand-built JSON string fed straight to
+<code>serde_json::from_str</code>.</p>
+<h3 id="93--i12-new--the-beads-backlog-reports-the-safety-critical-work-as-fully-done-it-is-not"><a class="header" href="#93--i12-new--the-beads-backlog-reports-the-safety-critical-work-as-fully-done-it-is-not">9.3 🟡 I12 (new) — the beads backlog reports the safety-critical work as fully done; it is not</a></h3>
+<p><code>testaruda-9uw</code>, <code>testaruda-6js</code>, <code>testaruda-p84</code>, and <code>testaruda-gbs</code> — the four priority-1
+tickets §8.3 identified as “exactly the right ones” to close I1 — are <strong>all <code>closed</code></strong>, each
+with every acceptance-criterion checkbox marked <code>[x]</code>, including <code>9uw</code>’s “discover enumerates
+test items stored in DB.” Per §9.2, that specific criterion is currently false in end-to-end
+use: <code>testaruda discover</code> against a real project discovers <strong>zero</strong> test items
+(<code>✅ Discovered 0 test items</code>) because the handshake fails before <code>discover()</code> is reached. The
+ticket tracker and reality have diverged, and nothing in the tracker currently flags it — the
+only open issues are unrelated priority-3 features. This is not a beads defect (the tool
+faithfully recorded what the closing commit’s author asserted); it is a project-process gap:
+the acceptance criteria were verified against unit tests rather than the live CLI path they
+describe. <strong>Suggested fix:</strong> reopen <code>testaruda-9uw</code> (or file a new P1 regression ticket) for
+the handshake envelope bug, and add a live-CLI smoke check (<code>testaruda init &amp;&amp; testaruda discover</code> against a real fixture repo, asserting a non-zero discovered count) to the
+acceptance criteria template for any future adapter-protocol ticket.</p>
+<h3 id="94-other-observations"><a class="header" href="#94-other-observations">9.4 Other observations</a></h3>
+<ul>
+<li><strong><code>ah check</code> improved from 0/155 to 8/155 passing</strong>, and gained 2 new <code>orphan-toml</code>
+findings for the two S9-motivated cold-start contracts — real, if incremental, progress on
+the specification-coverage gap flagged in §7.</li>
+<li><strong><code>dont</code> was never initialized for this project</strong> (<code>dont check --ungrounded</code> →
+<code>error: no .dont/ project found</code>) — a sharper version of the companion report’s F20
+(<code>dont</code> decaying to zero use): here it never even reached day-1 init, despite the README’s
+own “Tools” table listing it as part of the required suite. Zero claims exist to ground any
+of the correctness assumptions this evaluation had to independently re-derive (e.g., “the
+handshake response is enveloped like every other response” would have been exactly the kind
+of claim <code>dont ground --file src/bin/adapter-rust.rs</code> was built to pin down before it
+diverged from <code>adapter.rs</code>’s expectations).</li>
+<li><strong><code>pretender check src/</code> still returns advisory-only findings, exit 0</strong> (mostly long test
+functions, e.g. <code>test_quarantined_flag_in_selection_result</code> at 88 lines / ABC 56.5) —
+consistent with I9’s original corroboration that pretender behaves correctly here; nothing
+new to report.</li>
+</ul>
+<h3 id="95-updated-verdict"><a class="header" href="#95-updated-verdict">9.5 Updated verdict</a></h3>
+<p><strong>testaruda crossed the line from “non-functional scaffold” (§3) and “specs-and-tickets-only”
+(§7) to “a real, substantially-implemented tool with one precise, high-leverage bug blocking
+its core loop.”</strong> That is genuine, measurable progress: 86 passing tests (up from 6), 18/21
+backlog issues closed, four of the eight §4 specification defects’ code-level implications
+(I3/I4/I6/I7) now demonstrably fixed, and <code>ah check</code> showing real (if small) movement off zero.
+But the tool <strong>still cannot select a single test against a real adapter today</strong> — the single
+handshake-envelope mismatch found in §9.2 sits directly on the critical path every other fix
+in this round depends on, and it was invisible to both the test suite and the ticket tracker
+that both currently report the adapter protocol as complete and verified. <strong>Net recommendation:
+fix the I11 envelope bug next — it is small, isolated to one deserialization call, and its
+fix should mechanically also close I2 — then add the live-subprocess integration test
+suggested in §9.2 before closing any further adapter-protocol tickets, so “tests pass” and
+“the feature works” stop being able to diverge this far apart again.</strong></p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../evaluations/index.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../contributing.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../evaluations/index.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../contributing.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-c2a407aa.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>

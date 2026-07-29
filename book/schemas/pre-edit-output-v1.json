@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/charly-vibes/testaruda/docs/schemas/pre-edit-output-v1.json",
+  "title": "Testaruda Pre-Edit Output",
+  "description": "Simpler JSON format for proposed (not yet committed) changes (TIA-AGENT-005).",
+  "type": "object",
+  "required": ["format", "summary", "changed_files", "selected_tests"],
+  "properties": {
+    "format": {
+      "type": "string",
+      "description": "Format version identifier.",
+      "enum": ["testaruda-pre-edit-v1"]
+    },
+    "summary": {
+      "type": "object",
+      "description": "Summary statistics.",
+      "required": ["changed_count", "selected_count", "candidate_count", "has_coverage_gaps"],
+      "properties": {
+        "changed_count": { "type": "integer", "minimum": 0 },
+        "selected_count": { "type": "integer", "minimum": 0 },
+        "candidate_count": { "type": "integer", "minimum": 0 },
+        "has_coverage_gaps": { "type": "boolean" }
+      }
+    },
+    "changed_files": {
+      "type": "array",
+      "description": "Changed file paths.",
+      "items": { "type": "string" }
+    },
+    "selected_tests": {
+      "type": "array",
+      "description": "Selected test node IDs (adapter-assigned, human-readable).",
+      "items": { "type": "string" }
+    }
+  }
+}
