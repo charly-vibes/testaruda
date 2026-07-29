@@ -179,7 +179,7 @@ fn adapter_clojure_static_deps_fixture() {
     let mut child = spawn_adapter();
     let resp = send_command(
         &mut child,
-        "{\"command\":\"static-deps\",\"args\":{\"files\":[\"src/core.clj\",\"src/utils.clj\"]}}\n",
+        "{\"command\":\"static-deps\",\"params\":{\"changed_files\":[\"src/core.clj\",\"src/utils.clj\"]}}\n",
     );
     let parsed: serde_json::Value =
         serde_json::from_str(&resp).expect("static-deps response should be valid JSON");
@@ -272,7 +272,7 @@ fn adapter_clojure_full_pipeline() {
     // Phase 2: Static deps (change src/core.clj and src/utils.clj)
     let deps_resp = send_command(
         &mut child,
-        "{\"command\":\"static-deps\",\"args\":{\"files\":[\"src/core.clj\",\"src/utils.clj\"]}}\n",
+        "{\"command\":\"static-deps\",\"params\":{\"changed_files\":[\"src/core.clj\",\"src/utils.clj\"]}}\n",
     );
     let deps: serde_json::Value =
         serde_json::from_str(&deps_resp).expect("static-deps response should be valid JSON");
@@ -310,24 +310,24 @@ fn adapter_clojure_seeded_fault_recall() {
     }
 
     let tests = discover["result"].as_array().unwrap();
-    let core_test_id = tests
+    let core_test_file = tests
         .iter()
         .find(|t| t["file"].as_str().unwrap_or("").contains("core_test.clj"))
-        .and_then(|t| t["node_id"].as_str())
-        .expect("should find node_id for core_test.clj")
+        .and_then(|t| t["file"].as_str())
+        .expect("should find file for core_test.clj")
         .to_string();
 
-    let utils_test_id = tests
+    let utils_test_file = tests
         .iter()
         .find(|t| t["file"].as_str().unwrap_or("").contains("utils_test.clj"))
-        .and_then(|t| t["node_id"].as_str())
-        .expect("should find node_id for utils_test.clj")
+        .and_then(|t| t["file"].as_str())
+        .expect("should find file for utils_test.clj")
         .to_string();
 
     // Phase 2: Static deps with one changed file
     let deps_resp = send_command(
         &mut child,
-        "{\"command\":\"static-deps\",\"args\":{\"files\":[\"src/core.clj\"]}}\n",
+        "{\"command\":\"static-deps\",\"params\":{\"changed_files\":[\"src/core.clj\"]}}\n",
     );
     let deps: serde_json::Value =
         serde_json::from_str(&deps_resp).expect("static-deps response should be valid JSON");
@@ -336,19 +336,21 @@ fn adapter_clojure_seeded_fault_recall() {
 
     let edges = deps["result"]["edges"].as_array().unwrap();
 
-    // Should have an edge from core_test.clj to src/core.clj
+    // Should have an edge from core_test.clj to src/core.clj.
+    // The adapter's static-deps edge `from` is the test file path (see
+    // adapter-clojure/tests/static_deps_test.rs), not the discover node_id.
     let has_core_relation = edges.iter().any(|e| {
-        e["from"].as_str().unwrap_or("") == core_test_id
+        e["from"].as_str().unwrap_or("") == core_test_file
             && e["to"].as_str().unwrap_or("").contains("src/core.clj")
     });
     assert!(
         has_core_relation,
-        "expected edge from {core_test_id} → src/core.clj, got: {edges:?}"
+        "expected edge from {core_test_file} → src/core.clj, got: {edges:?}"
     );
 
     // Should NOT have an edge from utils_test.clj to src/core.clj
     let has_utils_relation = edges.iter().any(|e| {
-        e["from"].as_str().unwrap_or("") == utils_test_id
+        e["from"].as_str().unwrap_or("") == utils_test_file
             && e["to"].as_str().unwrap_or("").contains("src/core.clj")
     });
     assert!(
