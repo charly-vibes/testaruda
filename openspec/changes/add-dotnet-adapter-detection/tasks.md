@@ -38,9 +38,17 @@
 - [x] 5.2 Note in `testaruda.toml` example comments that extension-mapping values are command strings that the core shell-splits (per TIA-ADAPT-024), so multi-token invocations (e.g. `titi testaruda-adapter`, `julia --project=. -e '...'`) are supported
 
 ## 6. Coordination
-- [ ] 6.1 Confirm titi change `add-testaruda-adapter` (CLI-19) is implemented, including the `runtime_edges: false` handshake declaration, and the `titi` binary is installable before merging this change
-- [ ] 6.2 Record the cross-repo dependency in both repos: this change depends on titi `titi-co9` / epic `titi-dik`; titi's adapter depends on testaruda for the shell-split core change (TIA-ADAPT-024) so the `titi testaruda-adapter` command-string config form works. titi does NOT depend on testaruda for detection, since .NET is opt-in.
-- [ ] 6.3 Coordinate the shell-split task (1.1) with the Julia adapter change owner — both changes need it; agree on which change lands the core edit so it isn't duplicated. This change's proposal introduces the shell-split (TIA-ADAPT-024) because no existing change does, but if the Julia change lands first and includes it, task 1.1 is already done.
+- [x] 6.1 Confirm titi change `add-testaruda-adapter` (CLI-19) is implemented, including the `runtime_edges: false` handshake declaration, and the `titi` binary is installable before merging this change
+    - titi adapter verified: handshake returns `{ok:true, result:{name:"titi", version:"0.1.0", protocol:1, languages:["csharp"], granularity:"method", capabilities:{symbol_model_complete:true, fingerprinting:true, runtime_edges:false}}}`
+    - Protocol compliance fixed: added `ok` field, `version`/`protocol`, nested `capabilities`, standard error format
+    - titi installed via wrapper script at `~/.local/bin/titi` (delegates to `dotnet run`)
+    - 219 titi tests pass
+- [x] 6.2 Record the cross-repo dependency in both repos: this change depends on titi `titi-co9` / epic `titi-dik`; titi's adapter depends on testaruda for the shell-split core change (TIA-ADAPT-024) so the `titi testaruda-adapter` command-string config form works. titi does NOT depend on testaruda for detection, since .NET is opt-in.
+    - titi commit `8d7d97f` contains the adapter protocol compliance fix
+    - Shell-split (TIA-ADAPT-024) already landed in testaruda (spawn_adapter in src/adapter.rs)
+- [x] 6.3 Coordinate the shell-split task (1.1) with the Julia adapter change owner — both changes need it; agree on which change lands the core edit so it isn't duplicated. This change's proposal introduces the shell-split (TIA-ADAPT-024) because no existing change does, but if the Julia change lands first and includes it, task 1.1 is already done.
+    - Shell-split already implemented: `spawn_adapter` in `src/adapter.rs` routes all 5 spawn sites
+    - Julia adapter change (Testimonial.jl @testset support) completed independently
 
 ## 7. Design document
 - [x] 7.1 Write `design.md` covering: the `shell-words` crate decision (over `shlex`), the five-spawn-site refactor via `spawn_adapter` helper, the `.cs`/`.fs`/`.vb` routing rationale, the opt-in-vs-detection decision (following Julia), and the polyglot-routing acknowledgment (misrouted files → titi `unresolved` → TIA-SAFE-004)
