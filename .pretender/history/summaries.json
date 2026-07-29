@@ -1,5 +1,26 @@
 {
-  "top_hotspots": [],
+  "top_hotspots": [
+    {
+      "fingerprint": "src/main.rs::main::function_lines_max",
+      "count": 20,
+      "distinct_days": 2
+    },
+    {
+      "fingerprint": "src/main.rs::main::abc_max",
+      "count": 20,
+      "distinct_days": 2
+    },
+    {
+      "fingerprint": "src/main.rs::main::cyclomatic_max",
+      "count": 20,
+      "distinct_days": 2
+    },
+    {
+      "fingerprint": "src/main.rs::main::cognitive_max",
+      "count": 20,
+      "distinct_days": 2
+    }
+  ],
   "top_patterns": [
     {
       "rule_key": "min_assertions",
@@ -45,9 +66,9 @@
       "rule_key": "function_lines_max",
       "role": "app",
       "area": "src",
-      "count": 336,
+      "count": 338,
       "distinct_files": 8,
-      "distinct_days": 1
+      "distinct_days": 2
     },
     {
       "rule_key": "min_assertions",
@@ -69,9 +90,9 @@
       "rule_key": "abc_max",
       "role": "app",
       "area": "src",
-      "count": 208,
+      "count": 210,
       "distinct_files": 7,
-      "distinct_days": 1
+      "distinct_days": 2
     },
     {
       "rule_key": "cyclomatic_max",
