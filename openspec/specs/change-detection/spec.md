@@ -3,7 +3,9 @@
 ## Purpose
 
 How changes are detected and the change set Δ is computed from VCS diffs, explicit file lists, and content fingerprints.
+
 ## Requirements
+
 ### Requirement: TIA-CHG-001 — VCS diff
 
 When invoked with a base and head revision, the core SHALL derive the changed file set from the version-control diff between them.
@@ -90,54 +92,56 @@ While operating in CI mode, the core SHALL NOT read the local working tree as a 
 
 ### Requirement: TIA-CHG-009 — Init-time language detection
 
-When the `init` command is invoked, the core SHALL probe the current directory for well-known project files to detect the project's primary language. The detected language SHALL determine the default adapter in `testaruda.toml`. When no known project file is found, the core SHALL fall back to `testaruda-adapter-rust`. A user-supplied adapter configuration SHALL always take precedence over auto-detection.
+The adapter SHALL probe for the following project files in well-known locations: (1) Python: `pyproject.toml`, `setup.py`, `setup.cfg`; (2) Rust: `Cargo.toml`; (3) JavaScript/TypeScript: `package.json`, `vitest.config.ts`, `jest.config.ts`, `tsconfig.json`; (4) Go: `go.mod`; (5) Clojure: `deps.edn`, `project.clj`.
 
-Well-known project files to probe:
-- Python: `pyproject.toml`, `setup.py`, `setup.cfg`
-- Rust: `Cargo.toml`
-- JavaScript/TypeScript: `package.json`
-- Go: `go.mod`
+When a marker is found (and no other project file takes priority), the core SHALL set the default adapter to the corresponding binary.
 
-#### Scenario: Python project detection
-- **GIVEN** a directory with `pyproject.toml` but no `Cargo.toml`
+The core SHALL use the following priority order (first match wins, most specific first):
+1. `Cargo.toml` SHALL map to Rust `testaruda-adapter-rust`
+2. `vitest.config.ts` or `jest.config.ts` SHALL map to TypeScript `testaruda-adapter-typescript`
+3. `package.json` (with `vitest` or `jest` in devDependencies) SHALL map to TypeScript `testaruda-adapter-typescript`
+4. `pyproject.toml`, `setup.py`, `setup.cfg` SHALL map to Python `testaruda-adapter-python`
+5. `deps.edn`, `project.clj` SHALL map to Clojure `testaruda-adapter-clojure`
+6. `go.mod` SHALL map to Go adapter (when implemented)
+7. `package.json` (without `vitest`/`jest`) SHALL result in fallback (no auto-detection)
+
+#### Scenario: TypeScript project detection via vitest.config.ts
+- **GIVEN** a directory with `vitest.config.ts` but no `Cargo.toml` or `pyproject.toml`
 - **WHEN** `init` is invoked
-- **THEN** the generated `testaruda.toml` SHALL have `default = "testaruda-adapter-python"`
+- **THEN** the generated `testaruda.toml` SHALL have `default = "testaruda-adapter-typescript"`
 
-#### Scenario: Rust project detection
-- **GIVEN** a directory with `Cargo.toml` but no `pyproject.toml`
+#### Scenario: TypeScript project detection via jest.config.ts
+- **GIVEN** a directory with `jest.config.ts` but no `vitest.config.ts`, `Cargo.toml`, or `pyproject.toml`
 - **WHEN** `init` is invoked
-- **THEN** the generated `testaruda.toml` SHALL have `default = "testaruda-adapter-rust"`
+- **THEN** the generated `testaruda.toml` SHALL have `default = "testaruda-adapter-typescript"`
 
-#### Scenario: Unknown project fallback
-- **GIVEN** a directory with no known project files
+#### Scenario: TypeScript project detection via package.json devDependencies
+- **GIVEN** a directory with `package.json` containing `"vitest"` or `"jest"` in `devDependencies` but no `vitest.config.ts`, `jest.config.ts`, `Cargo.toml`, or `pyproject.toml`
 - **WHEN** `init` is invoked
-- **THEN** the generated `testaruda.toml` SHALL have `default = "testaruda-adapter-rust"`
+- **THEN** the generated `testaruda.toml` SHALL have `default = "testaruda-adapter-typescript"`
 
-#### Scenario: User override takes precedence
-- **GIVEN** a Python project
-- **WHEN** the user explicitly specifies adapter config during `init`
-- **THEN** the user's configuration SHALL take precedence over auto-detection
+#### Scenario: TypeScript config wins over Python
+- **GIVEN** a directory with both `vitest.config.ts` and `pyproject.toml`
+- **WHEN** `init` is invoked
+- **THEN** the generated `testaruda.toml` SHALL have `default = "testaruda-adapter-typescript"`
+- **AND** the Python adapter SHALL still be registered as a secondary extension mapping for `.py` files
 
 ### Requirement: TIA-CHG-010 — Cold-start content-unit classification
 
-A content unit with no prior fingerprint of record (i.e., first observed by the
-system) SHALL be classified as `unresolved`, with confidence set to zero.
-Repeated invocations with no intervening fingerprint change SHALL produce the
-same classification as the first observation.
+A content unit with no prior fingerprint of record (i.e., first observed by the system) SHALL be classified as `unresolved`, with confidence set to zero. Repeated invocations with no intervening fingerprint change SHALL produce the same classification as the first observation.
 
 #### Scenario: Cold-start content unit classified as unresolved
 - **GIVEN** a content unit with no prior fingerprint of record in the store
 - **WHEN** the change set Δ is computed
 - **THEN** the content unit SHALL be classified as `unresolved`
-- **AND** its confidence SHALL be set to zero, triggering the confidence-based
-  fallback (TIA-SAFE-002)
+- **AND** its confidence SHALL be set to zero, triggering the confidence-based fallback (TIA-SAFE-002)
 
 #### Scenario: Idempotent classification across repeated invocations
-- **GIVEN** a content unit that was previously classified as `unresolved` on
-  first observation
+- **GIVEN** a content unit that was previously classified as `unresolved` on first observation
 - **AND** no intervening change has occurred
 - **WHEN** the change set Δ is computed again
-- **THEN** the content unit SHALL receive the same classification (`unresolved`)
-  as on the first invocation
+- **THEN** the content unit SHALL receive the same classification (`unresolved`) as on the first invocation
 - **AND** its confidence SHALL remain zero
+
+
 

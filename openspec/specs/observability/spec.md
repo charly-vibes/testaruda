@@ -3,17 +3,16 @@
 ## Purpose
 
 Metrics, structured logs, and graph introspection — exporting the dependency graph, explaining selections, and emitting operational metrics.
-
 ## Requirements
-
 ### Requirement: TIA-OBS-001 — Dependency graph export
 
-When requested, the core SHALL export the current dependency graph in a documented format.
+testaruda's `--json` output for dependency-graph export and selection explanation SHALL wrap its payload in `genesis::envelope::Envelope`, so its JSON shape matches wai/dont/pretender/espectacular across the suite.
 
-#### Scenario: Graph export request
-- **GIVEN** a populated dependency graph
-- **WHEN** export is requested
-- **THEN** the core SHALL export the graph in a documented format
+#### Scenario: select emits shared envelope
+
+- **WHEN** `testaruda select --json` is run after adopting genesis
+- **THEN** the emitted JSON SHALL have top-level keys `ok`, `envelope_version`, `cli_version`, `envelope_kind`, `data`, `warnings`, `hints`, `meta`
+- **AND** the selected-test set SHALL be nested under `data`.
 
 ### Requirement: TIA-OBS-002 — Selection explanation
 
@@ -57,3 +56,4 @@ When a machine-readable output mode (`--json`, `--agent`, or `--pre-edit`) is ac
 - **WHEN** the core emits structured logs
 - **THEN** it MAY emit logs to stderr or stdout
 - **AND** stderr is the recommended target
+
