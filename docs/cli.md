@@ -15,6 +15,8 @@ This document contains the help content for the `testaruda` command-line program
 * [`testaruda oracle`↴](#testaruda-oracle)
 * [`testaruda discover`↴](#testaruda-discover)
 * [`testaruda metrics`↴](#testaruda-metrics)
+* [`testaruda doctor`↴](#testaruda-doctor)
+* [`testaruda feedback`↴](#testaruda-feedback)
 * [`testaruda completions`↴](#testaruda-completions)
 
 ## `testaruda`
@@ -35,6 +37,8 @@ Language-agnostic test selection engine — compute the affected test set from a
 * `oracle` — Run the Soufflé oracle for cross-validation
 * `discover` — Discover tests via configured adapters
 * `metrics` — Show operational metrics
+* `doctor` — Validate project configuration via genesis suite_linter
+* `feedback` — Submit a feedback issue about an error
 * `completions` — Generate shell completions
 
 
@@ -173,6 +177,35 @@ Discover tests via configured adapters
 Show operational metrics
 
 **Usage:** `testaruda metrics`
+
+
+
+## `testaruda doctor`
+
+Validate project configuration via genesis suite_linter
+
+**Usage:** `testaruda doctor [OPTIONS]`
+
+###### **Options:**
+
+* `--fix` — Apply safe fixes
+
+
+
+## `testaruda feedback`
+
+Submit a feedback issue about an error
+
+**Usage:** `testaruda feedback [OPTIONS] <KIND>`
+
+###### **Arguments:**
+
+* `<KIND>` — Kind of issue (bug|feature|question)
+
+###### **Options:**
+
+* `--from-last-error` — Use the last error from scratch (--from-last-error)
+* `--dry-run` — Dry run — print what would be submitted
 
 
 

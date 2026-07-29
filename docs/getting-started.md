@@ -18,9 +18,11 @@ julia -e 'using Pkg; Pkg.add("Testimonial")'
 ln -s ~/.julia/packages/Testimonial/*/bin/testaruda-adapter-julia ~/.local/bin/
 ```
 
-The Julia adapter discovers `@testitem` tests through ReTestItems/TestItems. If
-a project mixes `@testitem` and plain `@test` blocks, only the `@testitem` tests
-are available for selection.
+The Julia adapter discovers `@testitem` tests (ReTestItems/TestItems.jl) and
+`@testset` blocks (Base.Test). In a project that mixes `@testitem` with plain
+`@test` blocks, both the `@testitem` and `@testset` tests are available for
+selection. For files with no `@testitem` or `@testset` blocks, a file-level
+fallback is used — the entire file is run via `include()`.
 
 ### Optional: .NET adapter (titi)
 

@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.6 — Julia Base.Test support, titi adapter compliance (2026-07-28)
+
+### Added
+
+- Julia adapter now discovers `@testset` blocks (Base.Test) alongside existing
+  `@testitem` (ReTestItems.jl) support. Includes file-level fallback for files
+  with no test blocks (closes testaruda-thz).
+- titi (.NET) adapter protocol compliance: handshake now includes `version`,
+  `protocol`, and nested `capabilities`; all responses include `ok: true/false`;
+  error format follows the standard `{ok: false, error: {message: ...}}` envelope.
+- Custom `@testset` type discovery (e.g. `@testset MyCustomType ...`).
+- Helper-file exclusion in file-level fallback (skips `helpers.jl`, `utils.jl`).
+
+### Fixed
+
+- O(n²) dedup in `discover_testsets` replaced with O(1) `Set{Tuple{String,Int}}`.
+
+---
+
 ## 0.2.5 — Spec-contract coverage sweep (2026-07-28)
 
 ### Added

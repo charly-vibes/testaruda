@@ -62,9 +62,10 @@ Rust and Python adapters are installed with testaruda. The Julia adapter is
 provided by [Testimonial.jl](https://github.com/sashakile/Testimonial.jl); see
 [Getting Started](getting-started.md#optional-julia-adapter) for installation.
 
-The Julia adapter currently discovers `@testitem` tests through
-ReTestItems/TestItems. In a project that mixes `@testitem` with plain `@test`
-blocks, only the `@testitem` tests participate in testaruda selection.
+The Julia adapter discovers `@testitem` tests (ReTestItems/TestItems.jl) and
+`@testset` blocks (Base.Test). In a project that mixes `@testitem` with plain
+`@test` blocks, both the `@testitem` and `@testset` tests are available for
+selection. For files with no test blocks, a file-level fallback is used.
 
 ### .NET adapter (titi)
 
