@@ -144,6 +144,9 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
     // For each test file, check if its deps include any changed namespace.
     let mut edges: Vec<serde_json::Value> = Vec::new();
     let mut edge_set: HashSet<(String, String)> = HashSet::new();
+    let discover_q = query::compile_query(include_str!("../queries/discover.scm"));
+    let ns_q = query::compile_query(include_str!("../queries/ns.scm"));
+    let deps_q = query::compile_query(include_str!("../queries/deps.scm"));
 
     for entry in walkdir::WalkDir::new(".")
         .into_iter()
@@ -162,7 +165,17 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
         let clean_path = path.strip_prefix("./").unwrap_or(&path);
 
         if files.iter().any(|f| f.as_str() == Some(clean_path)) {
-            continue; // skip changed files themselves
+            // Skip files that were changed themselves — but only if they are
+            // source files (not test files). Test files that happen to be in
+            // the changed-files list must still be scanned so we can discover
+            // their edges to changed sources.
+            let is_test = clean_path.starts_with("test/")
+                || clean_path.starts_with("tests/")
+                || clean_path.contains("/test/")
+                || clean_path.contains("/tests/");
+            if !is_test {
+                continue;
+            }
         }
 
         let content = match std::fs::read_to_string(entry.path()) {
@@ -170,22 +183,57 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
             Err(_) => continue,
         };
         let tree = query::parse(&content);
-        let deps_query = query::compile_query(include_str!("../queries/deps.scm"));
-        let dep_caps = query::run_query(&deps_query, &tree, content.as_bytes());
+
+        // Get namespace name
+        let ns_caps = query::run_query(&ns_q, &tree, content.as_bytes());
+        let namespace = ns_caps
+            .iter()
+            .find(|c| c.name == "namespace_name")
+            .map(|c| c.text.clone())
+            .unwrap_or_default();
+
+        // Discover test function names (same logic as cmd_discover)
+        let discover_caps = query::run_query(&discover_q, &tree, content.as_bytes());
+        let test_names: Vec<&str> = discover_caps
+            .iter()
+            .filter(|c| c.name == "test_name")
+            .map(|c| c.text.as_str())
+            .collect();
+
+        // Build node_ids: these must match the format produced by cmd_discover
+        // so the core can look them up in test_items.node_id.
+        let test_node_ids: Vec<String> = if test_names.is_empty() {
+            // No explicit test names — emit edge from file path as fallback
+            vec![clean_path.to_string()]
+        } else {
+            test_names
+                .iter()
+                .map(|name| {
+                    if namespace.is_empty() {
+                        format!("{}::{}(Test)", clean_path.replace('/', "::"), name)
+                    } else {
+                        format!("{}::{}(Test)", namespace, name)
+                    }
+                })
+                .collect()
+        };
+
+        let dep_caps = query::run_query(&deps_q, &tree, content.as_bytes());
         let test_deps = extract_dep_namespaces_from_caps(&dep_caps, &content);
 
         for dep_ns in &test_deps {
             if let Some(source_file) = changed_namespaces.get(dep_ns) {
-                let from = clean_path.to_string();
                 let to = source_file.clone();
-                let edge_key = (from.clone(), to.clone());
-                if edge_set.insert(edge_key) {
-                    edges.push(serde_json::json!({
-                        "from": from,
-                        "to": to,
-                        "weight": 1_000_000,
-                        "origin": "static"
-                    }));
+                for node_id in &test_node_ids {
+                    let edge_key = (node_id.clone(), to.clone());
+                    if edge_set.insert(edge_key) {
+                        edges.push(serde_json::json!({
+                            "from": node_id,
+                            "to": to,
+                            "weight": 1_000_000,
+                            "origin": "static"
+                        }));
+                    }
                 }
             }
         }

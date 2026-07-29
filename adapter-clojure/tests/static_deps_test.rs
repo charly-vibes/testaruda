@@ -77,17 +77,17 @@ fn static_deps_edges_for_changed_source() {
     assert_eq!(resp["ok"], true, "static-deps should succeed: {resp}");
     let edges = resp["result"]["edges"].as_array().unwrap();
 
-    // Should find at least one edge: test/core_test.clj → src/core.clj
+    // Should find at least one edge: my-project.core-test::test-greet(Test) → src/core.clj
     let core_edge = edges.iter().find(|e| {
         e["from"]
             .as_str()
             .unwrap_or("")
-            .contains("test/core_test.clj")
+            .contains("my-project.core-test::test-greet(Test)")
             && e["to"].as_str().unwrap_or("").contains("src/core.clj")
     });
     assert!(
         core_edge.is_some(),
-        "expected edge test/core_test.clj → src/core.clj, got edges: {edges:?}"
+        "expected edge my-project.core-test::test-greet(Test) -> src/core.clj, got edges: {edges:?}"
     );
 
     // Verify the edge has correct weight and origin
@@ -135,11 +135,14 @@ fn static_deps_deduplicates_edges() {
     assert_eq!(resp["ok"], true, "static-deps should succeed: {resp}");
     let edges = resp["result"]["edges"].as_array().unwrap();
 
-    // Count edges from dup_test.clj → src/core.clj — should be exactly 1
+    // Count edges from my-project.dup-test::test-dup(Test) → src/core.clj — should be exactly 1
     let dup_edges: Vec<&serde_json::Value> = edges
         .iter()
         .filter(|e| {
-            e["from"].as_str().unwrap_or("").contains("dup_test.clj")
+            e["from"]
+                .as_str()
+                .unwrap_or("")
+                .contains("my-project.dup-test::test-dup(Test)")
                 && e["to"].as_str().unwrap_or("").contains("src/core.clj")
         })
         .collect();
@@ -170,12 +173,12 @@ fn static_deps_unresolved_require_still_emits_edge() {
     assert_eq!(resp["ok"], true, "static-deps should succeed: {resp}");
     let edges = resp["result"]["edges"].as_array().unwrap();
 
-    // Edge from external_test.clj to src/core.clj should exist (because it depends on core)
+    // Edge from my-project.external-test::test-ext(Test) to src/core.clj should exist (because it depends on core)
     let ext_edge = edges.iter().find(|e| {
         e["from"]
             .as_str()
             .unwrap_or("")
-            .contains("external_test.clj")
+            .contains("my-project.external-test::test-ext(Test)")
             && e["to"].as_str().unwrap_or("").contains("src/core.clj")
     });
     assert!(

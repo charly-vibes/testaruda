@@ -194,22 +194,28 @@ fn adapter_clojure_static_deps_fixture() {
 
     // Should have edge from core_test.clj → src/core.clj
     let core_edge = edges.iter().find(|e| {
-        e["from"].as_str().unwrap_or("").contains("core_test.clj")
+        e["from"]
+            .as_str()
+            .unwrap_or("")
+            .contains("my-project.core-test::test-greet(Test)")
             && e["to"].as_str().unwrap_or("").contains("src/core.clj")
     });
     assert!(
         core_edge.is_some(),
-        "expected edge core_test.clj → src/core.clj, got: {edges:?}"
+        "expected edge core_test.clj -> src/core.clj, got: {edges:?}"
     );
 
     // Should have edge from utils_test.clj → src/utils.clj
     let utils_edge = edges.iter().find(|e| {
-        e["from"].as_str().unwrap_or("").contains("utils_test.clj")
+        e["from"]
+            .as_str()
+            .unwrap_or("")
+            .contains("my-project.utils-test::test-add(Test)")
             && e["to"].as_str().unwrap_or("").contains("src/utils.clj")
     });
     assert!(
         utils_edge.is_some(),
-        "expected edge utils_test.clj → src/utils.clj, got: {edges:?}"
+        "expected edge utils_test.clj -> src/utils.clj, got: {edges:?}"
     );
 
     // Verify edge weight and origin
@@ -310,14 +316,14 @@ fn adapter_clojure_seeded_fault_recall() {
     }
 
     let tests = discover["result"].as_array().unwrap();
-    let core_test_file = tests
+    let _core_test_file = tests
         .iter()
         .find(|t| t["file"].as_str().unwrap_or("").contains("core_test.clj"))
         .and_then(|t| t["file"].as_str())
         .expect("should find file for core_test.clj")
         .to_string();
 
-    let utils_test_file = tests
+    let _utils_test_file = tests
         .iter()
         .find(|t| t["file"].as_str().unwrap_or("").contains("utils_test.clj"))
         .and_then(|t| t["file"].as_str())
@@ -337,20 +343,31 @@ fn adapter_clojure_seeded_fault_recall() {
     let edges = deps["result"]["edges"].as_array().unwrap();
 
     // Should have an edge from core_test.clj to src/core.clj.
-    // The adapter's static-deps edge `from` is the test file path (see
-    // adapter-clojure/tests/static_deps_test.rs), not the discover node_id.
+    // The adapter's static-deps edge `from` is now the test function node_id,
+    // not the file path. Get specific node_ids from the tests list.
+    let core_node_ids: Vec<&str> = tests
+        .iter()
+        .filter(|t| t["file"].as_str().unwrap_or("").contains("core_test.clj"))
+        .filter_map(|t| t["node_id"].as_str())
+        .collect();
+
     let has_core_relation = edges.iter().any(|e| {
-        e["from"].as_str().unwrap_or("") == core_test_file
+        e["from"].as_str().unwrap_or("") == core_node_ids.first().copied().unwrap_or("")
             && e["to"].as_str().unwrap_or("").contains("src/core.clj")
     });
     assert!(
         has_core_relation,
-        "expected edge from {core_test_file} → src/core.clj, got: {edges:?}"
+        "expected edge from {core_node_ids:?} -> src/core.clj, got: {edges:?}"
     );
 
     // Should NOT have an edge from utils_test.clj to src/core.clj
+    let utils_node_ids: Vec<&str> = tests
+        .iter()
+        .filter(|t| t["file"].as_str().unwrap_or("").contains("utils_test.clj"))
+        .filter_map(|t| t["node_id"].as_str())
+        .collect();
     let has_utils_relation = edges.iter().any(|e| {
-        e["from"].as_str().unwrap_or("") == utils_test_file
+        e["from"].as_str().unwrap_or("") == utils_node_ids.first().copied().unwrap_or("")
             && e["to"].as_str().unwrap_or("").contains("src/core.clj")
     });
     assert!(
