@@ -446,7 +446,7 @@ OUTPUT_JSON="$(jq -n \
     --argjson discover_ok "$DISCOVER_OK" \
     --argjson discover_duration "$DISCOVER_DURATION" \
     --argjson discover_count "$DISCOVER_COUNT" \
-    --arg discover_files "$(cat "$DISCOVER_FILES_FILE")" \
+    --rawfile discover_files "$DISCOVER_FILES_FILE" \
     --arg discover_error "$DISCOVER_ERROR" \
     --argjson fingerprint_ok "$FINGERPRINT_OK" \
     --argjson fingerprint_duration "$FINGERPRINT_DURATION" \
