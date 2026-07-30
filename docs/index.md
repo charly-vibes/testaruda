@@ -1,3 +1,9 @@
+> *"Se me acaba el argumento y la metodología*
+> *Cada vez que se aparece frente a mí tu anatomía*
+> *Porque este amor ya no entiende de consejos, ni razones*
+> *Se alimenta de pretextos y le faltan pantalones"*
+> — Shakira
+
 # testaruda
 
 **testaruda** is a language-agnostic test selection engine. Given a code change,
