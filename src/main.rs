@@ -314,7 +314,7 @@ fn dispatch(command: Command) -> miette::Result<()> {
             kind,
             from_last_error,
             dry_run,
-        } => commands::feedback(commands::FeedbackArgs {
+        } => commands::feedback(genesis::feedback::FeedbackArgs {
             kind,
             from_last_error,
             dry_run,

@@ -1160,93 +1160,24 @@ pub fn doctor(fix: bool) -> miette::Result<()> {
     }
 }
 
-/// Arguments for the `feedback` command.
-pub struct FeedbackArgs {
-    pub kind: String,
-    pub from_last_error: bool,
-    pub dry_run: bool,
-}
-
 /// `testaruda feedback` — submit a feedback issue about an error.
-pub fn feedback(args: FeedbackArgs) -> miette::Result<()> {
+///
+/// Delegates to [`genesis::feedback::handle_feedback`] for body construction,
+/// redaction, and issue filing.
+pub fn feedback(args: genesis::feedback::FeedbackArgs) -> miette::Result<()> {
     let project_root = find_project_root()?;
 
-    // Build the issue body
-    let mut body = String::new();
-    let mut title = format!("[{}] ", args.kind);
-
-    if args.from_last_error {
-        // Read the last error from genesis scratch
-        if let Some(record) = genesis::feedback::scratch::read_last_error("testaruda") {
-            title.push_str(&format!("Error: {}", record.argv.join(" ")));
-            body.push_str("## Error\n\n");
-            body.push_str(&format!("Exit code: {}\n\n", record.exit));
-            if let Some(ref footer) = record.footer {
-                body.push_str(&format!("Footer: {}\n\n", footer));
-            }
-        } else {
-            eprintln!("No previous error found in scratch.");
-            eprintln!("  Run a command with `genesis` error handling first.");
-            std::process::exit(1);
-        }
-    } else {
-        eprintln!("Please provide issue details or use --from-last-error");
-        std::process::exit(1);
-    }
-
-    append_context_bundle(&mut body, &project_root);
-
-    // Redact sensitive info
-    let home = std::env::var("HOME").ok().map(std::path::PathBuf::from);
-    let git_remote = std::process::Command::new("git")
-        .args(["config", "--get", "remote.origin.url"])
-        .current_dir(&project_root)
-        .output()
-        .ok()
-        .and_then(|o| {
-            if o.status.success() {
-                String::from_utf8(o.stdout)
-                    .ok()
-                    .map(|s| s.trim().to_string())
-            } else {
-                None
-            }
-        });
-    let redacted =
-        genesis::feedback::redactor::redact(&body, home.as_deref(), git_remote.as_deref());
-
-    // Determine target repo
     let repo = env!("CARGO_PKG_REPOSITORY")
         .trim_start_matches("https://")
         .to_string();
 
-    // Resolve labels
-    let labels: Vec<String> = match args.kind.as_str() {
-        "bug" => vec!["bug".into()],
-        "feature" => vec!["enhancement".into()],
-        "question" => vec!["question".into()],
-        _ => vec![args.kind.clone()],
-    };
-
-    if args.dry_run {
-        println!("--- DRY RUN ---");
-        println!("Repo: {}", repo);
-        println!("Title: {}", title);
-        println!("Labels: {:?}", labels);
-        println!("Body (redacted):\n{}", redacted);
-        return Ok(());
-    }
-
-    // Submit via genesis::feedback::gh
-    let opts = genesis::feedback::gh::CreateIssueOptions {
-        repo,
-        title,
-        body: redacted,
-        labels,
-        dry_run: false,
-    };
-
-    match genesis::feedback::gh::create_issue(&opts) {
+    match genesis::feedback::handle_feedback(
+        &args,
+        "testaruda",
+        env!("CARGO_PKG_VERSION"),
+        &repo,
+        &project_root,
+    ) {
         Ok(genesis::feedback::gh::GhResult::Created { url, number }) => {
             println!("✅ Created issue #{}: {}", number, url);
             Ok(())
@@ -1267,19 +1198,6 @@ pub fn feedback(args: FeedbackArgs) -> miette::Result<()> {
             std::process::exit(1);
         }
     }
-}
-
-/// Append the genesis environment context bundle to the feedback issue body.
-fn append_context_bundle(body: &mut String, project_root: &std::path::Path) {
-    let context = genesis::feedback::context::gather_context(
-        "testaruda",
-        env!("CARGO_PKG_VERSION"),
-        None,
-        None,
-        None,
-        project_root,
-    );
-    body.push_str(&genesis::feedback::context::format_context_bundle(&context));
 }
 
 /// `testaruda gen-cli-docs` (hidden) — generate CLI documentation in markdown.
