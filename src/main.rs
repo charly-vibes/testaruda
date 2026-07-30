@@ -176,6 +176,8 @@ enum Command {
         /// Shell to generate completions for
         shell: clap_complete::Shell,
     },
+    /// Display cross-tool health summary
+    Status,
 }
 
 fn main() -> miette::Result<()> {
@@ -196,6 +198,7 @@ fn main() -> miette::Result<()> {
         "doctor",
         "feedback",
         "completions",
+        "status",
     ];
     let guide = genesis::guide::Guide::builder("testaruda", env!("CARGO_PKG_VERSION"))
         .about("Language-agnostic test selection engine — compute the affected test set from a code change via provenance-semiring dependency analysis")
@@ -321,6 +324,7 @@ fn dispatch(command: Command) -> miette::Result<()> {
         }),
         Command::GenCliDocs => commands::gen_cli_docs(),
         Command::Completions { shell } => commands::completions(shell),
+        Command::Status => commands::status(),
     }
 }
 

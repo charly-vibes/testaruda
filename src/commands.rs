@@ -300,13 +300,21 @@ pub fn init() -> miette::Result<()> {
     let store = Store::open_default()?;
     store.initialize()?;
     let project_root = Store::find_project_root()?;
-    // Write default config if it doesn't exist
+
+    // Use Scaffold builder for directory creation
+    use genesis::scaffold::Scaffold;
+    let scaffold = Scaffold::new(&project_root).dir(".testaruda");
+    let _result = scaffold
+        .build()
+        .map_err(|e| miette::miette!("Failed to scaffold project: {}", e))?;
+
+    // Write default config if it doesn't exist (dynamic content based on language detection)
     if !project_root.join("testaruda.toml").exists() {
         testaruda::config::Config::write_default(&project_root)?;
-        // Report detected language for user feedback
         let detected = testaruda::config::detect_project_language(&project_root);
         report_detected_language(&detected);
     }
+
     // Check for Soufflé oracle (TIA-ENG-010)
     match std::process::Command::new("souffle")
         .arg("--version")
@@ -1198,6 +1206,27 @@ pub fn feedback(args: genesis::feedback::FeedbackArgs) -> miette::Result<()> {
             std::process::exit(1);
         }
     }
+}
+
+/// `testaruda status` — display cross-tool health summary.
+pub fn status() -> miette::Result<()> {
+    let project_root = find_project_root()?;
+
+    use genesis::status::StatusBuilder;
+    let runner = crate::doctor::build_doctor_runner();
+    let mut builder = StatusBuilder::new();
+    builder.register_doctor("testaruda", runner);
+
+    let report = builder
+        .build(&project_root)
+        .map_err(|e| miette::miette!("Status check failed: {}", e))?;
+
+    let envelope = report.to_envelope();
+    let json = serde_json::to_string_pretty(&envelope)
+        .map_err(|e| miette::miette!("Serialization failed: {}", e))?;
+
+    println!("{}", json);
+    Ok(())
 }
 
 /// `testaruda gen-cli-docs` (hidden) — generate CLI documentation in markdown.
