@@ -381,6 +381,8 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
     }
 
     // Normalize changed files to canonical paths for matching
+    // The resolver now returns canonical (absolute) paths, so direct lookup
+    // works without stem-matching hacks.
     let changed_canonical: Vec<(String, PathBuf)> = changed_files
         .iter()
         .map(|f| {
@@ -404,72 +406,23 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
                 }));
             }
         } else {
-            // Try matching by the original path (relative from project root)
-            let changed_relative = project_root.join(changed_orig);
-            let changed_normalized = changed_relative.canonicalize().unwrap_or(changed_relative);
-
-            let matched_relative = source_to_tests.get(&changed_normalized);
-
-            if let Some(tests) = matched_relative {
-                for (test_node_id, _test_file) in tests {
+            // If the changed file is itself a test file, create self-edge
+            let is_test = test_files.iter().any(|(_, f)| f == changed_orig);
+            if is_test {
+                if let Some(node_id) = test_files
+                    .iter()
+                    .find(|(_, f)| f == changed_orig)
+                    .map(|(n, _)| n)
+                {
                     edges.push(serde_json::json!({
-                        "from": test_node_id,
+                        "from": node_id,
                         "to": changed_orig,
                         "weight": 1_000_000,
                         "origin": "static",
                     }));
                 }
             } else {
-                // Also try matching by just the file stem (for cases where imports resolve
-                // to a different path representation)
-                let changed_stem = Path::new(changed_orig.as_str())
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("")
-                    .to_string();
-
-                let stem_matched: Vec<&PathBuf> = source_to_tests
-                    .keys()
-                    .filter(|k: &&PathBuf| {
-                        k.file_stem()
-                            .and_then(|s| s.to_str())
-                            .map_or(false, |s| s == changed_stem)
-                    })
-                    .collect();
-
-                if !stem_matched.is_empty() {
-                    for source_path in stem_matched {
-                        if let Some(tests) = source_to_tests.get(source_path) {
-                            for (test_node_id, _test_file) in tests {
-                                edges.push(serde_json::json!({
-                                    "from": test_node_id,
-                                    "to": changed_orig,
-                                    "weight": 1_000_000,
-                                    "origin": "static",
-                                }));
-                            }
-                        }
-                    }
-                } else {
-                    // If the changed file is itself a test file, create self-edge
-                    let is_test = test_files.iter().any(|(_, f)| f == changed_orig);
-                    if is_test {
-                        if let Some(node_id) = test_files
-                            .iter()
-                            .find(|(_, f)| f == changed_orig)
-                            .map(|(n, _)| n)
-                        {
-                            edges.push(serde_json::json!({
-                                "from": node_id,
-                                "to": changed_orig,
-                                "weight": 1_000_000,
-                                "origin": "static",
-                            }));
-                        }
-                    } else {
-                        unresolved.push(changed_orig.clone());
-                    }
-                }
+                unresolved.push(changed_orig.clone());
             }
         }
     }

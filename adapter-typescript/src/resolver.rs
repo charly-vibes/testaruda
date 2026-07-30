@@ -229,10 +229,18 @@ impl ImportResolver {
     /// 2. With each TS extension appended
     /// 3. As a directory with barrel file
     /// 4. As a directory with each TS extension on the barrel
+    ///
+    /// Returns the **canonical** (absolute) path when resolved, so that
+    /// callers can compare paths consistently without path-normalization
+    /// hacks.
     fn try_resolve_path(candidate: &Path) -> Option<PathBuf> {
         // 1. Exact match (file exists)
         if candidate.is_file() {
-            return Some(candidate.to_path_buf());
+            return Some(
+                candidate
+                    .canonicalize()
+                    .unwrap_or_else(|_| candidate.to_path_buf()),
+            );
         }
 
         // 2. Try appending each extension
@@ -241,13 +249,17 @@ impl ImportResolver {
                 let with_ext = format!("{}.{}", stem, ext);
                 let p = PathBuf::from(&with_ext);
                 if p.is_file() {
-                    return Some(p);
+                    return Some(p.canonicalize().unwrap_or(p));
                 }
             }
 
             // Also try the path as-is if it already has a non-TS extension (e.g., .css)
             if candidate.extension().is_some() && candidate.is_file() {
-                return Some(candidate.to_path_buf());
+                return Some(
+                    candidate
+                        .canonicalize()
+                        .unwrap_or_else(|_| candidate.to_path_buf()),
+                );
             }
         }
 
@@ -266,11 +278,12 @@ impl ImportResolver {
     }
 
     /// Resolve a barrel file: directory → `<dir>/index.ts`/`<dir>/index.tsx`.
+    /// Returns the canonical path.
     fn resolve_barrel(dir: &Path) -> Option<PathBuf> {
         for ext in TS_EXTENSIONS {
             let barrel = dir.join(format!("index.{}", ext));
             if barrel.is_file() {
-                return Some(barrel);
+                return Some(barrel.canonicalize().unwrap_or(barrel));
             }
         }
         None
