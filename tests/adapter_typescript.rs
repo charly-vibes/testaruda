@@ -261,15 +261,16 @@ fn adapter_typescript_full_pipeline() {
     // 4. Fingerprint
     let cmd = serde_json::json!({
         "command": "fingerprint",
-        "path": "src/user.ts"
+        "params": {"files": ["src/user.ts"]}
     });
     let resp = send_command(&mut child, &cmd.to_string());
     let parsed: serde_json::Value =
         serde_json::from_str(&resp).expect("fingerprint response should be valid JSON");
     assert!(parsed["ok"].as_bool().unwrap_or(false));
     assert!(
-        parsed["result"]["fingerprint"].as_str().is_some(),
-        "fingerprint should return a hash"
+        parsed["fingerprints"].as_array().is_some(),
+        "fingerprint should return a fingerprints array: {:?}",
+        parsed
     );
 
     // 5. Run args

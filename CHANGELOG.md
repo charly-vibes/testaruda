@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.3.0 — genesis v0.4.0 adoption, .NET adapter support (2026-07-30)
+
+### Added
+
+- genesis v0.4.0 modules: CliVerbosity (global `-v`/`-vv`/`-vvv` + `-q`), CliFormat
+  (global `--json`/`--human` with TTY auto-detect), discovery module (cross-tool
+  registration in `.genesis/tools.toml`), scaffold, status, feedback.
+- `.NET adapter (titi)`: opt-in extension mappings for `.cs`/`.fs`/`.vb`/`.csproj`/`.sln`/`.slnx`
+  via `titi testaruda-adapter` external binary (TIA-ADAPT-024).
+- `testaruda fingerprint` subcommand — refresh all content unit fingerprints from disk.
+- `testaruda status` subcommand — cross-tool health summary via genesis.
+- Stress-test: `--mode synthetic` for meaningful adapter quality measurement.
+- Rust adapter static dependency edge analysis from test file imports.
+
+### Fixed
+
+- Rust adapter: use `.get()` instead of `[]` indexing for Cargo.toml parsing.
+- TypeScript adapter: path canonicalization for static-deps edge discovery.
+- Clojure adapter: flat static-deps response format matching core protocol.
+- Test alignment: Julia, TypeScript, and .NET adapter integration tests updated
+  to match actual protocol wire formats (edges as `Vec<DepEdge>`, discover as
+  direct array, fingerprint params format).
+
+### Changed
+
+- `testaruda select --json` replaced by global `--json`/`--human` flags (available
+  on all commands, with TTY auto-detect: JSON for agents/pipes, Human for terminals).
+- genesis-vibes dependency bumped from 0.3 to 0.4.
+
+---
+
 ## 0.2.6 — Julia Base.Test support, titi adapter compliance (2026-07-28)
 
 ### Added

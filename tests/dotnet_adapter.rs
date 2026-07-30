@@ -299,7 +299,11 @@ fn titi_adapter_handshake_then_discover() {
     let disc: serde_json::Value =
         serde_json::from_str(&disc_line).expect("discover response should be valid JSON");
     assert!(disc["ok"].as_bool().unwrap_or(false));
-    assert!(disc["result"]["tests"].is_array());
+    assert!(
+        disc["result"].is_array(),
+        "discover result should be an array, got: {:?}",
+        disc["result"]
+    );
 
     child.wait().ok();
 }

@@ -15,15 +15,29 @@ This document contains the help content for the `testaruda` command-line program
 * [`testaruda oracle`↴](#testaruda-oracle)
 * [`testaruda discover`↴](#testaruda-discover)
 * [`testaruda metrics`↴](#testaruda-metrics)
+* [`testaruda fingerprint`↴](#testaruda-fingerprint)
 * [`testaruda doctor`↴](#testaruda-doctor)
 * [`testaruda feedback`↴](#testaruda-feedback)
 * [`testaruda completions`↴](#testaruda-completions)
+* [`testaruda status`↴](#testaruda-status)
 
 ## `testaruda`
 
-Language-agnostic test selection engine — compute the affected test set from a code change via provenance-semiring dependency analysis
+Clap-derivable args struct for `--json` / `--human`.
 
-**Usage:** `testaruda <COMMAND>`
+Embed this in your clap CLI struct with `#[command(flatten)]`:
+
+```rust,no_run use clap::Parser; use genesis::guide::CliFormat;
+
+#[derive(Parser)] struct Cli { #[command(flatten)] pub format: CliFormat, }
+
+let cli = Cli::parse(); let fmt = cli.format.format();  // auto-detects TTY vs pipe/agent ```
+
+When neither `--json` nor `--human` is set, the format is auto-detected: - stdout is a terminal (TTY) → `Human` - stdout is piped or redirected → `Json`
+
+This ensures agents and CI pipelines always receive machine-readable JSON by default, while humans at a terminal get readable output.
+
+**Usage:** `testaruda [OPTIONS] <COMMAND>`
 
 ###### **Subcommands:**
 
@@ -37,9 +51,18 @@ Language-agnostic test selection engine — compute the affected test set from a
 * `oracle` — Run the Soufflé oracle for cross-validation
 * `discover` — Discover tests via configured adapters
 * `metrics` — Show operational metrics
+* `fingerprint` — Refresh all content unit fingerprints from disk
 * `doctor` — Validate project configuration via genesis suite_linter
 * `feedback` — Submit a feedback issue about an error
 * `completions` — Generate shell completions
+* `status` — Display cross-tool health summary
+
+###### **Options:**
+
+* `-v`, `--verbose` — Increase output verbosity (-v, -vv, -vvv)
+* `-q`, `--quiet` — Suppress non-error output
+* `-j`, `--json` — Output machine-readable JSON (default when stdout is not a TTY)
+* `--human` — Output human-readable text (default when stdout is a TTY)
 
 
 
@@ -63,9 +86,8 @@ Select affected tests from a code change
 * `--head <HEAD>` — Head revision (git ref)
 * `--files <FILES>` — Explicit changed-file list (comma-separated)
 * `--shadow` — Shadow mode: compute but report all tests should run (TIA-CI-007)
-* `--json` — Emit machine-readable JSON plan (TIA-CI-006) Conflicts with --pre-edit and --agent
-* `--agent` — Agent output format: structured JSON for LLM agent consumption (TIA-AGENT-001) Conflicts with --json and --pre-edit
-* `--pre-edit` — Pre-edit blast radius: report affected tests for proposed changes (TIA-AGENT-005) Conflicts with --json and --agent
+* `--agent` — Agent output format: structured JSON for LLM agent consumption (TIA-AGENT-001) Conflicts with --pre-edit
+* `--pre-edit` — Pre-edit blast radius: report affected tests for proposed changes (TIA-AGENT-005) Conflicts with --agent
 * `--ci` — CI mode: run selected tests and ingest results automatically (TIA-CI-008)
 * `--safe` — Safe mode: pre-flight checks then fall back to `cargo test` if anything is missing (config, store, git refs) or confidence is low. Implies --ci. Recommended: pass --base and --head to test the diff between two git refs; otherwise falls back to uncommitted changes
 * `--ordering <ORDERING>` — Selection ordering mode
@@ -180,6 +202,14 @@ Show operational metrics
 
 
 
+## `testaruda fingerprint`
+
+Refresh all content unit fingerprints from disk
+
+**Usage:** `testaruda fingerprint`
+
+
+
 ## `testaruda doctor`
 
 Validate project configuration via genesis suite_linter
@@ -221,6 +251,14 @@ Generate shell completions
 
   Possible values: `bash`, `elvish`, `fish`, `powershell`, `zsh`
 
+
+
+
+## `testaruda status`
+
+Display cross-tool health summary
+
+**Usage:** `testaruda status`
 
 
 

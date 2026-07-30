@@ -1,6 +1,6 @@
 [package]
 name = "testaruda"
-version = "0.2.6"
+version = "0.3.0"
 edition = "2021"
 description = "Language-agnostic test selection engine — compute the affected test set from a code change via provenance-semiring dependency analysis"
 license = "Apache-2.0"
@@ -58,7 +58,7 @@ blake3 = "1"
 walkdir = "2"
 clap-markdown = "0.1"
 clap_complete = "4.6.7"
-genesis-vibes = "0.3"
+genesis-vibes = "0.4"
 shell-words = "1"
 
 [dev-dependencies]

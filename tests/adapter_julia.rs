@@ -259,9 +259,10 @@ fn julia_adapter_static_deps_unresolved() {
         "static-deps should succeed"
     );
     let edges = &parsed["result"]["edges"];
-    assert_eq!(
-        edges["src/foo.jl"], "unresolved",
-        "without prior ingest, changed files should be unresolved"
+    assert!(
+        edges.as_array().unwrap().is_empty(),
+        "without prior ingest, edges should be empty, got: {:?}",
+        edges
     );
 
     child.kill().ok();
@@ -543,26 +544,11 @@ fn julia_adapter_monorepo_static_deps_cross_package() {
         serde_json::from_str(&resp).expect("static-deps should be valid JSON");
     assert!(sd_a["ok"].as_bool().unwrap_or(false));
     let edges_a = &sd_a["result"]["edges"];
-    // Compare by filename suffix to avoid canonicalize fragility (EDGE-004)
-    let src_a_str = src_a.to_string_lossy();
+    // Without prior ingest, edges should be empty
     assert!(
-        edges_a
-            .as_object()
-            .unwrap()
-            .keys()
-            .any(|k| k.ends_with("PkgA.jl")),
-        "static-deps result should contain pkg_a's src file: {}",
-        src_a_str
+        edges_a.as_array().unwrap().is_empty(),
+        "without prior ingest, edges should be empty for pkg_a"
     );
-    // The value for src_a should be "unresolved"
-    for (key, val) in edges_a.as_object().unwrap() {
-        if key.ends_with("PkgA.jl") {
-            assert_eq!(
-                val, "unresolved",
-                "without prior ingest, changed files should be unresolved"
-            );
-        }
-    }
 
     // Static-deps on pkg_b's source (single file)
     let cmd = format!(
@@ -574,24 +560,11 @@ fn julia_adapter_monorepo_static_deps_cross_package() {
         serde_json::from_str(&resp).expect("static-deps should be valid JSON");
     assert!(sd_b["ok"].as_bool().unwrap_or(false));
     let edges_b = &sd_b["result"]["edges"];
-    let src_b_str = src_b.to_string_lossy();
+    // Without prior ingest, edges should be empty
     assert!(
-        edges_b
-            .as_object()
-            .unwrap()
-            .keys()
-            .any(|k| k.ends_with("PkgB.jl")),
-        "static-deps result should contain pkg_b's src file: {}",
-        src_b_str
+        edges_b.as_array().unwrap().is_empty(),
+        "without prior ingest, edges should be empty for pkg_b"
     );
-    for (key, val) in edges_b.as_object().unwrap() {
-        if key.ends_with("PkgB.jl") {
-            assert_eq!(
-                val, "unresolved",
-                "without prior ingest, changed files should be unresolved"
-            );
-        }
-    }
 
     // Combined static-deps: both files in a single call (EDGE-003)
     let cmd = format!(
@@ -603,12 +576,10 @@ fn julia_adapter_monorepo_static_deps_cross_package() {
     let sd_both: serde_json::Value =
         serde_json::from_str(&resp).expect("static-deps should be valid JSON");
     assert!(sd_both["ok"].as_bool().unwrap_or(false));
-    let edges_both = sd_both["result"]["edges"].as_object().unwrap();
-    let has_pkg_a = edges_both.keys().any(|k| k.ends_with("PkgA.jl"));
-    let has_pkg_b = edges_both.keys().any(|k| k.ends_with("PkgB.jl"));
+    let edges_both = sd_both["result"]["edges"].as_array().unwrap();
     assert!(
-        has_pkg_a && has_pkg_b,
-        "combined static-deps should contain both src files"
+        edges_both.is_empty(),
+        "combined static-deps should be empty without prior ingest"
     );
 
     child.kill().ok();
@@ -704,13 +675,10 @@ fn julia_adapter_full_pipeline() {
         serde_json::from_str(&resp).expect("static-deps should be valid JSON");
     assert!(sd["ok"].as_bool().unwrap_or(false));
     let sd_edges = &sd["result"]["edges"];
-    // The key is the absolute path, and it should be "unresolved"
-    let abs_src = std::fs::canonicalize(&src_file).unwrap();
-    let abs_src_str = abs_src.to_string_lossy();
-    assert_eq!(
-        sd_edges[abs_src_str.as_ref()],
-        "unresolved",
-        "without prior ingest, changed files should be unresolved"
+    // Without prior ingest, edges should be empty
+    assert!(
+        sd_edges.as_array().unwrap().is_empty(),
+        "without prior ingest, edges should be empty"
     );
 
     // 5. Ingest via run_output (TIA-ADAPT-008)
@@ -896,13 +864,8 @@ fn julia_adapter_static_deps_multiple_files() {
     );
     let edges = &parsed["result"]["edges"];
     assert!(
-        edges["src/a.jl"] == "unresolved" || edges["src/a.jl"] == serde_json::json!([]),
-        "multiple changed files should each be handled: {:?}",
-        edges
-    );
-    assert!(
-        edges["src/b.jl"] == "unresolved" || edges["src/b.jl"] == serde_json::json!([]),
-        "multiple changed files should each be handled: {:?}",
+        edges.as_array().unwrap().is_empty(),
+        "multiple changed files should produce empty edges without prior ingest: {:?}",
         edges
     );
 

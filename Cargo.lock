@@ -488,9 +488,9 @@ dependencies = [
 
 [[package]]
 name = "genesis-vibes"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42b2c4a62ec2cafd4327375e1a7183a57af7347a9a64a6abaf4376f7999a91d9"
+checksum = "f486c1c0b7b9611e9dfb701ad97ea6a0d71e95f66c90a323d67920b2883d8c22"
 dependencies = [
  "clap",
  "clap_complete",
@@ -1127,7 +1127,7 @@ checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
 
 [[package]]
 name = "testaruda"
-version = "0.2.6"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "ascent",
