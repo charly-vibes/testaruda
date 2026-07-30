@@ -4,6 +4,7 @@ mod commands;
 mod doctor;
 
 use clap::{Parser, Subcommand};
+use genesis::guide::{CliFormat, CliVerbosity};
 use std::io::IsTerminal;
 
 /// Build the genesis config registry with testaruda's config registered.
@@ -58,6 +59,10 @@ pub fn build_block_registry() -> genesis::managed_block::BlockRegistry {
 #[derive(Parser)]
 #[command(name = "testaruda", author, version, about)]
 pub struct Cli {
+    #[command(flatten)]
+    pub verbose: CliVerbosity,
+    #[command(flatten)]
+    pub format: CliFormat,
     #[command(subcommand)]
     command: Command,
 }
@@ -80,17 +85,13 @@ enum Command {
         /// Shadow mode: compute but report all tests should run (TIA-CI-007)
         #[arg(long)]
         shadow: bool,
-        /// Emit machine-readable JSON plan (TIA-CI-006)
-        /// Conflicts with --pre-edit and --agent.
-        #[arg(long, conflicts_with_all = ["pre_edit", "agent"])]
-        json: bool,
         /// Agent output format: structured JSON for LLM agent consumption (TIA-AGENT-001)
-        /// Conflicts with --json and --pre-edit.
-        #[arg(long, conflicts_with_all = ["json", "pre_edit"])]
+        /// Conflicts with --pre-edit.
+        #[arg(long, conflicts_with_all = ["pre_edit"])]
         agent: bool,
         /// Pre-edit blast radius: report affected tests for proposed changes (TIA-AGENT-005)
-        /// Conflicts with --json and --agent.
-        #[arg(long, conflicts_with_all = ["json", "agent"])]
+        /// Conflicts with --agent.
+        #[arg(long, conflicts_with_all = ["agent"])]
         pre_edit: bool,
         /// CI mode: run selected tests and ingest results automatically (TIA-CI-008)
         #[arg(long)]
@@ -200,7 +201,7 @@ fn main() -> miette::Result<()> {
         "completions",
         "status",
     ];
-    let guide = genesis::guide::Guide::builder("testaruda", env!("CARGO_PKG_VERSION"))
+    let mut guide = genesis::guide::Guide::builder("testaruda", env!("CARGO_PKG_VERSION"))
         .about("Language-agnostic test selection engine — compute the affected test set from a code change via provenance-semiring dependency analysis")
         .commands(&all_commands)
         .build();
@@ -211,7 +212,10 @@ fn main() -> miette::Result<()> {
 
     let cli = parse_cli_with_suggestions(&guide);
 
-    dispatch(cli.command).map_err(|e| {
+    // Set verbosity from cli args (genesis v0.4.0 CliVerbosity)
+    guide.set_verbosity(cli.verbose.verbosity());
+
+    dispatch(cli.command, cli.format).map_err(|e| {
         // Error-footer hook (TIA-ADAPT feedback protocol):
         // On non-zero exit with no Fix suggestion, print feedback command hint
         eprintln!("testaruda: {}", e);
@@ -275,7 +279,7 @@ fn parse_cli_with_suggestions(guide: &genesis::guide::Guide) -> Cli {
 }
 
 /// Dispatch a parsed command to its handler in [`commands`].
-fn dispatch(command: Command) -> miette::Result<()> {
+fn dispatch(command: Command, format: CliFormat) -> miette::Result<()> {
     match command {
         Command::Init => commands::init(),
         Command::Calibrate { threshold } => commands::calibrate(threshold),
@@ -284,7 +288,6 @@ fn dispatch(command: Command) -> miette::Result<()> {
             head,
             files,
             shadow,
-            json,
             agent,
             pre_edit,
             ci,
@@ -295,7 +298,7 @@ fn dispatch(command: Command) -> miette::Result<()> {
             head,
             files,
             shadow,
-            json,
+            format,
             agent,
             pre_edit,
             ci,

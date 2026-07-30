@@ -5,6 +5,7 @@
 //! out keeps the CLI entry point small (see pretender thresholds in
 //! `pretender.toml`) and gives each command a self-contained, testable unit.
 
+use genesis::guide::{CliFormat, OutputFormat};
 use miette::miette;
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
@@ -315,6 +316,18 @@ pub fn init() -> miette::Result<()> {
         report_detected_language(&detected);
     }
 
+    // Register in genesis tool manifest (v0.4.0 discovery module)
+    match genesis::discovery::register(
+        &project_root,
+        "testaruda",
+        "Language-agnostic test selection engine",
+        "file",
+        "testaruda.toml",
+    ) {
+        Ok(_) => println!("  ✓ Registered in .genesis/tools.toml"),
+        Err(e) => eprintln!("  ⚠️  Failed to register: {}", e),
+    }
+
     // Check for Soufflé oracle (TIA-ENG-010)
     match std::process::Command::new("souffle")
         .arg("--version")
@@ -411,7 +424,7 @@ pub struct SelectArgs {
     pub head: Option<String>,
     pub files: Option<String>,
     pub shadow: bool,
-    pub json: bool,
+    pub format: CliFormat,
     pub agent: bool,
     pub pre_edit: bool,
     pub ci: bool,
@@ -501,8 +514,8 @@ pub fn select(args: SelectArgs) -> miette::Result<()> {
         changed_ids: &changed_ids,
         unresolved_ids: &unresolved_ids,
         shadow: args.shadow,
+        format: args.format,
         agent: args.agent,
-        json: args.json,
         pre_edit: args.pre_edit,
         safe: args.safe,
     };
@@ -530,8 +543,8 @@ struct SelectState<'a> {
     changed_ids: &'a [u32],
     unresolved_ids: &'a [u32],
     shadow: bool,
+    format: CliFormat,
     agent: bool,
-    json: bool,
     pre_edit: bool,
     safe: bool,
 }
@@ -568,20 +581,22 @@ fn emit_select_output(state: &SelectState) -> miette::Result<()> {
         changed_ids,
         unresolved_ids,
         shadow,
+        format,
         agent,
-        json,
         pre_edit,
         safe,
     } = state;
 
     if *agent {
         emit_agent_output(store, selection, changed_ids, unresolved_ids)?;
-    } else if *json {
-        emit_json_plan(selection, outcome, *shadow)?;
     } else if *pre_edit {
         emit_pre_edit(store, selection, changed_ids, unresolved_ids)?;
     } else {
-        emit_human_output(selection, outcome, *shadow, *safe)?;
+        // Use global CliFormat for Human vs Json dispatch (genesis v0.4.0)
+        match format.format() {
+            OutputFormat::Json => emit_json_plan(selection, outcome, *shadow)?,
+            OutputFormat::Human => emit_human_output(selection, outcome, *shadow, *safe)?,
+        }
     }
     Ok(())
 }
