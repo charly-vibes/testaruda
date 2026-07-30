@@ -10,6 +10,10 @@
 #   ./scripts/stress-test.sh [options] <repo-url-or-path>
 #
 # Options:
+#   --mode MODE       Stress-test mode: git (use git diff) or synthetic
+#                      (sample source files). Default: git.
+#   --samples N       Number of source files to sample in synthetic mode.
+#                      Default: 10. Set to 0 to test ALL source files.
 #   --base REF         Git base ref for changed files (default: HEAD~1)
 #   --head REF         Git head ref for changed files (default: HEAD)
 #   --sample N         Max test items to fetch run-args for (default: 10)
@@ -24,15 +28,22 @@
 #   1. Clones (if URL) or uses the provided repo path
 #   2. Auto-detects the adapter from project markers (or --adapter)
 #   3. Runs all 6 adapter commands: handshake, discover, fingerprint,
-#      static-deps, run-args, ingest
+#      static-deps (git diff or synthetic sampling), run-args, ingest
 #   4. Times each command and reports errors gracefully
 #   5. Outputs structured JSON to stdout
+#
+# Synthetic mode (--mode synthetic):
+#   Instead of relying on git history, picks N random source files and
+#   calls static-deps for each one individually. Reports source_coverage:
+#   what fraction of source file changes actually produce dependency edges.
+#   This measures adapter quality independently of repo commit history.
 #
 # ARG_MAX safety (testaruda-15t): large payloads are written to temp files
 # and passed via --argfile to avoid exceeding the kernel E2BIG limit.
 ##   ./scripts/stress-test.sh target/scratch/click
 #   ./scripts/stress-test.sh target/scratch/tokei
 #   ./scripts/stress-test.sh --base HEAD~5 --head HEAD target/scratch/httpx
+#   ./scripts/stress-test.sh --mode synthetic --samples 20 --output results.json .
 #   ./scripts/stress-test.sh --sample 50 --output results.json .
 #   for d in target/scratch/*/; do ./scripts/stress-test.sh "$d"; done
 #   # For monorepos, discover tests from subpackage:
@@ -44,6 +55,8 @@ set -euo pipefail
 # ============================================================================
 # Defaults
 # ============================================================================
+MODE="git"
+SAMPLES=10
 BASE="HEAD~1"
 HEAD="HEAD"
 SAMPLE=10
@@ -58,6 +71,8 @@ REPO=""
 # ============================================================================
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --mode)      shift; MODE="$1" ;;
+        --samples)   shift; SAMPLES="$1" ;;
         --base)      shift; BASE="$1" ;;
         --head)      shift; HEAD="$1" ;;
         --sample)    shift; SAMPLE="$1" ;;
@@ -65,7 +80,7 @@ while [[ $# -gt 0 ]]; do
         --adapter)   shift; ADAPTER="$1" ;;
         --timeout)   shift; TIMEOUT="$1" ;;
         --test-dir)  shift; TEST_DIR="$1" ;;
-        --help)      head -40 "$0" | grep -E "^#" | sed 's/^# \?//'; exit 0 ;;
+        --help)      head -50 "$0" | grep -E "^#" | sed 's/^# \?//'; exit 0 ;;
         *)           REPO="$1" ;;
     esac
     shift
@@ -172,22 +187,18 @@ resolve_adapter() {
         local args="${input#* }"
         local resolved="$(resolve_adapter_binary "$bin")"
         if [[ -z "$resolved" ]]; then
-            echo "$bin"
-            echo "$args"
+            printf '%s\n%s\n' "$bin" "$args"
             return 1
         fi
-        echo "$resolved"
-        echo "$args"
+        printf '%s\n%s\n' "$resolved" "$args"
         return 0
     fi
     resolved="$(resolve_adapter_binary "$input")"
     if [[ -z "$resolved" ]]; then
-        echo "$input"
-        echo ""
+        printf '%s\n_\n' "$input"
         return 1
     fi
-    echo "$resolved"
-    echo ""
+    printf '%s\n_\n' "$resolved"
     return 0
 }
 
@@ -221,6 +232,75 @@ clone_repo() {
     echo "$dest"
 }
 
+# Discover source files in a repo by language
+# Returns a list of file paths relative to the repo root.
+discover_source_files() {
+    local dir="$1"
+    local adapter="$2"
+
+    case "$adapter" in
+        *testaruda-adapter-rust*)
+            find "$dir/src" -name "*.rs" -type f -printf '%P\n' 2>/dev/null || true
+            ;;
+        *testaruda-adapter-python*)
+            find "$dir" -maxdepth 3 -name "*.py" -type f \
+                -not -path "*/tests/*" -not -name "test_*" \
+                -not -path "*/.venv/*" -not -path "*/venv/*" \
+                -not -path "*/__pycache__/*" \
+                -printf '%P\n' 2>/dev/null || true
+            ;;
+        *testaruda-adapter-julia*)
+            find "$dir/src" -name "*.jl" -type f -printf '%P\n' 2>/dev/null || true
+            ;;
+        *testaruda-adapter-typescript*)
+            find "$dir/src" \( -name "*.ts" -o -name "*.tsx" \) -type f \
+                -not -path "*/tests/*" -not -path "*/__tests__/*" \
+                -printf '%P\n' 2>/dev/null || true
+            ;;
+        *testaruda-adapter-clojure*)
+            find "$dir/src" -name "*.clj" -type f -printf '%P\n' 2>/dev/null || true
+            ;;
+        *titi*)
+            find "$dir" -name "*.cs" -type f \
+                -not -path "*/obj/*" -not -path "*/bin/*" \
+                -not -path "*/tests/*" \
+                -printf '%P\n' 2>/dev/null || true
+            ;;
+        *)
+            # Unknown adapter — try common source dirs
+            find "$dir/src" -type f \
+                \( -name "*.rs" -o -name "*.py" -o -name "*.jl" \
+                   -o -name "*.ts" -o -name "*.tsx" -o -name "*.clj" \
+                   -o -name "*.cs" \) \
+                -printf '%P\n' 2>/dev/null || true
+            ;;
+    esac
+}
+
+# Pick N random items from a newline-separated list
+pick_random() {
+    local n="$1"
+    shift
+    local items=("$@")
+    local total=${#items[@]}
+
+    if [[ "$total" -eq 0 ]]; then
+        return
+    fi
+
+    if [[ "$n" -eq 0 || "$n" -ge "$total" ]]; then
+        printf '%s\n' "${items[@]}"
+        return
+    fi
+
+    # Use shuf if available, fall back to sort -R (more portable)
+    if command -v shuf &>/dev/null; then
+        printf '%s\n' "${items[@]}" | shuf -n "$n"
+    else
+        printf '%s\n' "${items[@]}" | sort -R | head -n "$n"
+    fi
+}
+
 # ============================================================================
 # Main
 # ============================================================================
@@ -252,17 +332,28 @@ fi
 
 RESOLVED="$(resolve_adapter "$ADAPTER")" || true
 # Parse resolved adapter — first line is binary, second is args (if command-string)
-ADAPTER_BIN="$(echo "$RESOLVED" | head -1)"
-ADAPTER_ARGS="$(echo "$RESOLVED" | tail -1)"
+# Use sed to handle empty second lines (tail -1 skips trailing empty lines)
+ADAPTER_BIN="$(echo "$RESOLVED" | sed -n '1p')"
+ADAPTER_ARGS="$(echo "$RESOLVED" | sed -n '2p')"
+# If args is placeholder '_', treat as empty
+if [[ "$ADAPTER_ARGS" == "_" ]]; then
+    ADAPTER_ARGS=""
+fi
 
 if [[ -z "$ADAPTER_BIN" ]] || ! command -v "$ADAPTER_BIN" &>/dev/null && [[ ! -x "$ADAPTER_BIN" ]]; then
     echo "Error: adapter binary not found: $ADAPTER" >&2
     echo "  Build it: cargo build --bin $ADAPTER" >&2
     exit 1
 fi
+
+# Validate mode
+if [[ "$MODE" != "git" && "$MODE" != "synthetic" ]]; then
+    echo "Error: invalid mode '$MODE'. Use 'git' or 'synthetic'." >&2
+    exit 1
+fi
 ADAPTER_DISPLAY="$ADAPTER_BIN${ADAPTER_ARGS:+ $ADAPTER_ARGS}"
 
-echo "=== Stress-testing $ADAPTER_DISPLAY against: $SLUG ===" >&2
+echo "=== Stress-testing $ADAPTER_DISPLAY against: $SLUG (mode: $MODE) ===" >&2
 
 # ============================================================================
 # Phase 1: Handshake
@@ -355,7 +446,7 @@ if [[ "$DISCOVER_COUNT" -gt 0 ]]; then
 fi
 
 # ============================================================================
-# Phase 4: Static-deps (via git diff)
+# Phase 4: Static-deps
 # ============================================================================
 echo "  [4/6] Static-deps..." >&2
 
@@ -366,30 +457,132 @@ STATIC_DEPS_UNRESOLVED=0
 STATIC_DEPS_ERROR="null"
 STATIC_DEPS_DURATION=0
 
-CHANGED_FILES="$(cd "$WORK_DIR" && git diff --name-only "$BASE" "$HEAD" 2>/dev/null || true)"
-CHANGED_COUNT="$(echo "$CHANGED_FILES" | grep -c . || true)"
+# Synthetic mode results (only populated in synthetic mode)
+SYNTHETIC_TOTAL=0
+SYNTHETIC_WITH_EDGES=0
+SYNTHETIC_EDGES_PER_FILE="[]"
+SYNTHETIC_FILES="[]"
 
-if [[ "$CHANGED_COUNT" -gt 0 ]]; then
-    SD_CMD='{"command":"static-deps","params":{"changed_files":['
-    first=true
+if [[ "$MODE" == "synthetic" ]]; then
+    # Synthetic mode: sample source files and test each one individually
+    echo "  [4/6] Synthetic mode: sampling source files..." >&2
+
+    # Get source file listing (non-test files)
+    SOURCE_FILES=()
     while IFS= read -r f; do
-        if [[ -z "$f" ]]; then continue; fi
-        if $first; then first=false; else SD_CMD+=','; fi
-        SD_CMD+="$(json_str "$f")"
-    done <<< "$CHANGED_FILES"
-    SD_CMD+=']}}'
+        if [[ -n "$f" ]]; then
+            SOURCE_FILES+=("$f")
+        fi
+    done < <(discover_source_files "$WORK_DIR" "$ADAPTER" || true)
 
-    START="$(date +%s%N)"
-    SD_RESPONSE="$(adapter_command "$SD_CMD" "$WORK_DIR")"
-    STATIC_DEPS_DURATION=$(( ($(date +%s%N) - START) / 1000000 ))
+    SOURCE_COUNT=${#SOURCE_FILES[@]}
+    echo "  Found $SOURCE_COUNT source files in repo" >&2
 
-    if echo "$SD_RESPONSE" | jq -e '.ok == true' >/dev/null 2>&1; then
-        STATIC_DEPS_OK=true
-        STATIC_DEPS_CHANGED="$CHANGED_COUNT"
-        STATIC_DEPS_EDGES=$(echo "$SD_RESPONSE" | jq '[.edges // .result.edges // {} | to_entries[] | .value | length] | add // 0')
-        STATIC_DEPS_UNRESOLVED=$(echo "$SD_RESPONSE" | jq '[.edges // .result.edges // {} | to_entries[] | select(.value == "unresolved")] | length')
-    else
-        STATIC_DEPS_ERROR="$(echo "$SD_RESPONSE" | jq '.error // "static-deps failed"' 2>/dev/null || echo '"no response"')"
+    if [[ "$SOURCE_COUNT" -gt 0 ]]; then
+        # Pick random sample
+        SAMPLE_FILES=()
+        while IFS= read -r f; do
+            if [[ -n "$f" ]]; then
+                SAMPLE_FILES+=("$f")
+            fi
+        done < <(pick_random "$SAMPLES" "${SOURCE_FILES[@]}")
+
+        SAMPLE_COUNT=${#SAMPLE_FILES[@]}
+        echo "  Testing $SAMPLE_COUNT source files ($SAMPLES requested)" >&2
+
+        SYNTHETIC_TOTAL=$SAMPLE_COUNT
+        SYNTHETIC_WITH_EDGES=0
+        EDGE_COUNTS=()
+        FILE_RESULTS=()
+
+        for src_file in "${SAMPLE_FILES[@]}"; do
+            # Build static-deps command with this single file
+            SD_CMD='{"command":"static-deps","params":{"changed_files":['
+            SD_CMD+="$(json_str "$src_file")"
+            SD_CMD+=']}}'
+
+            START="$(date +%s%N)"
+            SD_RESPONSE="$(adapter_command "$SD_CMD" "$WORK_DIR")"
+            elapsed=$(( ($(date +%s%N) - START) / 1000000 ))
+            STATIC_DEPS_DURATION=$((STATIC_DEPS_DURATION + elapsed))
+
+            if echo "$SD_RESPONSE" | jq -e '.ok == true' >/dev/null 2>&1; then
+                edge_count=$(echo "$SD_RESPONSE" | jq '[.edges // .result.edges // {} | to_entries[] | .value | length] | add // 0')
+                unresolved=$(echo "$SD_RESPONSE" | jq '[.edges // .result.edges // {} | to_entries[] | select(.value == "unresolved")] | length')
+
+                if [[ "$edge_count" -gt 0 ]]; then
+                    SYNTHETIC_WITH_EDGES=$((SYNTHETIC_WITH_EDGES + 1))
+                fi
+
+                EDGE_COUNTS+=("$edge_count")
+                FILE_RESULTS+=("${src_file}|${edge_count}|${unresolved}")
+
+                STATIC_DEPS_OK=true
+            else
+                EDGE_COUNTS+=("0")
+                FILE_RESULTS+=("${src_file}|-1|error")
+            fi
+
+            echo -n "." >&2
+        done
+        echo "" >&2
+
+        STATIC_DEPS_CHANGED=$SAMPLE_COUNT
+        # Sum all edge counts for total
+        total_edges=0
+        for c in "${EDGE_COUNTS[@]}"; do
+            total_edges=$((total_edges + c))
+        done
+        STATIC_DEPS_EDGES=$total_edges
+
+        # Build JSON arrays for per-file results
+        SYNTHETIC_EDGES_PER_FILE="["
+        first_edge=true
+        for c in "${EDGE_COUNTS[@]}"; do
+            if $first_edge; then first_edge=false; else SYNTHETIC_EDGES_PER_FILE+=','; fi
+            SYNTHETIC_EDGES_PER_FILE+="$c"
+        done
+        SYNTHETIC_EDGES_PER_FILE+="]"
+
+        SYNTHETIC_FILES="["
+        first_file=true
+        for result in "${FILE_RESULTS[@]}"; do
+            if $first_file; then first_file=false; else SYNTHETIC_FILES+=','; fi
+            fname="${result%%|*}"
+            rest="${result#*|}"
+            f_edges="${rest%%|*}"
+            f_unresolved="${rest#*|}"
+            SYNTHETIC_FILES+="{\"file\":$(json_str "$fname"),\"edges\":$f_edges,\"unresolved\":$f_unresolved}"
+        done
+        SYNTHETIC_FILES+="]"
+    fi
+else
+    # Git mode: use git diff to find changed files
+    CHANGED_FILES="$(cd "$WORK_DIR" && git diff --name-only "$BASE" "$HEAD" 2>/dev/null || true)"
+    CHANGED_COUNT="$(echo "$CHANGED_FILES" | grep -c . || true)"
+
+    if [[ "$CHANGED_COUNT" -gt 0 ]]; then
+        SD_CMD='{"command":"static-deps","params":{"changed_files":['
+        first=true
+        while IFS= read -r f; do
+            if [[ -z "$f" ]]; then continue; fi
+            if $first; then first=false; else SD_CMD+=','; fi
+            SD_CMD+="$(json_str "$f")"
+        done <<< "$CHANGED_FILES"
+        SD_CMD+=']}}'
+
+        START="$(date +%s%N)"
+        SD_RESPONSE="$(adapter_command "$SD_CMD" "$WORK_DIR")"
+        STATIC_DEPS_DURATION=$(( ($(date +%s%N) - START) / 1000000 ))
+
+        if echo "$SD_RESPONSE" | jq -e '.ok == true' >/dev/null 2>&1; then
+            STATIC_DEPS_OK=true
+            STATIC_DEPS_CHANGED="$CHANGED_COUNT"
+            STATIC_DEPS_EDGES=$(echo "$SD_RESPONSE" | jq '[.edges // .result.edges // {} | to_entries[] | .value | length] | add // 0')
+            STATIC_DEPS_UNRESOLVED=$(echo "$SD_RESPONSE" | jq '[.edges // .result.edges // {} | to_entries[] | select(.value == "unresolved")] | length')
+        else
+            STATIC_DEPS_ERROR="$(echo "$SD_RESPONSE" | jq '.error // "static-deps failed"' 2>/dev/null || echo '"no response"')"
+        fi
     fi
 fi
 
@@ -484,11 +677,18 @@ HEAD_MSG="$(cd "$WORK_DIR" && git log --oneline -1 2>/dev/null || echo "")"
 DISCOVER_FILES_FILE="${TMPDIR:-/tmp}/testaruda_discover_files.$$.json"
 printf '%s' "$DISCOVER_FILES" > "$DISCOVER_FILES_FILE"
 
+# Write synthetic mode per-file data to temp file (avoids ARG_MAX)
+SYNTHETIC_EDGES_FILE="${TMPDIR:-/tmp}/testaruda_synthetic_edges.$$.json"
+SYNTHETIC_FILES_FILE="${TMPDIR:-/tmp}/testaruda_synthetic_files.$$.json"
+printf '%s' "$SYNTHETIC_EDGES_PER_FILE" > "$SYNTHETIC_EDGES_FILE"
+printf '%s' "$SYNTHETIC_FILES" > "$SYNTHETIC_FILES_FILE"
+
 OUTPUT_JSON="$(jq -n \
     --arg slug "$SLUG" \
     --arg repo_url "$REPO_URL" \
     --arg head_hash "$HEAD_HASH" \
     --arg head_msg "$HEAD_MSG" \
+    --arg mode "$MODE" \
     --argjson handshake_ok "$HANDSHAKE_OK" \
     --argjson handshake_duration "$HANDSHAKE_DURATION" \
     --arg handshake_capabilities "$HANDSHAKE_CAPABILITIES" \
@@ -508,6 +708,10 @@ OUTPUT_JSON="$(jq -n \
     --argjson static_deps_edges "$STATIC_DEPS_EDGES" \
     --argjson static_deps_unresolved "$STATIC_DEPS_UNRESOLVED" \
     --arg static_deps_error "$STATIC_DEPS_ERROR" \
+    --argjson synthetic_total "$SYNTHETIC_TOTAL" \
+    --argjson synthetic_with_edges "$SYNTHETIC_WITH_EDGES" \
+    --rawfile synthetic_edges "$SYNTHETIC_EDGES_FILE" \
+    --rawfile synthetic_files "$SYNTHETIC_FILES_FILE" \
     --argjson run_args_ok "$RUN_ARGS_OK" \
     --argjson run_args_duration "$RUN_ARGS_DURATION" \
     --argjson run_args_count "$RUN_ARGS_COUNT" \
@@ -520,6 +724,7 @@ OUTPUT_JSON="$(jq -n \
     '{
   "schema": "https://testaruda.dev/schemas/stress-test-v1",
   "generated": (now | strftime("%Y-%m-%dT%H:%M:%SZ")),
+  "mode": $mode,
   "repo": {
     "slug": $slug,
     "url": $repo_url,
@@ -550,10 +755,19 @@ OUTPUT_JSON="$(jq -n \
     "static_deps": {
       "ok": $static_deps_ok,
       "duration_ms": $static_deps_duration,
+      "mode": $mode,
       "changed_files": $static_deps_changed,
       "edges": $static_deps_edges,
       "unresolved": $static_deps_unresolved,
-      "error": ($static_deps_error | fromjson? // null)
+      "error": ($static_deps_error | fromjson? // null),
+      "synthetic": {
+        "total_files": $synthetic_total,
+        "files_with_edges": $synthetic_with_edges,
+        "source_coverage": (if $synthetic_total > 0 then ($synthetic_with_edges / $synthetic_total) else 0 end),
+        "avg_edges_per_file": (if $synthetic_total > 0 then (($synthetic_edges | fromjson) | add / $synthetic_total) else 0 end),
+        "edges_per_file": ($synthetic_edges | fromjson),
+        "files": ($synthetic_files | fromjson)
+      }
     },
     "run_args": {
       "ok": $run_args_ok,
@@ -579,9 +793,15 @@ fi
 
 # Print summary to stderr
 echo "=== Summary ===" >&2
+echo "  Mode:         $MODE" >&2
 echo "  Handshake:    ${HANDSHAKE_DURATION}ms" >&2
 echo "  Discover:     ${DISCOVER_DURATION}ms (${DISCOVER_COUNT} tests)" >&2
 echo "  Fingerprint:  ${FINGERPRINT_DURATION}ms (${FINGERPRINT_COUNT} files)" >&2
-echo "  Static-deps:  ${STATIC_DEPS_DURATION}ms (${STATIC_DEPS_CHANGED} files, ${STATIC_DEPS_EDGES} edges, ${STATIC_DEPS_UNRESOLVED} unresolved)" >&2
+if [[ "$MODE" == "synthetic" ]] && [[ "$SYNTHETIC_TOTAL" -gt 0 ]]; then
+    source_coverage=$(echo "scale=1; $SYNTHETIC_WITH_EDGES * 100 / $SYNTHETIC_TOTAL" | bc 2>/dev/null || echo "?")
+    echo "  Static-deps:  ${STATIC_DEPS_DURATION}ms (synthetic: $SYNTHETIC_WITH_EDGES/$SYNTHETIC_TOTAL files with edges = ${source_coverage}% source_coverage)" >&2
+else
+    echo "  Static-deps:  ${STATIC_DEPS_DURATION}ms (${STATIC_DEPS_CHANGED} files, ${STATIC_DEPS_EDGES} edges, ${STATIC_DEPS_UNRESOLVED} unresolved)" >&2
+fi
 echo "  Run-args:     ${RUN_ARGS_DURATION}ms (${RUN_ARGS_COUNT} selected)" >&2
 echo "  Ingest:       ${INGEST_DURATION}ms (${INGEST_COUNT} ingested)" >&2
