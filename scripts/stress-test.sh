@@ -240,7 +240,8 @@ discover_source_files() {
 
     case "$adapter" in
         *testaruda-adapter-rust*)
-            find "$dir/src" -name "*.rs" -type f -printf '%P\n' 2>/dev/null || true
+            # Print full paths relative to project root, including src/ prefix
+            find "$dir/src" -name "*.rs" -type f -printf 'src/%P\n' 2>/dev/null || true
             ;;
         *testaruda-adapter-python*)
             find "$dir" -maxdepth 3 -name "*.py" -type f \
@@ -250,15 +251,15 @@ discover_source_files() {
                 -printf '%P\n' 2>/dev/null || true
             ;;
         *testaruda-adapter-julia*)
-            find "$dir/src" -name "*.jl" -type f -printf '%P\n' 2>/dev/null || true
+            find "$dir/src" -name "*.jl" -type f -printf 'src/%P\n' 2>/dev/null || true
             ;;
         *testaruda-adapter-typescript*)
             find "$dir/src" \( -name "*.ts" -o -name "*.tsx" \) -type f \
                 -not -path "*/tests/*" -not -path "*/__tests__/*" \
-                -printf '%P\n' 2>/dev/null || true
+                -printf 'src/%P\n' 2>/dev/null || true
             ;;
         *testaruda-adapter-clojure*)
-            find "$dir/src" -name "*.clj" -type f -printf '%P\n' 2>/dev/null || true
+            find "$dir/src" -name "*.clj" -type f -printf 'src/%P\n' 2>/dev/null || true
             ;;
         *titi*)
             find "$dir" -name "*.cs" -type f \
@@ -552,7 +553,12 @@ if [[ "$MODE" == "synthetic" ]]; then
             rest="${result#*|}"
             f_edges="${rest%%|*}"
             f_unresolved="${rest#*|}"
-            SYNTHETIC_FILES+="{\"file\":$(json_str "$fname"),\"edges\":$f_edges,\"unresolved\":$f_unresolved}"
+            if [[ "$f_unresolved" == "error" ]]; then
+                f_unresolved_json="null"
+            else
+                f_unresolved_json="$f_unresolved"
+            fi
+            SYNTHETIC_FILES+="{\"file\":$(json_str "$fname"),\"edges\":$f_edges,\"unresolved\":$f_unresolved_json}"
         done
         SYNTHETIC_FILES+="]"
     fi
