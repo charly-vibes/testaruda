@@ -206,20 +206,35 @@ struct CargoInfo {
 }
 
 /// Parse the project's `Cargo.toml` to extract crate name and lib path.
+///
+/// Uses `.get()` instead of `[]` indexing to avoid panics when sections
+/// are missing (toml 0.8 panics on missing key access via `[]`).
 fn parse_cargo_toml() -> Option<CargoInfo> {
     let content = std::fs::read_to_string("Cargo.toml").ok()?;
     let parsed: toml::Value = toml::from_str(&content).ok()?;
 
-    let crate_name = parsed["package"]["name"].as_str()?.to_string();
+    let crate_name = parsed.get("package")?.get("name")?.as_str()?.to_string();
 
     // Resolve [lib] path: explicit path or default src/lib.rs
-    let lib_path = parsed["lib"]["path"]
-        .as_str()
+    let lib_path = parsed
+        .get("lib")
+        .and_then(|lib| lib.get("path"))
+        .and_then(|p| p.as_str())
         .unwrap_or("src/lib.rs")
         .to_string();
 
-    // Resolve [[bin]] path for crate with no lib
-    let main_path = parsed["bin"]["path"].as_str().map(|s| s.to_string());
+    // Resolve [[bin]] path for crates with no lib. Handle both
+    // `[bin]` (table) and `[[bin]]` (array of tables) formats.
+    let main_path = parsed
+        .get("bin")
+        .and_then(|bin| {
+            bin.as_array()
+                .and_then(|arr| arr.first())
+                .and_then(|first| first.get("path"))
+                .and_then(|p| p.as_str())
+                .or_else(|| bin.as_str())
+        })
+        .map(|s| s.to_string());
 
     Some(CargoInfo {
         crate_name,
