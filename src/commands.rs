@@ -1126,8 +1126,36 @@ pub fn fingerprint() -> miette::Result<()> {
 pub fn doctor(fix: bool) -> miette::Result<()> {
     let project_root = find_project_root()?;
     match crate::doctor::run_doctor(&project_root, fix) {
-        Ok(true) => Ok(()),
-        Ok(false) => std::process::exit(1),
+        Ok(report) => {
+            // Print human-readable results
+            let mut has_errors = false;
+
+            for check in &report.checks {
+                match check.status {
+                    genesis::doctor::CheckStatus::Pass => {}
+                    genesis::doctor::CheckStatus::Warn => {
+                        eprintln!("⚠️  {}: {}", check.name, check.message);
+                    }
+                    genesis::doctor::CheckStatus::Fail => {
+                        has_errors = true;
+                        eprintln!("❌ {}: {}", check.name, check.message);
+                    }
+                }
+                if let Some(ref fix_cmd) = check.fix {
+                    eprintln!("   🔧 Fix: {}", fix_cmd);
+                }
+            }
+
+            if !has_errors {
+                eprintln!("✅ All checks passed");
+            }
+
+            let exit_code = report.exit_code();
+            if exit_code != 0 {
+                std::process::exit(exit_code);
+            }
+            Ok(())
+        }
         Err(e) => Err(miette!("Doctor failed: {}", e)),
     }
 }
