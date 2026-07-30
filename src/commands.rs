@@ -1210,7 +1210,7 @@ pub fn gen_cli_docs() -> miette::Result<()> {
 /// `testaruda completions` — generate shell completions.
 pub fn completions(shell: clap_complete::Shell) -> miette::Result<()> {
     let mut cmd = <crate::Cli as clap::CommandFactory>::command();
-    let name = cmd.get_name().to_string();
-    clap_complete::generate(shell, &mut cmd, name, &mut std::io::stdout());
+    genesis::cli::generate_completions(&mut cmd, shell)
+        .map_err(|e| miette::miette!("Failed to generate completions: {}", e))?;
     Ok(())
 }
