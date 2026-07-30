@@ -75,7 +75,7 @@ fn static_deps_edges_for_changed_source() {
     );
 
     assert_eq!(resp["ok"], true, "static-deps should succeed: {resp}");
-    let edges = resp["result"]["edges"].as_array().unwrap();
+    let edges = resp["edges"].as_array().unwrap();
 
     // Should find at least one edge: my-project.core-test::test-greet(Test) → src/core.clj
     let core_edge = edges.iter().find(|e| {
@@ -108,7 +108,7 @@ fn static_deps_ignores_non_clojure_files() {
     );
 
     assert_eq!(resp["ok"], true, "static-deps should succeed: {resp}");
-    let edges = resp["result"]["edges"].as_array().unwrap();
+    let edges = resp["edges"].as_array().unwrap();
     assert!(
         edges.is_empty(),
         "no edges expected for non-Clojure file, got: {edges:?}"
@@ -133,7 +133,7 @@ fn static_deps_deduplicates_edges() {
     );
 
     assert_eq!(resp["ok"], true, "static-deps should succeed: {resp}");
-    let edges = resp["result"]["edges"].as_array().unwrap();
+    let edges = resp["edges"].as_array().unwrap();
 
     // Count edges from my-project.dup-test::test-dup(Test) → src/core.clj — should be exactly 1
     let dup_edges: Vec<&serde_json::Value> = edges
@@ -171,7 +171,7 @@ fn static_deps_unresolved_require_still_emits_edge() {
     );
 
     assert_eq!(resp["ok"], true, "static-deps should succeed: {resp}");
-    let edges = resp["result"]["edges"].as_array().unwrap();
+    let edges = resp["edges"].as_array().unwrap();
 
     // Edge from my-project.external-test::test-ext(Test) to src/core.clj should exist (because it depends on core)
     let ext_edge = edges.iter().find(|e| {
@@ -198,7 +198,7 @@ fn static_deps_handles_multiple_source_files() {
     );
 
     assert_eq!(resp["ok"], true, "static-deps should succeed: {resp}");
-    let edges = resp["result"]["edges"].as_array().unwrap();
+    let edges = resp["edges"].as_array().unwrap();
 
     // Should have edges for both source files
     let core_edges: Vec<&serde_json::Value> = edges

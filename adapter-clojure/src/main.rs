@@ -87,20 +87,28 @@ fn cmd_handshake() -> serde_json::Value {
 
 /// Static-deps: extract dependency edges from changed files (TIA-ADAPT-019).
 ///
-/// Takes `{"params": {"changed_files": ["path/to/file.clj", ...]}}` and returns edges
-/// from test files to source files based on `:require/:use/:import` analysis.
+/// Takes `{"params": {"changed_files": ["path/to/file.clj", ...]}}` and returns
+/// edges from test files to source files based on `:require/:use/:import`
+/// analysis. Returns flat format matching `StaticDepsResponse`:
+/// `candidates`, `edges`, `unresolved`, `symbol_edges` at top level.
+///
+/// Strategy:
+/// 1. Parse changed files to extract their namespace → file mapping.
+/// 2. Scan test files (in `test/` or `tests/` dirs), parse their `:require`
+///    declarations, and find which changed namespaces they depend on.
+/// 3. Return edges from test items → changed source files.
 fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
     let params = &cmd["params"];
-    let files = match params["changed_files"].as_array() {
+    let changed_files = match params["changed_files"].as_array() {
         Some(f) => f,
         None => return json_err("missing 'params.changed_files'"),
     };
 
-    // Phase 1: Parse every changed file to get its namespace name and deps.
-    let mut changed_namespaces: HashMap<String, String> = HashMap::new(); // ns → file
+    // Phase 1: Parse changed files to get namespace → file mapping.
+    let mut changed_ns_to_file: HashMap<String, String> = HashMap::new();
     let mut any_clojure = false;
 
-    for file_val in files {
+    for file_val in changed_files {
         let file_path = match file_val.as_str() {
             Some(s) => s,
             None => continue,
@@ -115,38 +123,41 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
 
         let content = match std::fs::read_to_string(file_path) {
             Ok(c) => c,
-            Err(_) => continue, // skip unreadable files
+            Err(_) => continue,
         };
         let tree = query::parse(&content);
 
-        // Get the namespace name
         let ns_query = query::compile_query(include_str!("../queries/ns.scm"));
         let ns_caps = query::run_query(&ns_query, &tree, content.as_bytes());
-        let namespace = ns_caps
+        if let Some(ns) = ns_caps
             .iter()
             .find(|c| c.name == "namespace_name")
-            .map(|c| c.text.clone());
-
-        if let Some(ref ns) = &namespace {
-            changed_namespaces.insert(ns.clone(), file_path.to_string());
-            // Extract deps from this file
-            let deps_query = query::compile_query(include_str!("../queries/deps.scm"));
-            let dep_caps = query::run_query(&deps_query, &tree, content.as_bytes());
-            extract_dep_namespaces_from_caps(&dep_caps, &content);
+            .map(|c| c.text.clone())
+        {
+            changed_ns_to_file.insert(ns, file_path.to_string());
         }
     }
 
     if !any_clojure {
-        return json_ok(serde_json::json!({"edges": []}));
+        return serde_json::json!({
+            "ok": true,
+            "candidates": [],
+            "edges": [],
+            "unresolved": [],
+            "symbol_edges": []
+        });
     }
 
-    // Phase 2: Scan the project for test files and parse their deps.
-    // For each test file, check if its deps include any changed namespace.
+    // Phase 2: Scan test files only, parse their deps, match against changed
+    // namespaces. Build candidates (all test node IDs) simultaneously.
     let mut edges: Vec<serde_json::Value> = Vec::new();
     let mut edge_set: HashSet<(String, String)> = HashSet::new();
-    let discover_q = query::compile_query(include_str!("../queries/discover.scm"));
+    let mut candidates: Vec<String> = Vec::new();
+    let mut candidates_set: HashSet<String> = HashSet::new();
+
     let ns_q = query::compile_query(include_str!("../queries/ns.scm"));
     let deps_q = query::compile_query(include_str!("../queries/deps.scm"));
+    let discover_q = query::compile_query(include_str!("../queries/discover.scm"));
 
     for entry in walkdir::WalkDir::new(".")
         .into_iter()
@@ -158,24 +169,17 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
                 && !p.contains("/target/")
                 && !p.contains("/.git/")
                 && !p.contains("/.flatpak-builder/")
-                && !p.ends_with("/.clj")
         })
     {
         let path = entry.path().to_string_lossy().to_string();
         let clean_path = path.strip_prefix("./").unwrap_or(&path);
 
-        if files.iter().any(|f| f.as_str() == Some(clean_path)) {
-            // Skip files that were changed themselves — but only if they are
-            // source files (not test files). Test files that happen to be in
-            // the changed-files list must still be scanned so we can discover
-            // their edges to changed sources.
-            let is_test = clean_path.starts_with("test/")
-                || clean_path.starts_with("tests/")
-                || clean_path.contains("/test/")
-                || clean_path.contains("/tests/");
-            if !is_test {
-                continue;
-            }
+        // Only scan test files for dependency edges
+        if !clean_path.starts_with("test/")
+            && !clean_path.starts_with("tests/")
+            && !clean_path.contains("/test/")
+        {
+            continue;
         }
 
         let content = match std::fs::read_to_string(entry.path()) {
@@ -200,8 +204,7 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
             .map(|c| c.text.as_str())
             .collect();
 
-        // Build node_ids: these must match the format produced by cmd_discover
-        // so the core can look them up in test_items.node_id.
+        // Build node_ids matching cmd_discover format
         let test_node_ids: Vec<String> = if test_names.is_empty() {
             // No explicit test names — emit edge from file path as fallback
             vec![clean_path.to_string()]
@@ -218,11 +221,19 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
                 .collect()
         };
 
+        // Collect unique candidates
+        for node_id in &test_node_ids {
+            if candidates_set.insert(node_id.clone()) {
+                candidates.push(node_id.clone());
+            }
+        }
+
+        // Parse deps and match against changed namespaces
         let dep_caps = query::run_query(&deps_q, &tree, content.as_bytes());
         let test_deps = extract_dep_namespaces_from_caps(&dep_caps, &content);
 
         for dep_ns in &test_deps {
-            if let Some(source_file) = changed_namespaces.get(dep_ns) {
+            if let Some(source_file) = changed_ns_to_file.get(dep_ns) {
                 let to = source_file.clone();
                 for node_id in &test_node_ids {
                     let edge_key = (node_id.clone(), to.clone());
@@ -239,7 +250,25 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
         }
     }
 
-    json_ok(serde_json::json!({"edges": edges}))
+    // Compute unresolved: changed files we couldn't find namespace for
+    let mut unresolved: Vec<String> = Vec::new();
+    for file_val in changed_files {
+        let file_path = match file_val.as_str() {
+            Some(s) => s,
+            None => continue,
+        };
+        if !changed_ns_to_file.values().any(|v| v == file_path) {
+            unresolved.push(file_path.to_string());
+        }
+    }
+
+    serde_json::json!({
+        "ok": true,
+        "candidates": candidates,
+        "edges": edges,
+        "unresolved": unresolved,
+        "symbol_edges": []
+    })
 }
 
 /// Extract dependency namespace names from tree-sitter capture results.

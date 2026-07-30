@@ -189,7 +189,7 @@ fn adapter_clojure_static_deps_fixture() {
 
     assert_eq!(parsed["ok"], true, "static-deps should succeed: {parsed}");
 
-    let edges = parsed["result"]["edges"].as_array().unwrap();
+    let edges = parsed["edges"].as_array().unwrap();
     assert!(!edges.is_empty(), "should find edges from fixture");
 
     // Should have edge from core_test.clj → src/core.clj
@@ -285,7 +285,7 @@ fn adapter_clojure_full_pipeline() {
 
     assert_eq!(deps["ok"], true, "static-deps should succeed: {deps}");
 
-    let edges = deps["result"]["edges"].as_array().unwrap();
+    let edges = deps["edges"].as_array().unwrap();
     assert!(!edges.is_empty(), "should have edges from static-deps");
 
     // Cleanup
@@ -340,7 +340,7 @@ fn adapter_clojure_seeded_fault_recall() {
 
     assert_eq!(deps["ok"], true, "static-deps should succeed: {deps}");
 
-    let edges = deps["result"]["edges"].as_array().unwrap();
+    let edges = deps["edges"].as_array().unwrap();
 
     // Should have an edge from core_test.clj to src/core.clj.
     // The adapter's static-deps edge `from` is now the test function node_id,
