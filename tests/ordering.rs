@@ -7,9 +7,10 @@
 //!
 //! Note: tests MUST run single-threaded (they change the process cwd).
 
-use std::io::Write;
+use std::path::Path;
 use std::path::PathBuf;
 
+use genesis::fixture::Fixture;
 use testaruda::adapter::DepEdge;
 use testaruda::ChangeSet;
 use testaruda::Selector;
@@ -38,20 +39,9 @@ impl Drop for CwdGuard {
 
 /// Setup a seeded graph matching the seeded_fault pattern.
 /// All four content units have known fingerprints stored.
-fn setup_graph(store: &Store, dir: &tempfile::TempDir) -> [u32; 4] {
+/// Files are expected to already exist on disk (created via Fixture).
+fn setup_graph(store: &Store, root: &Path) -> [u32; 4] {
     store.initialize().unwrap();
-
-    let src = dir.path().join("src");
-    std::fs::create_dir_all(&src).unwrap();
-    for (name, text) in [
-        ("session.py", "def login(): pass"),
-        ("invoice.py", "def create(): pass"),
-        ("totp.py", "def generate(): pass"),
-        ("helpers.py", "def fmt(): pass"),
-    ] {
-        let mut f = std::fs::File::create(src.join(name)).unwrap();
-        f.write_all(text.as_bytes()).unwrap();
-    }
 
     let paths = [
         "src/session.py",
@@ -69,7 +59,7 @@ fn setup_graph(store: &Store, dir: &tempfile::TempDir) -> [u32; 4] {
     let conn = store.conn();
 
     for p in &paths {
-        let fp = Store::compute_fingerprint(&dir.path().join(p)).unwrap();
+        let fp = Store::compute_fingerprint(&root.join(p)).unwrap();
         conn.execute(
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', ?1, NULL, 'source', ?2)",
@@ -151,20 +141,27 @@ fn setup_graph(store: &Store, dir: &tempfile::TempDir) -> [u32; 4] {
 
 fn run_test<F>(f: F)
 where
-    F: FnOnce(&Store, &tempfile::TempDir, &[u32; 4]),
+    F: FnOnce(&Store, &Path, &[u32; 4]),
 {
-    let dir = tempfile::tempdir().unwrap();
-    let _guard = CwdGuard::enter(dir.path());
-    std::fs::write(dir.path().join("testaruda.toml"), "").unwrap();
+    let fixture = Fixture::new()
+        .with_file("src/session.py", "def login(): pass")
+        .with_file("src/invoice.py", "def create(): pass")
+        .with_file("src/totp.py", "def generate(): pass")
+        .with_file("src/helpers.py", "def fmt(): pass")
+        .with_file("testaruda.toml", "")
+        .build()
+        .unwrap();
+    let root = fixture.root();
+    let _guard = CwdGuard::enter(root);
 
-    let store = Store::open(dir.path().join(".testaruda")).unwrap();
-    let tids = setup_graph(&store, &dir);
-    f(&store, &dir, &tids);
+    let store = Store::open(root.join(".testaruda")).unwrap();
+    let tids = setup_graph(&store, root);
+    f(&store, root, &tids);
 }
 
 #[test]
 fn test_ordering_scenarios() {
-    run_test(|store, dir, tids| {
+    run_test(|store, root, tids| {
         // === Scenario 1: Deterministic stability (TIA-SEL-005) ===
         // Each select call updates fingerprints, so we must use different file
         // content or different files across scenarios.
@@ -172,11 +169,7 @@ fn test_ordering_scenarios() {
         //
         // Scenario 1: helpers.py → affects tids[0,1,3] (session, invoice, helpers)
         {
-            std::fs::write(
-                dir.path().join("src/helpers.py"),
-                b"def fmt(x): return str(x)",
-            )
-            .unwrap();
+            std::fs::write(root.join("src/helpers.py"), b"def fmt(x): return str(x)").unwrap();
             let delta = ChangeSet {
                 files: vec!["src/helpers.py".to_string()],
                 base: None,
@@ -187,7 +180,7 @@ fn test_ordering_scenarios() {
                 Selector::select_with_ordering(store, &delta, TestOrdering::Deterministic).unwrap();
             // Second call: different content on helpers.py so a new change is detected
             std::fs::write(
-                dir.path().join("src/helpers.py"),
+                root.join("src/helpers.py"),
                 b"def fmt(x, y): return str(x + y)",
             )
             .unwrap();
@@ -217,7 +210,7 @@ fn test_ordering_scenarios() {
         // === Scenario 2: Deterministic sorts output (TIA-SEL-005) ===
         // session.py → affects tids[0,2] (session, totp)
         {
-            std::fs::write(dir.path().join("src/session.py"), b"def login(): return 42").unwrap();
+            std::fs::write(root.join("src/session.py"), b"def login(): return 42").unwrap();
             let delta = ChangeSet {
                 files: vec!["src/session.py".to_string()],
                 base: None,
@@ -250,11 +243,7 @@ fn test_ordering_scenarios() {
                 rusqlite::params![tids[1]],
             ).unwrap();
 
-            std::fs::write(
-                dir.path().join("src/invoice.py"),
-                b"def create(x): return x * 2",
-            )
-            .unwrap();
+            std::fs::write(root.join("src/invoice.py"), b"def create(x): return x * 2").unwrap();
             let delta = ChangeSet {
                 files: vec!["src/invoice.py".to_string()],
                 base: None,
@@ -272,7 +261,7 @@ fn test_ordering_scenarios() {
         // This affects tids[0,1,3] — none have duration history for this run
         {
             std::fs::write(
-                dir.path().join("src/helpers.py"),
+                root.join("src/helpers.py"),
                 b"def fmt(a, b, c): return str(a + b + c)",
             )
             .unwrap();
@@ -306,7 +295,7 @@ fn test_ordering_scenarios() {
             ).unwrap();
 
             std::fs::write(
-                dir.path().join("src/session.py"),
+                root.join("src/session.py"),
                 b"def login(): return True  # v5",
             )
             .unwrap();
@@ -349,7 +338,7 @@ fn test_ordering_scenarios() {
             // tid[1]: no history (0 runs) → goes last
 
             std::fs::write(
-                dir.path().join("src/helpers.py"),
+                root.join("src/helpers.py"),
                 b"def fmt(p, q, r, s): return str(p + q + r + s)",
             )
             .unwrap();

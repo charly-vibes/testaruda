@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.1 — Full genesis v0.4.0 adoption (2026-07-31)
+
+### Added
+
+- `genesis::cli::maybe_print_version_json` — structured `--version --json` output
+  via genesis envelope (pre-parsed before clap).
+- `genesis::fixture::Fixture` — adopted in test files (`ordering`, `seeded_fault`)
+  replacing `tempfile::TempDir` + manual file writes.
+- Documentation: genesis adoption table in `llms.txt`/`llm.txt` covering all 14 modules.
+
+### Fixed
+
+- Markdown table formatting in `llms.txt`/`llm.txt` genesis adoption tables.
+
+### Changed
+
+- genesis-vibes dependency confirmed at 0.4 (unchanged).
+
+---
+
 ## 0.3.0 — genesis v0.4.0 adoption, .NET adapter support (2026-07-30)
 
 ### Added

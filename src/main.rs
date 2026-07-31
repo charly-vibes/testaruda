@@ -184,6 +184,13 @@ enum Command {
 fn main() -> miette::Result<()> {
     init_tracing();
 
+    // Pre-parse --version --json before clap's normal parsing (genesis v0.4.0).
+    // If only --version is passed (without --json), this returns false and clap
+    // handles the standard version output.
+    if genesis::cli::maybe_print_version_json("testaruda", env!("CARGO_PKG_VERSION")) {
+        return Ok(());
+    }
+
     // Initialize the genesis guide scaffold
     let all_commands = [
         "init",

@@ -6,9 +6,10 @@
 //!
 //! Note: tests MUST run single-threaded (they change the process cwd).
 
-use std::io::Write;
+use std::path::Path;
 use std::path::PathBuf;
 
+use genesis::fixture::Fixture;
 use testaruda::adapter::DepEdge;
 use testaruda::ChangeSet;
 use testaruda::Origin;
@@ -45,21 +46,10 @@ impl Drop for CwdGuard {
 ///   test_invoice  (101) — static deps: invoice.py, helpers.py
 ///   test_totp     (102) — runtime  dep: session.py (TIA-RUN-002)
 ///   test_helpers  (103) — static deps: helpers.py
-fn setup_graph(store: &Store, dir: &tempfile::TempDir) -> (Vec<u32>, [u32; 4]) {
+///
+/// Files are expected to already exist on disk (created via Fixture).
+fn setup_graph(store: &Store, root: &Path) -> (Vec<u32>, [u32; 4]) {
     store.initialize().unwrap();
-
-    // Create files on disk for fingerprint computation
-    let src = dir.path().join("src");
-    std::fs::create_dir_all(&src).unwrap();
-    for (name, text) in [
-        ("session.py", "def login(): pass"),
-        ("invoice.py", "def create(): pass"),
-        ("totp.py", "def generate(): pass"),
-        ("helpers.py", "def fmt(): pass"),
-    ] {
-        let mut f = std::fs::File::create(src.join(name)).unwrap();
-        f.write_all(text.as_bytes()).unwrap();
-    }
 
     let paths = [
         "src/session.py",
@@ -79,7 +69,7 @@ fn setup_graph(store: &Store, dir: &tempfile::TempDir) -> (Vec<u32>, [u32; 4]) {
     // Insert content units
     let mut cids: Vec<u32> = Vec::new();
     for p in &paths {
-        let fp = Store::compute_fingerprint(&dir.path().join(p)).unwrap();
+        let fp = Store::compute_fingerprint(&root.join(p)).unwrap();
         conn.execute(
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', ?1, NULL, 'source', ?2)",
@@ -170,25 +160,32 @@ fn setup_graph(store: &Store, dir: &tempfile::TempDir) -> (Vec<u32>, [u32; 4]) {
 
 fn run_test<F>(f: F)
 where
-    F: FnOnce(&Store, &tempfile::TempDir, &[u32], &[u32; 4]),
+    F: FnOnce(&Store, &Path, &[u32], &[u32; 4]),
 {
-    let dir = tempfile::tempdir().unwrap();
-    let _cwd = CwdGuard::enter(dir.path());
-    std::fs::write(dir.path().join("testaruda.toml"), "").unwrap();
+    let fixture = Fixture::new()
+        .with_file("src/session.py", "def login(): pass")
+        .with_file("src/invoice.py", "def create(): pass")
+        .with_file("src/totp.py", "def generate(): pass")
+        .with_file("src/helpers.py", "def fmt(): pass")
+        .with_file("testaruda.toml", "")
+        .build()
+        .unwrap();
+    let root = fixture.root();
+    let _cwd = CwdGuard::enter(root);
 
-    let store = Store::open(dir.path().join(".testaruda")).unwrap();
-    let (cids, tids) = setup_graph(&store, &dir);
-    f(&store, &dir, &cids, &tids);
+    let store = Store::open(root.join(".testaruda")).unwrap();
+    let (cids, tids) = setup_graph(&store, root);
+    f(&store, root, &cids, &tids);
 }
 
 #[test]
 fn test_seeded_fault_soundness_and_precision() {
     // Run all scenarios in a single test to avoid cwd conflicts
-    run_test(|store, dir, _cids, tids| {
+    run_test(|store, root, _cids, tids| {
         // Scenario 1: change session.py → test_session (static) + test_totp (runtime)
         {
             std::fs::write(
-                dir.path().join("src/session.py"),
+                root.join("src/session.py"),
                 b"def login(): return True  # modified",
             )
             .unwrap();
@@ -216,11 +213,7 @@ fn test_seeded_fault_soundness_and_precision() {
 
         // Scenario 2: change helpers.py → all except test_totp
         {
-            std::fs::write(
-                dir.path().join("src/helpers.py"),
-                b"def fmt(x): return str(x)",
-            )
-            .unwrap();
+            std::fs::write(root.join("src/helpers.py"), b"def fmt(x): return str(x)").unwrap();
             let delta = ChangeSet {
                 files: vec!["src/helpers.py".to_string()],
                 base: None,
@@ -238,12 +231,8 @@ fn test_seeded_fault_soundness_and_precision() {
 
         // Scenario 3: change session.py + invoice.py → 3 tests
         {
-            std::fs::write(dir.path().join("src/session.py"), b"def login(): return 42").unwrap();
-            std::fs::write(
-                dir.path().join("src/invoice.py"),
-                b"def create(x): return x",
-            )
-            .unwrap();
+            std::fs::write(root.join("src/session.py"), b"def login(): return 42").unwrap();
+            std::fs::write(root.join("src/invoice.py"), b"def create(x): return x").unwrap();
             let delta = ChangeSet {
                 files: vec!["src/session.py".to_string(), "src/invoice.py".to_string()],
                 base: None,
@@ -262,7 +251,7 @@ fn test_seeded_fault_soundness_and_precision() {
         // Scenario 4: runtime witness verification
         {
             std::fs::write(
-                dir.path().join("src/session.py"),
+                root.join("src/session.py"),
                 b"def login(x): pass  # signature change",
             )
             .unwrap();

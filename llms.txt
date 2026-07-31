@@ -25,6 +25,27 @@ with the package; the Julia adapter is provided by Testimonial.jl.
 - [Software requirements](docs/tia-srs-ears.md): draft normative requirements;
   requirements are not evidence that every capability is implemented.
 
+## Genesis adoption
+
+testaruda adopts all 14 genesis v0.4.0 modules for shared infrastructure:
+
+| Module | Status | Usage |
+|--------|--------|-------|
+| `aix` | Available | AIX artifact generation (post-deployment) |
+| `cli` | Adopted | `generate_completions`, `maybe_print_version_json` |
+| `config` | Adopted | Config file loading, registry, store |
+| `discovery` | Adopted | `.genesis/tools.toml` manifest registration |
+| `doctor` | Adopted | Diagnostic checks and linting |
+| `envelope` | Adopted | Structured CLI envelope output |
+| `feedback` | Adopted | Agent issue reporting with redaction |
+| `fixture` | Adopted | Test fixture creation via `Fixture` builder |
+| `guide` | Adopted | Guide scaffold, verbosity, format flags |
+| `managed_block` | Adopted | Managed-block injector (`BEADS`, `WAI`, `DONT`, etc.) |
+| `scaffold` | Adopted | Init scaffolding for project setup |
+| `status` | Adopted | Cross-tool health summary |
+| `suggestions` | Adopted | Typo detection and error suggestions |
+| `suite_linter` | Adopted | Suite-wide config lint checks |
+
 ## Contributor documentation
 
 - [Contributing](docs/contributing.md): local checks and contribution workflow.

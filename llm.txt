@@ -73,6 +73,27 @@ JSON-over-stdin/stdout protocol. The adapter protocol supports:
 - Repository: <https://github.com/charly-vibes/testaruda>
 - Issue tracker: Beads (run `bd ready`)
 
+## Genesis adoption
+
+testaruda adopts all 14 genesis v0.4.0 modules:
+
+| Module | Usage |
+|--------|-------|
+| `aix` | AIX artifact generation (available, post-deployment) |
+| `cli` | Shell completions, `--version --json` output |
+| `config` | Config file management |
+| `discovery` | Tool manifest registration |
+| `doctor` | Diagnostic checks and linting |
+| `envelope` | Structured CLI output |
+| `feedback` | Agent issue reporting |
+| `fixture` | Test fixture builder |
+| `guide` | CLI scaffold and format flags |
+| `managed_block` | Managed block injection |
+| `scaffold` | Init scaffolding |
+| `status` | Cross-tool health summary |
+| `suggestions` | Error suggestions and typo detection |
+| `suite_linter` | Config lint checks |
+
 ## Project context
 
 This file is a hand-written description for LLM context. It will be
