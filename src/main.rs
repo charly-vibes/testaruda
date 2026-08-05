@@ -29,13 +29,14 @@ pub fn build_command_registry() -> genesis::suggestions::CommandRegistry {
             "graph".to_string(),
             "import".to_string(),
             "explain".to_string(),
-            "validate".to_string(),
+            "oracle".to_string(),
             "discover".to_string(),
             "metrics".to_string(),
             "fingerprint".to_string(),
             "doctor".to_string(),
             "feedback".to_string(),
             "completions".to_string(),
+            "status".to_string(),
         ],
     );
     reg
@@ -202,12 +203,13 @@ fn main() -> miette::Result<()> {
         "graph",
         "import",
         "explain",
-        "validate",
+        "oracle",
         "discover",
         "metrics",
         "doctor",
         "feedback",
         "completions",
+        "fingerprint",
         "status",
     ];
     let mut guide = genesis::guide::Guide::builder("testaruda", env!("CARGO_PKG_VERSION"))
@@ -596,10 +598,12 @@ mod tests {
         assert!(all.contains(&"graph"), "should include graph");
         assert!(all.contains(&"import"), "should include import");
         assert!(all.contains(&"explain"), "should include explain");
-        assert!(all.contains(&"validate"), "should include validate");
+        assert!(all.contains(&"oracle"), "should include oracle");
         assert!(all.contains(&"metrics"), "should include metrics");
         assert!(all.contains(&"doctor"), "should include doctor");
         assert!(all.contains(&"completions"), "should include completions");
+        assert!(all.contains(&"status"), "should include status");
+        assert!(all.contains(&"fingerprint"), "should include fingerprint");
         // Should NOT include hidden commands
         assert!(
             !all.contains(&"gen-cli-docs"),
