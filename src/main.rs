@@ -257,6 +257,17 @@ fn parse_cli_with_suggestions(guide: &genesis::guide::Guide) -> Cli {
     match Cli::try_parse() {
         Ok(c) => c,
         Err(err) => {
+            // Forward help/version display directly without suggestion logic
+            use clap::error::ErrorKind;
+            if matches!(
+                err.kind(),
+                ErrorKind::DisplayHelp
+                    | ErrorKind::DisplayVersion
+                    | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+            ) {
+                err.exit();
+            }
+
             // Use genesis suggestions to provide better error messages for typos
             let err_str = err.to_string();
 
