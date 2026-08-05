@@ -1091,7 +1091,17 @@ impl Store {
                          VALUES (?1, ?2, ?3, ?4, ?5)",
                         rusqlite::params![test_id, run_id, outcome, duration, environment],
                     )
-                    .map_err(|e| miette::miette!("Failed to insert run result: {}", e))?;
+                    .map_err(|e| {
+                        let msg = e.to_string();
+                        if msg.contains("CHECK constraint failed") && msg.contains("outcome") {
+                            miette::miette!(
+                                "Invalid outcome '{}' — must be one of: passed, failed, skipped, flaky",
+                                outcome
+                            )
+                        } else {
+                            miette::miette!("Failed to insert run result: {}", msg)
+                        }
+                    })?;
                 }
             }
             Ok(())
@@ -2629,7 +2639,21 @@ mod tests {
         });
 
         let result = store.ingest(&payload);
-        assert!(result.is_err(), "invalid outcome should cause error");
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("invalid outcome should cause error"),
+        };
+
+        // Verify the error message mentions valid values
+        let err_str = format!("{:?}", err);
+        assert!(
+            err_str.contains("passed")
+                && err_str.contains("failed")
+                && err_str.contains("skipped")
+                && err_str.contains("flaky"),
+            "Error should mention valid outcome values, got: {}",
+            err_str
+        );
 
         // Verify the run was NOT recorded (transaction rolled back)
         let exists: bool = store
