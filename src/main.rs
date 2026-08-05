@@ -246,7 +246,7 @@ fn init_tracing() {
         .with_writer(std::io::stderr)
         .with_ansi(use_color)
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "warn".into()),
         );
     if log_format == "json" {
         builder.json().init();
