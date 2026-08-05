@@ -12,7 +12,7 @@ use crate::ONE;
 
 /// Current schema version of the store database.
 /// Increment when making breaking schema changes.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 4;
 
 /// Name of the internal schema version table.
 const SCHEMA_TABLE: &str = "_schema_version";
@@ -248,7 +248,13 @@ impl Store {
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
 
-            CREATE INDEX IF NOT EXISTS idx_missed_sel_run ON missed_selection_incidents(run_id);").map_err(|e| miette::miette!("Failed to initialize schema: {}", e))?;
+            CREATE INDEX IF NOT EXISTS idx_missed_sel_run ON missed_selection_incidents(run_id);
+
+            -- Content unit uniqueness: partial indexes handle NULL symbol (testaruda-p37i)
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_cu_path
+                ON content_units(component, path) WHERE symbol IS NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_cu_path_sym
+                ON content_units(component, path, symbol) WHERE symbol IS NOT NULL;").map_err(|e| miette::miette!("Failed to initialize schema: {}", e))?;
         Ok(())
     }
 
@@ -308,6 +314,31 @@ impl Store {
                         CREATE INDEX IF NOT EXISTS idx_missed_sel_run ON missed_selection_incidents(run_id);",
                     )
                     .map_err(|e| miette::miette!("Failed to create missed_selection_incidents table: {}", e))?;
+            }
+            // v3 → v4: add partial unique indexes for content_units (testaruda-p37i)
+            (3, 4) => {
+                self.conn
+                    .execute_batch(
+                        "CREATE TABLE IF NOT EXISTS content_units (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            component TEXT NOT NULL,
+                            path TEXT NOT NULL,
+                            symbol TEXT,
+                            kind TEXT NOT NULL CHECK(kind IN ('source','config','fixture','lockfile','external')),
+                            fingerprint TEXT NOT NULL,
+                            UNIQUE(component, path, symbol)
+                        );
+                        -- Remove duplicates: keep first row for each (component, path, NULL) group
+                        DELETE FROM content_units WHERE id NOT IN (
+                            SELECT MIN(id) FROM content_units GROUP BY component, path, COALESCE(symbol, '')
+                        );
+                        -- Add partial unique indexes for NULL-safe uniqueness
+                        CREATE UNIQUE INDEX IF NOT EXISTS ux_cu_path
+                            ON content_units(component, path) WHERE symbol IS NULL;
+                        CREATE UNIQUE INDEX IF NOT EXISTS ux_cu_path_sym
+                            ON content_units(component, path, symbol) WHERE symbol IS NOT NULL;",
+                    )
+                    .map_err(|e| miette::miette!("Failed to add content_unit unique indexes: {}", e))?;
             }
             _ => {
                 return Err(miette::miette!(
@@ -3114,7 +3145,44 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 2, "schema should be migrated to v2");
+        assert_eq!(version, 4, "schema should be migrated to v4");
+    }
+
+    // ── Content unit uniqueness (testaruda-p37i) ──
+
+    #[test]
+    fn test_content_unit_dedup_when_symbol_is_null() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        // Call ensure_content_unit twice with the same (component, path, None)
+        let id1 = store
+            .ensure_content_unit("test-comp", "src/lib.rs", None, "source")
+            .unwrap();
+        let id2 = store
+            .ensure_content_unit("test-comp", "src/lib.rs", None, "source")
+            .unwrap();
+
+        // Both calls should return the same id
+        assert_eq!(
+            id1, id2,
+            "ensure_content_unit should return same id for duplicate (NULL symbol)"
+        );
+
+        // Verify only one row in the table
+        let count: u32 = store
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM content_units WHERE component = ?1 AND path = ?2",
+                rusqlite::params!["test-comp", "src/lib.rs"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            count, 1,
+            "content_units should have exactly 1 row for (test-comp, src/lib.rs, NULL)"
+        );
     }
 
     // ── Confidence floor and gating tests (TIA-CONF-002, TIA-SAFE-002, TIA-SAFE-003) ──
