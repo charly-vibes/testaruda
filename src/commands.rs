@@ -655,6 +655,12 @@ fn emit_json_plan(selection: &Selection, outcome: &CiOutcome, shadow: bool) -> m
     let out = serde_json::to_string_pretty(&envelope)
         .map_err(|e| miette!("JSON serialization failed: {}", e))?;
     println!("{}", out);
+
+    // Preserve CI exit status in JSON mode (testaruda-fnyi): match human mode
+    let code = outcome.exit_code();
+    if code != 0 {
+        std::process::exit(code);
+    }
     Ok(())
 }
 
