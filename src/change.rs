@@ -65,23 +65,7 @@ impl ChangeSet {
 
         let files: Vec<String> = String::from_utf8_lossy(&output.stdout)
             .lines()
-            .filter_map(|l| {
-                // git status --porcelain format: "XY <path>" where X and Y
-                // are status codes (e.g., " M", "M ", "??", "MM", "A ").
-                // Skip the 2-character status field and trim whitespace.
-                let trimmed = l.trim_start();
-                let rest = trimmed
-                    .chars()
-                    .skip(2)
-                    .collect::<String>()
-                    .trim()
-                    .to_string();
-                if rest.is_empty() {
-                    None
-                } else {
-                    Some(rest)
-                }
-            })
+            .filter_map(parse_porcelain_line)
             .collect();
 
         Ok(Self {
@@ -89,6 +73,39 @@ impl ChangeSet {
             base: None,
             head: None,
         })
+    }
+}
+
+/// Parse a single line from `git status --porcelain` v1 output.
+///
+/// Returns the file path, or `None` for empty lines. Handles rename/copy
+/// lines (e.g., `R  src/old.rs -> src/new.rs`) by extracting the new path.
+pub fn parse_porcelain_line(l: &str) -> Option<String> {
+    let trimmed = l.trim_start();
+
+    // Rename/copy: "R  oldpath -> newpath" (git status --porcelain v1)
+    if trimmed.starts_with('R') || trimmed.starts_with('C') {
+        if let Some(idx) = trimmed.find(" -> ") {
+            let new_path = trimmed[idx + 4..].trim().to_string();
+            return if new_path.is_empty() {
+                None
+            } else {
+                Some(new_path)
+            };
+        }
+    }
+
+    // Standard line: "XY path"
+    let rest = trimmed
+        .chars()
+        .skip(2)
+        .collect::<String>()
+        .trim()
+        .to_string();
+    if rest.is_empty() {
+        None
+    } else {
+        Some(rest)
     }
 }
 
@@ -112,75 +129,51 @@ mod tests {
 
     #[test]
     fn test_parse_git_status_porcelain_modified() {
-        // Simulate parsing of "git status --porcelain" output
-        let output = " M src/lib.rs\n";
-        let files: Vec<String> = output
-            .lines()
-            .filter_map(|l| {
-                let trimmed = l.trim_start();
-                let rest = trimmed
-                    .chars()
-                    .skip(2)
-                    .collect::<String>()
-                    .trim()
-                    .to_string();
-                if rest.is_empty() {
-                    None
-                } else {
-                    Some(rest)
-                }
-            })
-            .collect();
+        let output = " M src/lib.rs";
+        let files: Vec<String> = output.lines().filter_map(parse_porcelain_line).collect();
         assert_eq!(files, vec!["src/lib.rs"]);
     }
 
     #[test]
     fn test_parse_git_status_porcelain_untracked() {
-        let output = "?? src/new.py\n";
-        let files: Vec<String> = output
-            .lines()
-            .filter_map(|l| {
-                let trimmed = l.trim_start();
-                let rest = trimmed
-                    .chars()
-                    .skip(2)
-                    .collect::<String>()
-                    .trim()
-                    .to_string();
-                if rest.is_empty() {
-                    None
-                } else {
-                    Some(rest)
-                }
-            })
-            .collect();
+        let output = "?? src/new.py";
+        let files: Vec<String> = output.lines().filter_map(parse_porcelain_line).collect();
         assert_eq!(files, vec!["src/new.py"]);
     }
 
     #[test]
     fn test_parse_git_status_porcelain_mixed() {
-        let output = " M src/lib.rs\nA  src/new.rs\n?? src/untracked.py\nMM src/conflict.rs\n";
-        let files: Vec<String> = output
-            .lines()
-            .filter_map(|l| {
-                let trimmed = l.trim_start();
-                let rest = trimmed
-                    .chars()
-                    .skip(2)
-                    .collect::<String>()
-                    .trim()
-                    .to_string();
-                if rest.is_empty() {
-                    None
-                } else {
-                    Some(rest)
-                }
-            })
-            .collect();
+        let output = " M src/lib.rs\nA  src/new.rs\n?? src/untracked.py\nMM src/conflict.rs";
+        let files: Vec<String> = output.lines().filter_map(parse_porcelain_line).collect();
         assert_eq!(files.len(), 4);
         assert!(files.contains(&"src/lib.rs".to_string()));
         assert!(files.contains(&"src/new.rs".to_string()));
         assert!(files.contains(&"src/untracked.py".to_string()));
         assert!(files.contains(&"src/conflict.rs".to_string()));
+    }
+
+    #[test]
+    fn test_parse_git_status_porcelain_rename() {
+        // Rename: "R  old -> new"
+        let output = "R  src/old.rs -> src/new.rs";
+        let files: Vec<String> = output.lines().filter_map(parse_porcelain_line).collect();
+        assert_eq!(
+            files,
+            vec!["src/new.rs"],
+            "rename should yield new path only"
+        );
+    }
+
+    #[test]
+    fn test_parse_git_status_porcelain_rename_modified() {
+        // Rename with working tree change: "RM old -> new"
+        // X=R (rename), Y=M (modified in working tree)
+        let output = "RM src/old.rs -> src/new.rs";
+        let files: Vec<String> = output.lines().filter_map(parse_porcelain_line).collect();
+        assert_eq!(
+            files,
+            vec!["src/new.rs"],
+            "rename+modify should yield new path only"
+        );
     }
 }
