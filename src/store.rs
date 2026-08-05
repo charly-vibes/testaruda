@@ -1712,12 +1712,22 @@ impl Store {
         test_id: &str,
         _change: Option<&str>,
     ) -> miette::Result<serde_json::Value> {
-        let tid: u32 = test_id.parse().map_err(|_| {
-            miette::miette!(
-                "Invalid test ID '{}' — expected a numeric identifier",
-                test_id
-            )
-        })?;
+        let tid: u32 = match test_id.parse() {
+            Ok(id) => id,
+            Err(_) => {
+                // Try resolving as a human-readable node_id
+                match self.lookup_test_item_id(test_id) {
+                    Ok(id) => id,
+                    Err(_) => {
+                        return Err(miette::miette!(
+                            "Could not resolve '{}' as a numeric test ID or a known node_id. \
+                             Use 'testaruda metrics' to list known test IDs and node_ids.",
+                            test_id
+                        ));
+                    }
+                }
+            }
+        };
 
         // Verify the test item exists
         let exists: bool = self
@@ -2426,6 +2436,41 @@ mod tests {
                 "older schema should be migrated to current"
             );
         }
+    }
+
+    #[test]
+    fn test_explain_resolves_node_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        // Insert a test item with a known node_id
+        store.conn().execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'my_test_node')",
+            [],
+        ).unwrap();
+
+        // Explain with numeric ID should work
+        let result = store.explain("1", None);
+        assert!(
+            result.is_ok(),
+            "numeric ID should resolve: {:?}",
+            result.err()
+        );
+
+        // Explain with human-readable node_id should also work
+        let result = store.explain("my_test_node", None);
+        assert!(result.is_ok(), "node_id should resolve: {:?}", result.err());
+
+        // Explain with unknown node_id should fail gracefully
+        let result = store.explain("nonexistent_test", None);
+        assert!(result.is_err(), "unknown node_id should error");
+        let err = format!("{:?}", result.unwrap_err());
+        assert!(
+            err.contains("metrics"),
+            "error should mention 'testaruda metrics': {}",
+            err
+        );
     }
 
     #[test]
