@@ -1,6 +1,6 @@
 id = "human-mode-log-placement"
 description = "Contract for: Logs are placed on stderr in human-readable mode"
-archetype = "NF"
+archetype = "NR"
 status = "active"
 superseded_by = ""
 authored_with = "0.1.0"

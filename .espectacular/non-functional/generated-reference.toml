@@ -1,6 +1,6 @@
 id = "generated-reference"
 description = "Contract for: CLI documentation is automatically generated in markdown format"
-archetype = "NF"
+archetype = "NR"
 status = "active"
 superseded_by = ""
 authored_with = "0.1.0"

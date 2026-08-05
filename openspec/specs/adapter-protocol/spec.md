@@ -243,7 +243,7 @@ The adapter SHALL emit edges at file-level granularity with `origin: "static"`.
 - **WHEN** the `static-deps` command is invoked
 - **THEN** the adapter SHALL emit a single edge for that namespace
 
-#### Scenario: Changed source file with no test coverage
+#### Scenario: Changed source file with no test coverage (Clojure)
 - **GIVEN** a changed source file whose namespace is not required by any test
 - **WHEN** the `static-deps` command is invoked
 - **THEN** the adapter SHALL include the source file in the `unresolved` list
@@ -432,7 +432,7 @@ The adapter SHALL emit edges at file-level granularity with `origin: "static"`.
 - **THEN** the adapter SHALL NOT resolve `@angular/core` to a file path
 - **AND** the import SHALL NOT produce a local dependency edge
 
-#### Scenario: Changed source file with no test coverage
+#### Scenario: Changed source file with no test coverage (TypeScript)
 - **GIVEN** a changed source file that no test imports
 - **WHEN** the `static-deps` command is invoked
 - **THEN** the adapter SHALL include the source file in the `unresolved` list

@@ -1,6 +1,6 @@
 id = "agent-documentation"
 description = "Contract for: Agent-mode documentation exists and covers all agent features"
-archetype = "NF"
+archetype = "NR"
 status = "active"
 superseded_by = ""
 authored_with = "0.1.0"

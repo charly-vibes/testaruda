@@ -1,0 +1,10 @@
+id = "changed-source-file-with-no-test-coverage-typescript"
+description = "Contract for: Changed source file with no test coverage (TypeScript)"
+archetype = "PF"
+status = "active"
+superseded_by = ""
+authored_with = "0.1.0"
+
+[[tests.shell]]
+command = "cargo test"
+timeout_seconds = 300

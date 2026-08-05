@@ -1,6 +1,6 @@
 id = "adapter-binary-not-found"
 description = "Contract for: Spawn failure when adapter binary not on PATH — diagnostic names resolved binary"
-archetype = "NF"
+archetype = "NR"
 status = "active"
 superseded_by = ""
 authored_with = "0.1.0"

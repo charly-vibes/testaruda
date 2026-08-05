@@ -1,6 +1,6 @@
 id = "schema-shipped"
 description = "Contract for: JSON schema is shipped for agent output format"
-archetype = "NF"
+archetype = "NR"
 status = "active"
 superseded_by = ""
 authored_with = "0.1.0"
