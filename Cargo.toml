@@ -58,7 +58,7 @@ blake3 = "1"
 walkdir = "2"
 clap-markdown = "0.1"
 clap_complete = "4.6.7"
-genesis-vibes = "0.4"
+genesis-vibes = "0.6"
 shell-words = "1"
 
 [dev-dependencies]

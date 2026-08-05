@@ -647,6 +647,7 @@ fn emit_json_plan(selection: &Selection, outcome: &CiOutcome, shadow: bool) -> m
         tests: &selection.tests,
     };
     let envelope = genesis::envelope::Envelope::success(
+        env!("CARGO_PKG_VERSION"),
         genesis::envelope::EnvelopeKind::List,
         plan,
         vec![],
@@ -1242,7 +1243,7 @@ pub fn status() -> miette::Result<()> {
         .build(&project_root)
         .map_err(|e| miette::miette!("Status check failed: {}", e))?;
 
-    let envelope = report.to_envelope();
+    let envelope = report.to_envelope(env!("CARGO_PKG_VERSION"));
     let json = serde_json::to_string_pretty(&envelope)
         .map_err(|e| miette::miette!("Serialization failed: {}", e))?;
 

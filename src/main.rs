@@ -785,8 +785,13 @@ mod tests {
     fn test_envelope_has_required_top_level_keys() {
         use genesis::envelope::{Envelope, EnvelopeKind};
 
-        let env: Envelope<String> =
-            Envelope::success(EnvelopeKind::Ok, "test data".to_string(), vec![], vec![]);
+        let env: Envelope<String> = Envelope::success(
+            env!("CARGO_PKG_VERSION"),
+            EnvelopeKind::Ok,
+            "test data".to_string(),
+            vec![],
+            vec![],
+        );
 
         let json = serde_json::to_value(&env).unwrap();
         let obj = json.as_object().unwrap();
@@ -814,6 +819,7 @@ mod tests {
         use genesis::envelope::{Envelope, EnvelopeKind};
 
         let env: Envelope<serde_json::Value> = Envelope::success(
+            env!("CARGO_PKG_VERSION"),
             EnvelopeKind::List,
             serde_json::json!({"selected_count": 5, "tests": []}),
             vec![],
@@ -843,7 +849,7 @@ mod tests {
         )
         .unwrap();
 
-        let env = Envelope::error(err, vec![]);
+        let env = Envelope::error(env!("CARGO_PKG_VERSION"), err, vec![]);
         let json = serde_json::to_value(&env).unwrap();
 
         assert_eq!(json["ok"], false);

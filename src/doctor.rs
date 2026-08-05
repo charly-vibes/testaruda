@@ -256,7 +256,7 @@ mod tests {
     fn test_report_to_envelope() {
         let dir = tmp();
         let report = run_doctor(dir.path(), false).unwrap();
-        let envelope = report.to_envelope();
+        let envelope = report.to_envelope("test");
         assert_eq!(envelope.data.tool, "testaruda");
         // Envelope::success always sets ok=true; health is in data.summary
         assert!(envelope.ok);
