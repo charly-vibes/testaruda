@@ -423,11 +423,17 @@ fn select_falls_back_when_titi_not_installed() {
     // Write config with titi mapping
     write_dotnet_config(project.path());
 
-    // Create a .git directory so testaruda doesn't error on git operations
-    let git_dir = project.path().join(".git");
-    std::fs::create_dir_all(&git_dir).unwrap();
-    // Write a minimal HEAD ref so git commands don't fail
-    std::fs::write(git_dir.join("HEAD"), b"ref: refs/heads/main\n").unwrap();
+    // Initialize a real git repository so testaruda's git operations succeed
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(project.path())
+        .output()
+        .expect("failed to run git init");
+    std::process::Command::new("git")
+        .args(["add", "."])
+        .current_dir(project.path())
+        .output()
+        .expect("failed to run git add .");
 
     // Create a Cargo.toml so the language detector picks Rust (for the default adapter)
     std::fs::write(
