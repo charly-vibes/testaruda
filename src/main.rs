@@ -56,6 +56,8 @@ pub fn build_block_registry() -> genesis::managed_block::BlockRegistry {
     reg
 }
 
+/// Language-agnostic test selection engine — compute the affected test set
+/// from a code change via provenance-semiring dependency analysis.
 #[derive(Parser)]
 #[command(name = "testaruda", author, version, about)]
 pub struct Cli {
