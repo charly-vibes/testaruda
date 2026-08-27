@@ -435,6 +435,28 @@ fn select_falls_back_when_titi_not_installed() {
         .output()
         .expect("failed to run git add .");
 
+    // Put the built Rust adapter on the CHILD's PATH (testaruda-adapter-rust is a
+    // bin target of this crate). In a clean CI environment neither titi nor the
+    // adapter is installed; TIA-ADAPT-012 requires select to fall back to the
+    // default adapter, so we provide it deterministically while titi stays absent.
+    let adapter_dir = tempfile::tempdir().unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(
+        env!("CARGO_BIN_EXE_testaruda-adapter-rust"),
+        adapter_dir.path().join("testaruda-adapter-rust"),
+    )
+    .expect("failed to symlink adapter binary");
+    #[cfg(not(unix))]
+    std::fs::copy(
+        env!("CARGO_BIN_EXE_testaruda-adapter-rust"),
+        adapter_dir.path().join("testaruda-adapter-rust"),
+    )
+    .expect("failed to copy adapter binary");
+    let child_path = std::env::join_paths(std::iter::once(adapter_dir.path().to_path_buf()).chain(
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
+    ))
+    .expect("failed to build child PATH");
+
     // Create a Cargo.toml so the language detector picks Rust (for the default adapter)
     std::fs::write(
         project.path().join("Cargo.toml"),
@@ -464,6 +486,7 @@ mod tests {
     // Run `testaruda init` first
     let init_output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
         .arg("init")
+        .env("PATH", &child_path)
         .output()
         .expect("failed to run testaruda init");
 
@@ -478,6 +501,7 @@ mod tests {
     let select_output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
         .arg("select")
         .arg("--json")
+        .env("PATH", &child_path)
         .output()
         .expect("failed to run testaruda select");
 
