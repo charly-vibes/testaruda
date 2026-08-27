@@ -102,8 +102,10 @@ fn json_mode_exits_with_no_tests_code() {
     // The JSON output should contain the correct exit code
     assert!(
         stdout.contains("\"exit_code\": 20"),
-        "JSON output should have exit_code: 20\nstdout: {}",
-        stdout
+        "JSON output should have exit_code: 20\nstatus: {:?}\nstdout: {}\nstderr: {}",
+        output.status,
+        stdout,
+        stderr
     );
 
     // The process exit code should match the outcome code, not 0

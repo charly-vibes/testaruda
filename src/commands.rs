@@ -657,7 +657,11 @@ fn emit_json_plan(selection: &Selection, outcome: &CiOutcome, shadow: bool) -> m
         .map_err(|e| miette!("JSON serialization failed: {}", e))?;
     println!("{}", out);
 
-    // Preserve CI exit status in JSON mode (testaruda-fnyi): match human mode
+    // Preserve CI exit status in JSON mode (testaruda-fnyi): match human mode.
+    // Flush explicitly before exiting — piped stdout is block-buffered and
+    // std::process::exit must not lose the CI decision payload (testaruda-b7ks).
+    use std::io::Write;
+    std::io::stdout().flush().ok();
     let code = outcome.exit_code();
     if code != 0 {
         std::process::exit(code);
@@ -722,6 +726,11 @@ fn emit_human_output(
     let out = serde_json::to_string_pretty(&selection)
         .map_err(|e| miette!("JSON serialization failed: {}", e))?;
     println!("{}", out);
+
+    // Flush before exit so the CI decision payload is never lost
+    // (piped stdout is block-buffered; testaruda-b7ks).
+    use std::io::Write;
+    std::io::stdout().flush().ok();
 
     let code = outcome.exit_code();
     if code != 0 {
