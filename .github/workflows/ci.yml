@@ -36,8 +36,11 @@ jobs:
         uses: extractions/setup-just@v2
 
       - name: Install gate tools
+        # Pinned to locally-verified versions for CI parity with the pre-push
+        # gate (testaruda-b7ks). `espectacular` provides the `ah` binary; bump
+        # versions together with local installs. See also: `ah doctor`.
         run: |
-          cargo install pretender espectacular-cli
+          cargo install pretender@0.3.1 espectacular@0.3.0
 
       # Run the exact same command as local development
       - name: Run CI pipeline
