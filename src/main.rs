@@ -645,6 +645,40 @@ mod tests {
     }
 
     #[test]
+    fn test_ingest_adapter_resolution_prefers_default() {
+        // testaruda-fgoc: auto-detect must prefer the project default adapter
+        // over whichever extension mapping iterates first. A Python project
+        // with a .rs extension mapping must ingest via the Python adapter.
+        let mut registry = testaruda::adapter::AdapterRegistry::new();
+        registry.register(".rs", "testaruda-adapter-rust");
+        registry.register(".py", "testaruda-adapter-python");
+        registry.set_default("testaruda-adapter-python");
+        assert_eq!(
+            commands::resolve_ingest_adapter(&registry),
+            "testaruda-adapter-python"
+        );
+    }
+
+    #[test]
+    fn test_ingest_adapter_resolution_falls_back_to_first_extension() {
+        let mut registry = testaruda::adapter::AdapterRegistry::new();
+        registry.register(".py", "testaruda-adapter-python");
+        assert_eq!(
+            commands::resolve_ingest_adapter(&registry),
+            "testaruda-adapter-python"
+        );
+    }
+
+    #[test]
+    fn test_ingest_adapter_resolution_empty_registry() {
+        let registry = testaruda::adapter::AdapterRegistry::new();
+        assert_eq!(
+            commands::resolve_ingest_adapter(&registry),
+            "testaruda-adapter-python"
+        );
+    }
+
+    #[test]
     fn test_format_iso_ts_epoch() {
         // 1970-01-01T00:00:00Z
         assert_eq!(format_iso_ts(0), "1970-01-01T00:00:00Z");

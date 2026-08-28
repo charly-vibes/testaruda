@@ -980,6 +980,20 @@ pub fn ingest(args: IngestArgs) -> miette::Result<()> {
     Ok(())
 }
 
+/// Resolve which adapter binary should parse raw test output.
+///
+/// Priority: project default adapter, then the first registered extension
+/// mapping, then the Python adapter. The default must win over extension
+/// iteration order — the first registered extension may map to an adapter
+/// for a language the raw output isn't from (testaruda-fgoc).
+pub fn resolve_ingest_adapter(registry: &testaruda::adapter::AdapterRegistry) -> String {
+    registry
+        .default_binary()
+        .or_else(|| registry.extensions().next().map(|(_, b)| b))
+        .unwrap_or("testaruda-adapter-python")
+        .to_string()
+}
+
 /// Raw mode: treat file as test runner output, delegate to adapter.
 fn ingest_raw(store: &Store, path: &str, adapter: Option<String>) -> miette::Result<()> {
     let raw_output =
@@ -993,11 +1007,7 @@ fn ingest_raw(store: &Store, path: &str, adapter: Option<String>) -> miette::Res
         let project_root = find_project_root()?;
         let config = testaruda::config::Config::load_or_default(&project_root);
         let registry = config.adapters.to_registry();
-        // Collect into owned String to avoid borrow issues with registry
-        let first_ext = registry.extensions().next().map(|(_, b)| b.to_string());
-        first_ext
-            .or_else(|| registry.default_binary().map(String::from))
-            .unwrap_or_else(|| "testaruda-adapter-python".to_string())
+        resolve_ingest_adapter(&registry)
     };
 
     let mut adapter = spawn_adapter(&adapter_binary, None)
