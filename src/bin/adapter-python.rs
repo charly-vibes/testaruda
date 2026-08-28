@@ -205,7 +205,7 @@ fn resolve_changed_file_deps(
     edges: &mut Vec<serde_json::Value>,
     unresolved: &mut Vec<String>,
 ) {
-    let module_name = file_path_to_module(file);
+    let module_name = resolve_module_name(file);
     let matching_tests = find_matching_tests(import_to_tests, &module_name);
 
     if let Some(tests) = matching_tests {
@@ -361,7 +361,7 @@ fn parse_junit_xml(content: &str) -> Vec<serde_json::Value> {
 fn parse_python_imports(content: &str, file_path: &str) -> Vec<String> {
     let mut deps = Vec::new();
 
-    let base_module = file_path_to_module(file_path);
+    let base_module = resolve_module_name(file_path);
     let base_package: Vec<&str> = base_module
         .rsplit('.')
         .skip(1)
@@ -428,9 +428,10 @@ fn resolve_relative_import(rest: &str, base_package: &[&str]) -> Option<String> 
     if dot_count > 0 {
         let levels_up = dot_count.saturating_sub(1);
         let len = parts.len();
-        if levels_up < len {
+        if levels_up <= len {
             parts.truncate(len - levels_up);
         } else {
+            // More dots than containing packages: beyond the package root.
             return None;
         }
     }
@@ -452,14 +453,62 @@ fn resolve_absolute_from_import(rest: &str) -> Option<String> {
     rest.split(" import ").next().map(|s| s.trim().to_string())
 }
 
-/// Convert a Python file path to its module name.
-/// E.g., `"src/cositos/model.py"` → `"src.cositos.model"`
+/// Convert a Python file path to its module name (pure, no filesystem access).
+/// E.g., `"tests/test_model.py"` → `"tests.test_model"`
 fn file_path_to_module(path: &str) -> String {
     path.strip_suffix(".py")
         .unwrap_or(path)
         .replace('/', ".")
         .trim_start_matches('.')
         .to_string()
+}
+
+/// Compute the importable module name for a file path, resolving the package
+/// root against the filesystem (testaruda-i802).
+///
+/// Resolution order:
+/// 1. If the file's directory chain contains `__init__.py` markers, walk up
+///    while they exist; the module name is the dotted path below the first
+///    directory without `__init__.py` (the true package root).
+/// 2. Otherwise, strip a leading `src/` prefix — the src-layout convention
+///    (also covers namespace packages and files deleted in the diff).
+/// 3. Fall back to the pure path conversion.
+fn resolve_module_name(path: &str) -> String {
+    let path_buf = std::path::Path::new(path);
+
+    // Rule 1: filesystem-backed package-root walk.
+    if let Some(dir) = path_buf.parent() {
+        if dir.join("__init__.py").is_file() {
+            let mut parts: Vec<String> = Vec::new();
+            if let Some(stem) = path_buf.file_stem().and_then(|s| s.to_str()) {
+                parts.push(stem.to_string());
+            }
+            let mut dir = dir;
+            loop {
+                if !dir.join("__init__.py").is_file() {
+                    break;
+                }
+                match dir.file_name().and_then(|s| s.to_str()) {
+                    Some(name) => parts.push(name.to_string()),
+                    None => break,
+                }
+                match dir.parent() {
+                    Some(parent) => dir = parent,
+                    None => break,
+                }
+            }
+            parts.reverse();
+            return parts.join(".");
+        }
+    }
+
+    // Rule 2: src/ prefix strip (src-layout, namespace packages, deleted files).
+    if let Some(rest) = path.strip_prefix("src/") {
+        return rest.strip_suffix(".py").unwrap_or(rest).replace('/', ".");
+    }
+
+    // Rule 3: pure fallback.
+    file_path_to_module(path)
 }
 
 /// Fingerprint: compute blake3 hashes for files (TIA-ADAPT-006).
@@ -672,8 +721,8 @@ mod tests {
         let content = "from .sibling import Something\n";
         let imports = parse_python_imports(content, "src/package/test_module.py");
         assert!(
-            imports.contains(&"src.package.sibling".to_string()),
-            "expected src.package.sibling, got: {:?}",
+            imports.contains(&"package.sibling".to_string()),
+            "expected package.sibling, got: {:?}",
             imports
         );
     }
@@ -684,8 +733,8 @@ mod tests {
         let content = "from ..other import Something\n";
         let imports = parse_python_imports(content, "src/package/sub/test_module.py");
         assert!(
-            imports.contains(&"src.package.other".to_string()),
-            "expected src.package.other, got: {:?}",
+            imports.contains(&"package.other".to_string()),
+            "expected package.other, got: {:?}",
             imports
         );
     }
@@ -696,8 +745,8 @@ mod tests {
         let content = "from . import something\n";
         let imports = parse_python_imports(content, "src/package/test_module.py");
         assert!(
-            imports.contains(&"src.package".to_string()),
-            "expected src.package, got: {:?}",
+            imports.contains(&"package".to_string()),
+            "expected package, got: {:?}",
             imports
         );
     }
@@ -708,8 +757,8 @@ mod tests {
         let content = "from .. import something\n";
         let imports = parse_python_imports(content, "src/package/sub/test_module.py");
         assert!(
-            imports.contains(&"src.package".to_string()),
-            "expected src.package, got: {:?}",
+            imports.contains(&"package".to_string()),
+            "expected package, got: {:?}",
             imports
         );
     }
@@ -717,13 +766,13 @@ mod tests {
     #[test]
     fn test_parse_python_imports_relative_deep() {
         // from ...module import X — three dots: go up 2 levels
-        // File at src/a/b/c/test_module.py, package is src.a.b.c
-        // from ...top → go up 2 levels to src.a, then add top → src.a.top
+        // File at src/a/b/c/test_module.py, package is a.b.c (src/ is not importable)
+        // from ...top → go up 2 levels to a, then add top → a.top
         let content = "from ...top import Something\n";
         let imports = parse_python_imports(content, "src/a/b/c/test_module.py");
         assert!(
-            imports.contains(&"src.a.top".to_string()),
-            "expected src.a.top, got: {:?}",
+            imports.contains(&"a.top".to_string()),
+            "expected a.top, got: {:?}",
             imports
         );
     }
@@ -744,17 +793,13 @@ mod tests {
         let content = "import os\nfrom .model import Model\nfrom ..utils import helper\n";
         let imports = parse_python_imports(content, "src/package/test_module.py");
         assert!(imports.contains(&"os".to_string()));
-        assert!(imports.contains(&"src.package.model".to_string()));
-        assert!(imports.contains(&"src.utils".to_string()));
+        // src/ prefix is not importable: package root is src/package/.
+        assert!(imports.contains(&"package.model".to_string()));
+        assert!(imports.contains(&"utils".to_string()));
     }
 
     #[test]
     fn test_file_path_to_module() {
-        assert_eq!(file_path_to_module("src/model.py"), "src.model");
-        assert_eq!(
-            file_path_to_module("src/cositos/model.py"),
-            "src.cositos.model"
-        );
         assert_eq!(file_path_to_module("model.py"), "model");
         assert_eq!(
             file_path_to_module("tests/test_model.py"),
@@ -763,17 +808,66 @@ mod tests {
     }
 
     #[test]
-    fn test_cmd_static_deps_source_changed_finds_importing_tests() {
+    fn test_resolve_module_name_strips_src_prefix_without_init() {
+        // src/ layout with namespace packages (no __init__.py): src/ is not
+        // part of the importable module path.
         let dir = tempfile::tempdir().unwrap();
-        let src_dir = dir.path().join("src");
-        let tests_dir = dir.path().join("tests");
+        let src_dir = dir.path().join("src/click");
         std::fs::create_dir_all(&src_dir).unwrap();
-        std::fs::create_dir_all(&tests_dir).unwrap();
 
-        std::fs::write(src_dir.join("model.py"), "class Model:\n    pass\n").unwrap();
+        let got = with_cwd(dir.path(), || resolve_module_name("src/click/termui.py"));
+        assert_eq!(got, "click.termui");
+    }
+
+    #[test]
+    fn test_resolve_module_name_walks_init_chain() {
+        // Real src-layout: src/ has no __init__.py, src/pkg/ does.
+        // The package root is src/pkg/, so module = pkg.model.
+        let dir = tempfile::tempdir().unwrap();
+        let pkg_dir = dir.path().join("src/pkg");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(pkg_dir.join("__init__.py"), "").unwrap();
+
+        let got = with_cwd(dir.path(), || resolve_module_name("src/pkg/model.py"));
+        assert_eq!(got, "pkg.model");
+    }
+
+    #[test]
+    fn test_resolve_module_name_flat_layout_unchanged() {
+        // requests-style flat layout: requests/__init__.py at repo root.
+        let dir = tempfile::tempdir().unwrap();
+        let pkg = dir.path().join("requests");
+        std::fs::create_dir_all(&pkg).unwrap();
+        std::fs::write(pkg.join("__init__.py"), "").unwrap();
+
+        let got = with_cwd(dir.path(), || resolve_module_name("requests/sessions.py"));
+        assert_eq!(got, "requests.sessions");
+    }
+
+    #[test]
+    fn test_resolve_module_name_deleted_file_falls_back_to_src_strip() {
+        // Changed file may be deleted (present in diff, absent on disk).
+        // Must still resolve via the src/ prefix convention.
+        let dir = tempfile::tempdir().unwrap();
+        let got = with_cwd(dir.path(), || resolve_module_name("src/click/termui.py"));
+        assert_eq!(got, "click.termui");
+    }
+
+    #[test]
+    fn test_cmd_static_deps_src_layout_finds_importing_tests() {
+        // The realistic src-layout shape: package under src/ with __init__.py,
+        // tests import the package WITHOUT the src/ prefix (testaruda-i802).
+        let dir = tempfile::tempdir().unwrap();
+        let pkg_dir = dir.path().join("src/click");
+        let tests_dir = dir.path().join("tests");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::create_dir_all(&tests_dir).unwrap();
+        std::fs::write(pkg_dir.join("__init__.py"), "").unwrap();
+
+        std::fs::write(pkg_dir.join("termui.py"), "def clear():\n    pass\n").unwrap();
         std::fs::write(
-            tests_dir.join("test_model.py"),
-            "from src.model import Model\n\ndef test_model():\n    assert Model()\n",
+            tests_dir.join("test_termui.py"),
+            "from click.termui import clear\n\ndef test_clear():\n    clear()\n",
         )
         .unwrap();
 
@@ -781,7 +875,44 @@ mod tests {
             let cmd = serde_json::json!({
                 "command": "static-deps",
                 "params": {
-                    "changed_files": ["src/model.py"]
+                    "changed_files": ["src/click/termui.py"]
+                }
+            });
+            cmd_static_deps(&cmd)
+        });
+
+        assert!(result["ok"].as_bool().unwrap());
+        let edges = result["edges"].as_array().unwrap();
+        assert_eq!(
+            edges.len(),
+            1,
+            "src-layout source change must find its test"
+        );
+        assert_eq!(edges[0]["from"].as_str().unwrap(), "tests/test_termui.py");
+        assert_eq!(edges[0]["to"].as_str().unwrap(), "src/click/termui.py");
+    }
+
+    #[test]
+    fn test_cmd_static_deps_source_changed_finds_importing_tests() {
+        let dir = tempfile::tempdir().unwrap();
+        let pkg_dir = dir.path().join("src/pkg");
+        let tests_dir = dir.path().join("tests");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::create_dir_all(&tests_dir).unwrap();
+        std::fs::write(pkg_dir.join("__init__.py"), "").unwrap();
+
+        std::fs::write(pkg_dir.join("model.py"), "class Model:\n    pass\n").unwrap();
+        std::fs::write(
+            tests_dir.join("test_model.py"),
+            "from pkg.model import Model\n\ndef test_model():\n    assert Model()\n",
+        )
+        .unwrap();
+
+        let result = with_cwd(dir.path(), || {
+            let cmd = serde_json::json!({
+                "command": "static-deps",
+                "params": {
+                    "changed_files": ["src/pkg/model.py"]
                 }
             });
             cmd_static_deps(&cmd)
@@ -793,7 +924,7 @@ mod tests {
 
         let edge = &edges[0];
         assert_eq!(edge["from"].as_str().unwrap(), "tests/test_model.py");
-        assert_eq!(edge["to"].as_str().unwrap(), "src/model.py");
+        assert_eq!(edge["to"].as_str().unwrap(), "src/pkg/model.py");
         assert_eq!(edge["origin"].as_str().unwrap(), "static");
     }
 
@@ -875,21 +1006,21 @@ mod tests {
     #[test]
     fn test_cmd_static_deps_multiple_source_files() {
         let dir = tempfile::tempdir().unwrap();
-        let src_dir = dir.path().join("src");
+        let pkg_dir = dir.path().join("src/pkg");
         let tests_dir = dir.path().join("tests");
-        std::fs::create_dir_all(&src_dir).unwrap();
+        std::fs::create_dir_all(&pkg_dir).unwrap();
         std::fs::create_dir_all(&tests_dir).unwrap();
 
-        std::fs::write(src_dir.join("model.py"), "class Model: pass\n").unwrap();
-        std::fs::write(src_dir.join("view.py"), "class View: pass\n").unwrap();
+        std::fs::write(pkg_dir.join("model.py"), "class Model: pass\n").unwrap();
+        std::fs::write(pkg_dir.join("view.py"), "class View: pass\n").unwrap();
         std::fs::write(
             tests_dir.join("test_model.py"),
-            "from src.model import Model\n\ndef test_model(): pass\n",
+            "from pkg.model import Model\n\ndef test_model(): pass\n",
         )
         .unwrap();
         std::fs::write(
             tests_dir.join("test_view.py"),
-            "from src.view import View\n\ndef test_view(): pass\n",
+            "from pkg.view import View\n\ndef test_view(): pass\n",
         )
         .unwrap();
 
@@ -897,7 +1028,7 @@ mod tests {
             let cmd = serde_json::json!({
                 "command": "static-deps",
                 "params": {
-                    "changed_files": ["src/model.py", "src/view.py"]
+                    "changed_files": ["src/pkg/model.py", "src/pkg/view.py"]
                 }
             });
             cmd_static_deps(&cmd)
@@ -911,8 +1042,8 @@ mod tests {
         let tos: Vec<&str> = edges.iter().map(|e| e["to"].as_str().unwrap()).collect();
         assert!(froms.contains(&"tests/test_model.py"));
         assert!(froms.contains(&"tests/test_view.py"));
-        assert!(tos.contains(&"src/model.py"));
-        assert!(tos.contains(&"src/view.py"));
+        assert!(tos.contains(&"src/pkg/model.py"));
+        assert!(tos.contains(&"src/pkg/view.py"));
     }
 
     #[test]
