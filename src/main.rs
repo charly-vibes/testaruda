@@ -447,7 +447,7 @@ mod tests {
             }],
         };
         // In shadow mode, the outcome should still report the actual exit code
-        let outcome = CiOutcome::from_selection(&sel);
+        let outcome = CiOutcome::from_selection(&sel, 2, 1, true);
         assert_eq!(outcome.exit_code(), ci_exit::SUCCESS);
     }
 
@@ -522,7 +522,7 @@ mod tests {
                 },
             ],
         };
-        let outcome = CiOutcome::from_selection(&sel);
+        let outcome = CiOutcome::from_selection(&sel, 5, 2, true);
         assert_eq!(outcome.exit_code(), ci_exit::SUCCESS, "high confidence → 0");
         assert_eq!(outcome.reason(), "selection complete");
     }
@@ -534,7 +534,7 @@ mod tests {
             selected_count: 0,
             tests: vec![],
         };
-        let outcome = CiOutcome::from_selection(&sel);
+        let outcome = CiOutcome::from_selection(&sel, 5, 0, false);
         assert_eq!(outcome.exit_code(), ci_exit::EMPTY, "empty selection → 20");
     }
 
@@ -551,12 +551,87 @@ mod tests {
                 quarantined: false,
             }],
         };
-        let outcome = CiOutcome::from_selection(&sel);
+        let outcome = CiOutcome::from_selection(&sel, 2, 2, true);
         assert_eq!(
             outcome.exit_code(),
             ci_exit::FULL_RUN,
             "low confidence → 10"
         );
+    }
+
+    #[test]
+    fn test_full_suite_over_selection_no_edges() {
+        // A change resolved no dependency edges yet everything was selected —
+        // the selection degraded to run-everything and must say so (ls4t).
+        let sel = Selection {
+            changed_count: 1,
+            selected_count: 34,
+            tests: vec![SelectedTest {
+                id: 1,
+                confidence: 1.0,
+                distance: None,
+                witness: None,
+                quarantined: false,
+            }],
+        };
+        let outcome = CiOutcome::from_selection(&sel, 34, 1, false);
+        assert_eq!(
+            outcome.exit_code(),
+            ci_exit::FULL_RUN,
+            "degenerate full-suite selection → 10"
+        );
+        assert!(
+            outcome.reason().contains("over-selected"),
+            "reason must expose the over-selection: {}",
+            outcome.reason()
+        );
+        assert!(
+            outcome.reason().contains("no dependency edges"),
+            "reason must explain why: {}",
+            outcome.reason()
+        );
+    }
+
+    #[test]
+    fn test_full_suite_edges_resolved() {
+        // Everything selected with edges present (e.g. coverage floor) —
+        // still a full run, but a different reason.
+        let sel = Selection {
+            changed_count: 1,
+            selected_count: 34,
+            tests: vec![SelectedTest {
+                id: 1,
+                confidence: 1.0,
+                distance: None,
+                witness: None,
+                quarantined: false,
+            }],
+        };
+        let outcome = CiOutcome::from_selection(&sel, 34, 1, true);
+        assert_eq!(outcome.exit_code(), ci_exit::FULL_RUN);
+        assert_eq!(
+            outcome.reason(),
+            "run everything: coverage/confidence floor"
+        );
+    }
+
+    #[test]
+    fn test_no_changes_full_suite_stays_success() {
+        // Nothing changed → full selection is not a degenerate fallback;
+        // classification stays success (no regression to existing behavior).
+        let sel = Selection {
+            changed_count: 0,
+            selected_count: 34,
+            tests: vec![SelectedTest {
+                id: 1,
+                confidence: 1.0,
+                distance: None,
+                witness: None,
+                quarantined: false,
+            }],
+        };
+        let outcome = CiOutcome::from_selection(&sel, 34, 0, false);
+        assert_eq!(outcome.exit_code(), ci_exit::SUCCESS);
     }
 
     #[test]

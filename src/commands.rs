@@ -39,13 +39,43 @@ impl CiOutcome {
     /// Determine the CI outcome from a selection result.
     ///
     /// - Empty selection → exit 20 (TIA-CI-003)
+    /// - Full-suite selection on a real change → exit 10 (TIA-CI-002), with a
+    ///   reason exposing *why* the selection degraded (testaruda-ls4t):
+    ///   no dependency edges resolved, or the coverage/confidence floor.
     /// - Any test with confidence < 1.0 → full run, exit 10 (TIA-CI-002)
     /// - Otherwise → success, exit 0 (TIA-CI-001)
-    pub fn from_selection(selection: &Selection) -> Self {
+    ///
+    /// `total_tests` is the number of tests known to the store;
+    /// `changed_units` is the count of changed + unresolved content units
+    /// (unresolved units over-approximate per SAFE-004);
+    /// `edges_resolved` reports whether any of them linked to at least one
+    /// test via dependency edges.
+    pub fn from_selection(
+        selection: &Selection,
+        total_tests: usize,
+        changed_units: usize,
+        edges_resolved: bool,
+    ) -> Self {
         if selection.selected_count == 0 {
             return Self {
                 code: ci_exit::EMPTY,
                 reason: "no tests selected".to_string(),
+            };
+        }
+
+        // Degenerate full-suite selection on a real change (testaruda-ls4t):
+        // recall-safe but the minimal-selection promise silently failed.
+        // Classify as FULL_RUN and surface the cause instead of "success".
+        if total_tests > 0 && selection.selected_count == total_tests && changed_units > 0 {
+            let reason = if edges_resolved {
+                "run everything: coverage/confidence floor".to_string()
+            } else {
+                "over-selected: no dependency edges resolved — all tests selected for recall safety"
+                    .to_string()
+            };
+            return Self {
+                code: ci_exit::FULL_RUN,
+                reason,
             };
         }
 
@@ -478,7 +508,14 @@ pub fn select(args: SelectArgs) -> miette::Result<()> {
     }
 
     // Determine CI exit code (TIA-CI-001..004)
-    let mut outcome = CiOutcome::from_selection(&selection);
+    // edges_resolved: did any changed/unresolved unit link to tests? If the
+    // engine over-selected everything with zero linking edges, the outcome
+    // must say so instead of reporting success (testaruda-ls4t).
+    let total_tests = store.test_items_count().unwrap_or(0);
+    let changed_units = selection.changed_count + unresolved_ids.len();
+    let edges_resolved = !all_affected_ids.is_empty();
+    let mut outcome =
+        CiOutcome::from_selection(&selection, total_tests, changed_units, edges_resolved);
 
     // Shadow mode (TIA-CI-007): report all tests should run
     if args.shadow {
