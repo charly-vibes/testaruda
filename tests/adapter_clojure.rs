@@ -97,9 +97,12 @@ fn fixture_path() -> std::path::PathBuf {
     p
 }
 
-/// Spawn a Clojure adapter subprocess ready for command exchange.
+/// Spawn a Clojure adapter subprocess rooted at the fixture directory and
+/// ready for command exchange. The child gets an explicit cwd — never rely
+/// on the harness process cwd (testaruda-pzh6).
 fn spawn_adapter() -> std::process::Child {
     Command::new("testaruda-adapter-clojure")
+        .current_dir(fixture_path())
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -130,9 +133,6 @@ fn adapter_clojure_discover_fixture() {
         return;
     }
 
-    let cwd = std::env::current_dir().unwrap();
-    std::env::set_current_dir(fixture_path()).unwrap();
-
     let mut child = spawn_adapter();
     let resp = send_command(&mut child, "{\"command\":\"discover\"}\n");
     let parsed: serde_json::Value =
@@ -140,7 +140,6 @@ fn adapter_clojure_discover_fixture() {
 
     // Cleanup: wait for process
     child.wait().ok();
-    std::env::set_current_dir(&cwd).unwrap();
 
     // Should succeed or return "not implemented"
     if parsed["ok"] == serde_json::Value::Bool(false) {
@@ -173,9 +172,6 @@ fn adapter_clojure_static_deps_fixture() {
         return;
     }
 
-    let cwd = std::env::current_dir().unwrap();
-    std::env::set_current_dir(fixture_path()).unwrap();
-
     let mut child = spawn_adapter();
     let resp = send_command(
         &mut child,
@@ -185,7 +181,6 @@ fn adapter_clojure_static_deps_fixture() {
         serde_json::from_str(&resp).expect("static-deps response should be valid JSON");
 
     child.wait().ok();
-    std::env::set_current_dir(&cwd).unwrap();
 
     assert_eq!(parsed["ok"], true, "static-deps should succeed: {parsed}");
 
@@ -231,8 +226,6 @@ fn adapter_clojure_full_pipeline() {
         eprintln!("testaruda-adapter-clojure not on PATH — skipping");
         return;
     }
-
-    let _cwd_guard = CwdGuard::enter(fixture_path());
 
     // Phase 1: Discover tests
     let mut child = spawn_adapter();
@@ -300,8 +293,6 @@ fn adapter_clojure_seeded_fault_recall() {
         eprintln!("testaruda-adapter-clojure not on PATH — skipping");
         return;
     }
-
-    let _cwd_guard = CwdGuard::enter(fixture_path());
 
     // Phase 1: Discover tests
     let mut child = spawn_adapter();
@@ -376,25 +367,4 @@ fn adapter_clojure_seeded_fault_recall() {
     );
 
     child.wait().ok();
-}
-
-// ---- Cwd guard ----
-
-/// Cwd guard: changes to a temp directory, restores on drop.
-struct CwdGuard {
-    saved: std::path::PathBuf,
-}
-
-impl CwdGuard {
-    fn enter(temp: std::path::PathBuf) -> Self {
-        let saved = std::env::current_dir().unwrap();
-        std::env::set_current_dir(&temp).unwrap();
-        Self { saved }
-    }
-}
-
-impl Drop for CwdGuard {
-    fn drop(&mut self) {
-        let _ = std::env::set_current_dir(&self.saved);
-    }
 }

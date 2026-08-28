@@ -15,27 +15,6 @@
 //!   resolve to `titi testaruda-adapter`.
 //! - `spawn_adapter` returns a helpful error when `titi` is not on PATH.
 
-use std::path::PathBuf;
-
-/// Cwd guard: changes to a temp directory, restores on drop.
-struct CwdGuard {
-    saved: PathBuf,
-}
-
-impl CwdGuard {
-    fn enter(temp: &std::path::Path) -> Self {
-        let saved = std::env::current_dir().unwrap();
-        std::env::set_current_dir(temp).unwrap();
-        Self { saved }
-    }
-}
-
-impl Drop for CwdGuard {
-    fn drop(&mut self) {
-        let _ = std::env::set_current_dir(&self.saved);
-    }
-}
-
 /// Check if `titi` is available on PATH.
 fn titi_available() -> bool {
     std::process::Command::new("which")
@@ -191,11 +170,12 @@ fn titi_adapter_handshake_returns_correct_fields() {
 
     let temp = tempfile::tempdir().unwrap();
     setup_dotnet_fixture(temp.path());
-    let _guard = CwdGuard::enter(temp.path());
 
-    // Spawn the titi adapter
-    let adapter = testaruda::adapter::spawn_adapter("titi testaruda-adapter", None)
-        .expect("should spawn titi adapter");
+    // Spawn the titi adapter rooted at the fixture dir (handshake performs
+    // project discovery, so cwd matters)
+    let adapter =
+        testaruda::adapter::spawn_adapter_in("titi testaruda-adapter", None, Some(temp.path()))
+            .expect("should spawn titi adapter");
 
     // Verify adapter name from handshake
     assert_eq!(adapter.name, "titi");
@@ -415,7 +395,6 @@ fn select_falls_back_when_titi_not_installed() {
     }
 
     let project = tempfile::tempdir().unwrap();
-    let _guard = CwdGuard::enter(project.path());
 
     // Create a .NET-like project structure
     create_dotnet_project(project.path());
@@ -486,6 +465,7 @@ mod tests {
     // Run `testaruda init` first
     let init_output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
         .arg("init")
+        .current_dir(project.path())
         .env("PATH", &child_path)
         .output()
         .expect("failed to run testaruda init");
@@ -501,6 +481,7 @@ mod tests {
     let select_output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
         .arg("select")
         .arg("--json")
+        .current_dir(project.path())
         .env("PATH", &child_path)
         .output()
         .expect("failed to run testaruda select");

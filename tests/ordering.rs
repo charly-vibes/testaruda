@@ -8,7 +8,6 @@
 //! Note: tests MUST run single-threaded (they change the process cwd).
 
 use std::path::Path;
-use std::path::PathBuf;
 
 use genesis::fixture::Fixture;
 use testaruda::adapter::DepEdge;
@@ -17,25 +16,6 @@ use testaruda::Selector;
 use testaruda::Store;
 use testaruda::TestOrdering;
 use testaruda::ONE;
-
-/// Cwd guard: changes to a temp directory, restores on drop.
-struct CwdGuard {
-    saved: PathBuf,
-}
-
-impl CwdGuard {
-    fn enter(temp: &std::path::Path) -> Self {
-        let saved = std::env::current_dir().unwrap();
-        std::env::set_current_dir(temp).unwrap();
-        Self { saved }
-    }
-}
-
-impl Drop for CwdGuard {
-    fn drop(&mut self) {
-        let _ = std::env::set_current_dir(&self.saved);
-    }
-}
 
 /// Setup a seeded graph matching the seeded_fault pattern.
 /// All four content units have known fingerprints stored.
@@ -152,7 +132,6 @@ where
         .build()
         .unwrap();
     let root = fixture.root();
-    let _guard = CwdGuard::enter(root);
 
     let store = Store::open(root.join(".testaruda")).unwrap();
     let tids = setup_graph(&store, root);

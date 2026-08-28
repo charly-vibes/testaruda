@@ -121,24 +121,36 @@ impl AdapterIO {
         args: &[&str],
         timeout_ms: Option<u64>,
     ) -> Result<Self, AdapterError> {
+        Self::spawn_in(binary, args, timeout_ms, None)
+    }
+
+    /// Spawn an adapter child with an optional explicit working directory.
+    pub fn spawn_in(
+        binary: &str,
+        args: &[&str],
+        timeout_ms: Option<u64>,
+        cwd: Option<&std::path::Path>,
+    ) -> Result<Self, AdapterError> {
         let timeout = Duration::from_millis(timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS));
 
-        let mut child = Command::new(binary)
-            .args(args)
+        let mut cmd = Command::new(binary);
+        cmd.args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    AdapterError::Io(std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        format!("adapter binary not found: '{}'", binary),
-                    ))
-                } else {
-                    AdapterError::Io(e)
-                }
-            })?;
+            .stderr(Stdio::piped());
+        if let Some(dir) = cwd {
+            cmd.current_dir(dir);
+        }
+        let mut child = cmd.spawn().map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                AdapterError::Io(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("adapter binary not found: '{}'", binary),
+                ))
+            } else {
+                AdapterError::Io(e)
+            }
+        })?;
 
         let stdin: Box<dyn Write + Send> = Box::new(child.stdin.take().ok_or_else(|| {
             AdapterError::Io(std::io::Error::new(
@@ -690,9 +702,21 @@ pub fn spawn_adapter(
     command_string: &str,
     timeout_ms: Option<u64>,
 ) -> Result<AdapterIO, AdapterError> {
+    spawn_adapter_in(command_string, timeout_ms, None)
+}
+
+/// Spawn an adapter command string, optionally rooted at `cwd`.
+///
+/// The child gets an explicit working directory when provided — callers must
+/// not rely on (or mutate) the harness process cwd (testaruda-pzh6).
+pub fn spawn_adapter_in(
+    command_string: &str,
+    timeout_ms: Option<u64>,
+    cwd: Option<&std::path::Path>,
+) -> Result<AdapterIO, AdapterError> {
     let (binary, args) = parse_command_string(command_string)?;
     let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-    AdapterIO::spawn(&binary, &args_refs, timeout_ms)
+    AdapterIO::spawn_in(&binary, &args_refs, timeout_ms, cwd)
 }
 
 #[cfg(test)]

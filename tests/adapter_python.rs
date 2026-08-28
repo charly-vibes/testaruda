@@ -6,10 +6,6 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
-use std::sync::{LazyLock, Mutex};
-
-/// Global lock for CWD-manipulating tests to prevent parallel interference.
-static CWD_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 /// Path to the Python adapter fixture project.
 fn fixture_path() -> std::path::PathBuf {
@@ -29,9 +25,12 @@ fn adapter_available() -> bool {
         .unwrap_or(false)
 }
 
-/// Spawn the Python adapter and return a child process handle.
+/// Spawn the Python adapter rooted at the fixture directory and return a
+/// child process handle. The child gets an explicit cwd — never rely on the
+/// harness process cwd (testaruda-pzh6).
 fn spawn_adapter() -> std::process::Child {
     Command::new("testaruda-adapter-python")
+        .current_dir(fixture_path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -50,23 +49,6 @@ fn send_command(child: &mut std::process::Child, cmd: &str) -> String {
     let mut line = String::new();
     reader.read_line(&mut line).unwrap();
     line.trim().to_string()
-}
-
-/// Run `f` with the process CWD set to the fixture dir, then restore.
-/// Handles poisoned mutex (from panicked prior tests) gracefully.
-fn with_fixture_cwd<R>(f: impl FnOnce() -> R) -> R {
-    let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let orig = std::env::current_dir().unwrap();
-    let fixture = fixture_path();
-    assert!(
-        fixture.exists(),
-        "fixture directory not found: {:?}",
-        fixture
-    );
-    std::env::set_current_dir(&fixture).unwrap();
-    let result = f();
-    std::env::set_current_dir(&orig).unwrap();
-    result
 }
 
 // ============================================================================
@@ -117,7 +99,7 @@ fn discover_src_layout_finds_project_tests() {
         return;
     }
 
-    with_fixture_cwd(|| {
+    {
         let mut child = spawn_adapter();
         // Handshake first
         send_command(&mut child, r#"{"command":"handshake"}"#);
@@ -183,7 +165,7 @@ fn discover_src_layout_finds_project_tests() {
         );
 
         child.kill().ok();
-    });
+    }
 }
 
 #[test]
@@ -193,7 +175,7 @@ fn discover_src_layout_node_id_format() {
         return;
     }
 
-    with_fixture_cwd(|| {
+    {
         let mut child = spawn_adapter();
         send_command(&mut child, r#"{"command":"handshake"}"#);
         let resp = send_command(&mut child, r#"{"command":"discover"}"#);
@@ -227,7 +209,7 @@ fn discover_src_layout_node_id_format() {
         }
 
         child.kill().ok();
-    });
+    }
 }
 
 // ============================================================================
@@ -241,7 +223,7 @@ fn discover_excludes_venv_and_cache_dirs() {
         return;
     }
 
-    with_fixture_cwd(|| {
+    {
         let mut child = spawn_adapter();
         send_command(&mut child, r#"{"command":"handshake"}"#);
         let resp = send_command(&mut child, r#"{"command":"discover"}"#);
@@ -271,7 +253,7 @@ fn discover_excludes_venv_and_cache_dirs() {
         }
 
         child.kill().ok();
-    });
+    }
 }
 
 // ============================================================================
@@ -285,7 +267,7 @@ fn static_deps_src_layout_resolves_modules() {
         return;
     }
 
-    with_fixture_cwd(|| {
+    {
         let mut child = spawn_adapter();
         send_command(&mut child, r#"{"command":"handshake"}"#);
 
@@ -335,7 +317,7 @@ fn static_deps_src_layout_resolves_modules() {
         );
 
         child.kill().ok();
-    });
+    }
 }
 
 #[test]
@@ -345,7 +327,7 @@ fn static_deps_src_layout_service_change() {
         return;
     }
 
-    with_fixture_cwd(|| {
+    {
         let mut child = spawn_adapter();
         send_command(&mut child, r#"{"command":"handshake"}"#);
 
@@ -367,7 +349,7 @@ fn static_deps_src_layout_service_change() {
         );
 
         child.kill().ok();
-    });
+    }
 }
 
 #[test]
@@ -377,7 +359,7 @@ fn static_deps_src_layout_nested_test_no_deps() {
         return;
     }
 
-    with_fixture_cwd(|| {
+    {
         let mut child = spawn_adapter();
         send_command(&mut child, r#"{"command":"handshake"}"#);
 
@@ -401,7 +383,7 @@ fn static_deps_src_layout_nested_test_no_deps() {
         );
 
         child.kill().ok();
-    });
+    }
 }
 
 // ============================================================================
@@ -415,7 +397,7 @@ fn static_deps_nonexistent_file_unresolved() {
         return;
     }
 
-    with_fixture_cwd(|| {
+    {
         let mut child = spawn_adapter();
         send_command(&mut child, r#"{"command":"handshake"}"#);
 
@@ -433,7 +415,7 @@ fn static_deps_nonexistent_file_unresolved() {
         );
 
         child.kill().ok();
-    });
+    }
 }
 
 // ============================================================================
@@ -447,7 +429,7 @@ fn static_deps_test_file_changed_self_edge() {
         return;
     }
 
-    with_fixture_cwd(|| {
+    {
         let mut child = spawn_adapter();
         send_command(&mut child, r#"{"command":"handshake"}"#);
 
@@ -472,5 +454,5 @@ fn static_deps_test_file_changed_self_edge() {
         );
 
         child.kill().ok();
-    });
+    }
 }

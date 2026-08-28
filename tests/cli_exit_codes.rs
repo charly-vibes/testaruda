@@ -3,31 +3,11 @@
 //! Verifies that JSON and human output modes return the same process exit
 //! code derived from the selection outcome, not just success.
 
-use std::path::PathBuf;
-
-/// Cwd guard: changes to a temp directory, restores on drop.
-struct CwdGuard {
-    saved: PathBuf,
-}
-
-impl CwdGuard {
-    fn enter(temp: &std::path::Path) -> Self {
-        let saved = std::env::current_dir().unwrap();
-        std::env::set_current_dir(temp).unwrap();
-        Self { saved }
-    }
-}
-
-impl Drop for CwdGuard {
-    fn drop(&mut self) {
-        let _ = std::env::set_current_dir(&self.saved);
-    }
-}
-
 /// Set up a minimal git project with a testaruda store.
-fn setup_project() -> (tempfile::TempDir, CwdGuard) {
+/// Spawned children get `current_dir` explicitly — no process-cwd mutation
+/// (testaruda-pzh6).
+fn setup_project() -> tempfile::TempDir {
     let project = tempfile::tempdir().unwrap();
-    let guard = CwdGuard::enter(project.path());
 
     // Initialize git repo
     std::process::Command::new("git")
@@ -74,6 +54,7 @@ version = "0.1.0"
     // Initialize testaruda store
     let init_output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
         .arg("init")
+        .current_dir(project.path())
         .output()
         .expect("testaruda init failed");
     assert!(
@@ -82,17 +63,18 @@ version = "0.1.0"
         String::from_utf8_lossy(&init_output.stderr)
     );
 
-    (project, guard)
+    project
 }
 
 /// Test that `testaruda select --json` exits with the outcome-derived code
 /// (not 0) when no tests are selected (exit code 20).
 #[test]
 fn json_mode_exits_with_no_tests_code() {
-    let (_project, _guard) = setup_project();
+    let project = setup_project();
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
         .args(["select", "--json", "--files", "nonexistent.py"])
+        .current_dir(project.path())
         .output()
         .expect("testaruda select --json failed");
 
@@ -122,12 +104,13 @@ fn json_mode_exits_with_no_tests_code() {
 /// when confidence is low (exit code 10).
 #[test]
 fn json_mode_exits_with_low_confidence_code() {
-    let (_project, _guard) = setup_project();
+    let project = setup_project();
 
     // Run select with --files to trigger a selection with a changed file
     // We need to modify a file to create a change set
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
         .args(["select", "--json", "--files", "src/lib.rs"])
+        .current_dir(project.path())
         .output()
         .expect("testaruda select --json failed");
 

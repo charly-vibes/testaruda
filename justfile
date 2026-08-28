@@ -15,9 +15,9 @@ build-release:
 # Alias for backward compatibility
 release: build-release
 
-# Run all tests (single-threaded — adapter tests use global cwd)
+# Run all tests (parallel-safe — adapter children get explicit cwd, testaruda-pzh6)
 test:
-    cargo test -- --test-threads=1
+    cargo test
 
 # Run tests with output
 test-v:

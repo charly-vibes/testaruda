@@ -15,37 +15,13 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::{LazyLock, Mutex};
 
 use testaruda::adapter::DepEdge;
 use testaruda::ChangeSet;
 use testaruda::Selector;
 use testaruda::Store;
 use testaruda::ONE;
-
-/// Global lock for CWD-manipulating tests to prevent parallel interference.
-static CWD_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
-
-/// Cwd guard: changes to a temp directory, restores on drop.
-struct CwdGuard {
-    saved: PathBuf,
-}
-
-impl CwdGuard {
-    fn enter(temp: &std::path::Path) -> Self {
-        let saved = std::env::current_dir().unwrap();
-        std::env::set_current_dir(temp).unwrap();
-        Self { saved }
-    }
-}
-
-impl Drop for CwdGuard {
-    fn drop(&mut self) {
-        let _ = std::env::set_current_dir(&self.saved);
-    }
-}
 
 /// Check if the Rust adapter binary is available on PATH.
 fn adapter_available() -> bool {
@@ -244,17 +220,17 @@ fn test_recall_fault_pipeline() {
         return;
     }
 
-    let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = tempfile::tempdir().expect("failed to create temp dir");
     create_rust_fixture(dir.path());
     std::fs::write(dir.path().join("testaruda.toml"), "").unwrap();
 
     let store = Store::open(dir.path().join(".testaruda")).unwrap();
     store.initialize().unwrap();
-    let _cwd = CwdGuard::enter(dir.path());
+    let project_dir = dir.path().to_path_buf();
 
     // ---- Adapter pipeline: handshake → discover → static-deps ----
     let mut child = Command::new("testaruda-adapter-rust")
+        .current_dir(&project_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -327,15 +303,15 @@ fn test_recall_fault_semantic_mutation_detected() {
         return;
     }
 
-    let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = tempfile::tempdir().expect("failed to create temp dir");
     create_rust_fixture(dir.path());
     std::fs::write(dir.path().join("testaruda.toml"), "").unwrap();
 
-    let _cwd = CwdGuard::enter(dir.path());
+    let project_dir = dir.path().to_path_buf();
 
     // ---- Adapter pipeline ----
     let mut child = Command::new("testaruda-adapter-rust")
+        .current_dir(&project_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

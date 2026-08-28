@@ -112,9 +112,12 @@ fn fixture_path() -> std::path::PathBuf {
     p
 }
 
-/// Spawn the TypeScript adapter and return a child process handle.
+/// Spawn the TypeScript adapter rooted at the fixture directory and return a
+/// child process handle. The child gets an explicit cwd — never rely on the
+/// harness process cwd (testaruda-pzh6).
 fn spawn_adapter() -> std::process::Child {
     Command::new("testaruda-adapter-typescript")
+        .current_dir(fixture_path())
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -141,9 +144,6 @@ fn adapter_typescript_discover_fixture() {
         eprintln!("testaruda-adapter-typescript not on PATH — skipping");
         return;
     }
-
-    let orig = std::env::current_dir().unwrap();
-    std::env::set_current_dir(fixture_path()).unwrap();
 
     let mut child = spawn_adapter();
     let resp = send_command(&mut child, r#"{"command":"discover"}"#);
@@ -173,7 +173,6 @@ fn adapter_typescript_discover_fixture() {
     );
 
     let _ = child.wait();
-    std::env::set_current_dir(orig).unwrap();
 }
 
 #[test]
@@ -182,9 +181,6 @@ fn adapter_typescript_static_deps_fixture() {
         eprintln!("testaruda-adapter-typescript not on PATH — skipping");
         return;
     }
-
-    let orig = std::env::current_dir().unwrap();
-    std::env::set_current_dir(fixture_path()).unwrap();
 
     let mut child = spawn_adapter();
     let cmd = serde_json::json!({
@@ -219,7 +215,6 @@ fn adapter_typescript_static_deps_fixture() {
     }
 
     let _ = child.wait();
-    std::env::set_current_dir(orig).unwrap();
 }
 
 #[test]
@@ -228,9 +223,6 @@ fn adapter_typescript_full_pipeline() {
         eprintln!("testaruda-adapter-typescript not on PATH — skipping");
         return;
     }
-
-    let orig = std::env::current_dir().unwrap();
-    std::env::set_current_dir(fixture_path()).unwrap();
 
     let mut child = spawn_adapter();
 
@@ -301,7 +293,6 @@ fn adapter_typescript_full_pipeline() {
     assert!(parsed["ok"].as_bool().unwrap_or(false));
 
     let _ = child.wait();
-    std::env::set_current_dir(orig).unwrap();
 }
 
 #[test]
@@ -310,9 +301,6 @@ fn adapter_typescript_static_deps_seeded_fault() {
         eprintln!("testaruda-adapter-typescript not on PATH — skipping");
         return;
     }
-
-    let orig = std::env::current_dir().unwrap();
-    std::env::set_current_dir(fixture_path()).unwrap();
 
     let mut child = spawn_adapter();
 
@@ -372,5 +360,4 @@ fn adapter_typescript_static_deps_seeded_fault() {
     );
 
     let _ = child.wait();
-    std::env::set_current_dir(orig).unwrap();
 }

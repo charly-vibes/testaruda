@@ -66,8 +66,8 @@ jobs:
         uses: taiki-e/install-action@cargo-tarpaulin
 
       - name: Run coverage
-        # Single-threaded tests: adapter/cli tests use a process-global cwd
-        # guard (see justfile `test` recipe) and race under parallel threads.
+        # Adapter children receive explicit cwd at spawn time (testaruda-pzh6),
+        # but tarpaulin's instrumentation adds flakiness under parallel loads.
         run: cargo tarpaulin -- --test-threads=1
 
       - name: Upload coverage to Codecov
