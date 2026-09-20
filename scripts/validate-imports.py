@@ -103,7 +103,8 @@ def _py_ast_imports(content: str, file_path: str, repo_root: str) -> set[str]:
     # Derive base package from file path (same logic as adapter)
     rel_path = file_path.replace(repo_root, "").lstrip("/")
     module_path = rel_path.replace(".py", "").replace("/", ".").lstrip(".")
-    base_package_parts = module_path.rsplit(".", 1)[:-1]  # parent package path
+    # Parent package as a list of dotted segments (testaruda-rpqs)
+    base_package_parts = module_path.split(".")[:-1]
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -117,7 +118,7 @@ def _py_ast_imports(content: str, file_path: str, repo_root: str) -> set[str]:
                 imports.add(mod.split(".")[0])
             else:
                 # Relative import — resolve to absolute module path
-                parts = list(base_package_parts[0]) if base_package_parts else []
+                parts = list(base_package_parts)
                 levels_up = max(0, level - 1)
                 if levels_up < len(parts):
                     parts = parts[:len(parts) - levels_up]
@@ -135,7 +136,8 @@ def _py_adapter_imports(content: str, file_path: str) -> set[str]:
     """Replicate the Rust adapter's parse_python_imports."""
     deps: set[str] = set()
     module_path = file_path.replace(".py", "").replace("/", ".").lstrip(".")
-    base_parts = module_path.rsplit(".", 1)[:-1]
+    # Parent package as a list of dotted segments (testaruda-rpqs)
+    base_parts = module_path.split(".")[:-1]
 
     for line in content.split("\n"):
         # testaruda-wpil: strip trailing comments (mirrors the Rust adapter's
@@ -151,7 +153,7 @@ def _py_adapter_imports(content: str, file_path: str) -> set[str]:
                 dot_count = len(rest) - len(rest.lstrip("."))
                 ad = rest[dot_count:].strip()
                 mp = ad.split(" import ")[0].strip() if " import " in ad else ""
-                parts = list(base_parts[0]) if base_parts else []
+                parts = list(base_parts)
                 up = max(0, dot_count - 1)
                 if up < len(parts):
                     parts = parts[:len(parts) - up]
