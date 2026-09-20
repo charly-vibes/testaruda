@@ -273,16 +273,11 @@ fn static_deps_src_layout_resolves_modules() {
 
         // Change src/my_package/model.py — tests import from my_package.model
         //
-        // NOTE: The adapter currently resolves file paths to module names by
-        // converting the on-disk path directly (e.g., "src/my_package/model.py"
-        // → "src.my_package.model"). But tests import using the package name
-        // without the "src." prefix ("from my_package.model import Model").
+        // src/ layouts are resolved via the package-root walk (testaruda-i802,
+        // commit 8d69a3b): the adapter strips the non-importable `src/` prefix
+        // so "src/my_package/model.py" matches "from my_package.model import".
         //
-        // This is a known limitation for src/ layouts (see Edge 1 in the edge
-        // case catalog). The adapter would need to know which directories are
-        // source roots and strip them from module resolution.
-        //
-        // The test verifies this current behavior: no edges are found.
+        // Both test files import (directly or transitively) from my_package.model.
         let cmd =
             r#"{"command":"static-deps","params":{"changed_files":["src/my_package/model.py"]}}"#;
         let resp = send_command(&mut child, cmd);
@@ -305,15 +300,31 @@ fn static_deps_src_layout_resolves_modules() {
             candidates
         );
 
-        // Current limitation: no edges found because src/ prefix in file path
-        // doesn't match the module name used in imports.
-        // This assertion documents the current behavior. When the adapter is
-        // fixed to handle src/ layouts, this test should be updated.
+        // src/ layout now resolves: both test files select on model.py
+        let edge_pairs: Vec<(String, String)> = edges
+            .iter()
+            .map(|e| {
+                (
+                    e["from"].as_str().unwrap_or("").to_string(),
+                    e["to"].as_str().unwrap_or("").to_string(),
+                )
+            })
+            .collect();
         assert!(
-            edges.is_empty(),
-            "src/ layout module resolution currently produces no edges (known limitation). \
-             Got: {:?}",
-            edges
+            edge_pairs.contains(&(
+                "tests/test_model.py".to_string(),
+                "src/my_package/model.py".to_string()
+            )),
+            "expected test_model -> model edge, got: {:?}",
+            edge_pairs
+        );
+        assert!(
+            edge_pairs.contains(&(
+                "tests/test_service.py".to_string(),
+                "src/my_package/model.py".to_string()
+            )),
+            "expected test_service -> model (transitive) edge, got: {:?}",
+            edge_pairs
         );
 
         child.kill().ok();
@@ -331,7 +342,8 @@ fn static_deps_src_layout_service_change() {
         let mut child = spawn_adapter();
         send_command(&mut child, r#"{"command":"handshake"}"#);
 
-        // Same limitation as src layout module resolution above
+        // src/ layout resolves since testaruda-i802: service.py itself is a
+        // changed source file whose test (test_service.py) imports it
         let cmd =
             r#"{"command":"static-deps","params":{"changed_files":["src/my_package/service.py"]}}"#;
         let resp = send_command(&mut child, cmd);
@@ -340,12 +352,22 @@ fn static_deps_src_layout_service_change() {
 
         let edges = parsed["edges"].as_array().unwrap();
 
-        // Current limitation: no edges found for src/ layout
+        let edge_pairs: Vec<(String, String)> = edges
+            .iter()
+            .map(|e| {
+                (
+                    e["from"].as_str().unwrap_or("").to_string(),
+                    e["to"].as_str().unwrap_or("").to_string(),
+                )
+            })
+            .collect();
         assert!(
-            edges.is_empty(),
-            "src/ layout module resolution currently produces no edges (known limitation). \
-             Got: {:?}",
-            edges
+            edge_pairs.contains(&(
+                "tests/test_service.py".to_string(),
+                "src/my_package/service.py".to_string()
+            )),
+            "expected test_service -> service edge, got: {:?}",
+            edge_pairs
         );
 
         child.kill().ok();
