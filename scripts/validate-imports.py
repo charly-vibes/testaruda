@@ -138,7 +138,9 @@ def _py_adapter_imports(content: str, file_path: str) -> set[str]:
     base_parts = module_path.rsplit(".", 1)[:-1]
 
     for line in content.split("\n"):
-        t = line.strip()
+        # testaruda-wpil: strip trailing comments (mirrors the Rust adapter's
+        # parse_import_line) so comment text never leaks into module names
+        t = line.split("#", 1)[0].strip()
         if t.startswith("import "):
             m = t[7:].split(" as ")[0].strip()
             if m:
