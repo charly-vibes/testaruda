@@ -381,11 +381,18 @@ fn parse_python_imports(content: &str, file_path: &str) -> Vec<String> {
 
 /// Parse a single import line and return the resolved module name if applicable.
 fn parse_import_line(trimmed: &str, base_package: &[&str]) -> Option<String> {
-    if trimmed.starts_with("import ") {
-        return parse_absolute_import(trimmed);
+    // Trailing comments are common on (lazy) imports — `import ctypes  # noqa: F401`.
+    // Strip them so the comment text never leaks into the module name
+    // (testaruda-wpil). '#' cannot legally appear in an import statement.
+    let code = match trimmed.find('#') {
+        Some(i) => trimmed[..i].trim_end(),
+        None => trimmed,
+    };
+    if code.starts_with("import ") {
+        return parse_absolute_import(code);
     }
-    if trimmed.starts_with("from ") {
-        return parse_from_import(trimmed, base_package);
+    if code.starts_with("from ") {
+        return parse_from_import(code, base_package);
     }
     None
 }
@@ -713,6 +720,45 @@ mod tests {
         let imports = parse_python_imports(content, "test.py");
         assert!(imports.contains(&"numpy".to_string()));
         assert!(imports.contains(&"pandas".to_string()));
+    }
+
+    #[test]
+    fn test_parse_python_imports_strips_trailing_comment() {
+        // testaruda-wpil: lazy imports often carry trailing comments; the
+        // comment text must not leak into the module name
+        let content = "def f():\n    import ctypes  # noqa: F401\n    import orjson  # ty: ignore[unresolved-import]\n    import tracemalloc #no-space-comment\n";
+        let imports = parse_python_imports(content, "test.py");
+        assert!(
+            imports.contains(&"ctypes".to_string()),
+            "got: {:?}",
+            imports
+        );
+        assert!(
+            imports.contains(&"orjson".to_string()),
+            "got: {:?}",
+            imports
+        );
+        assert!(
+            imports.contains(&"tracemalloc".to_string()),
+            "got: {:?}",
+            imports
+        );
+        assert!(
+            !imports.iter().any(|m| m.contains('#')),
+            "comment leaked: {:?}",
+            imports
+        );
+    }
+
+    #[test]
+    fn test_parse_python_imports_from_import_trailing_comment() {
+        let content = "from django.test.utils import captured_stderr  # noqa\n";
+        let imports = parse_python_imports(content, "test.py");
+        assert!(
+            imports.contains(&"django.test.utils".to_string()),
+            "got: {:?}",
+            imports
+        );
     }
 
     #[test]
