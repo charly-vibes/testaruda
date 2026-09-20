@@ -1,0 +1,25 @@
+# dont seed vocabulary snapshot
+# Installed project-locally by `dont init`. Tool upgrades MUST NOT rewrite this
+# file except through an explicit seed-migration operation.
+prefix: "dont:"
+terms:
+  - id: "dont:Entity"
+    status: locked
+  - id: "dont:Claim"
+    status: locked
+  - id: "dont:Term"
+    status: locked
+  - id: "dont:Evidence"
+    status: locked
+  - id: "dont:kind_of"
+    status: locked
+  - id: "dont:related_to"
+    status: locked
+  - id: "dont:defined_as"
+    status: locked
+  - id: "dont:Hypothesis"
+    status: locked
+  - id: "dont:Retraction"
+    status: locked
+  - id: "dont:external_ref"
+    status: locked
