@@ -291,13 +291,18 @@ fn parse_cli_with_suggestions(guide: &genesis::guide::Guide) -> Cli {
             if let Some(ref cmd) = unknown {
                 let engine = genesis::suggestions::SuggestionEngine::new();
                 if let Some(suggestion) = engine.suggest_typo(cmd, guide.registry()) {
-                    eprintln!("{}", err.render());
-                    eprintln!();
-                    eprintln!("💡 {}", suggestion.message());
-                    if let Some(footer) = suggestion.footer() {
-                        eprintln!("   {}", footer);
+                    // clap 4 already renders its own "tip: a similar subcommand
+                    // exists" for InvalidSubcommand (testaruda-p1uv); printing
+                    // the genesis block on top would duplicate the hint.
+                    if !err.to_string().contains("tip: a similar subcommand exists") {
+                        eprintln!("{}", err.render());
+                        eprintln!();
+                        eprintln!("💡 {}", suggestion.message());
+                        if let Some(footer) = suggestion.footer() {
+                            eprintln!("   {}", footer);
+                        }
+                        std::process::exit(2);
                     }
-                    std::process::exit(2);
                 }
             }
 

@@ -36,8 +36,38 @@ fn invalid_option_value_gets_no_subcommand_suggestion() {
     );
 }
 
-/// Test that a genuine unknown subcommand still gets the genesis typo
-/// suggestion (existing good behavior, kept intact by the ixp0 fix).
+/// Test that a typo'd subcommand doesn't print BOTH clap's "tip: a similar
+/// subcommand exists" and genesis's "💡 Unknown command ..." — de-duplicated
+/// suggestion output (testaruda-p1uv).
+#[test]
+fn no_duplicate_typo_suggestion() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
+        .args(["slect"])
+        .output()
+        .expect("failed to run testaruda slect");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    let has_clap_tip = stderr.contains("tip: a similar subcommand");
+    let has_genesis_tip = stderr.contains("💡");
+
+    assert!(
+        !(has_clap_tip && has_genesis_tip),
+        "clap tip and genesis suggestion must not both print\nstderr: {}",
+        stderr
+    );
+
+    // Exactly one suggestion source must still fire
+    assert!(
+        has_clap_tip || has_genesis_tip,
+        "a suggestion should still be present\nstderr: {}",
+        stderr
+    );
+}
+
+/// Test that a genuine unknown subcommand still gets a typo suggestion —
+/// from clap's tip or genesis's block, whichever wins the de-duplication
+/// (testaruda-ixp0, adjusted for testaruda-p1uv).
 #[test]
 fn unknown_subcommand_still_gets_suggestion() {
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
@@ -48,8 +78,8 @@ fn unknown_subcommand_still_gets_suggestion() {
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(
-        stderr.contains("💡") || stderr.contains("Did you mean"),
-        "unknown subcommand should trigger the suggestion engine\nstderr: {}",
+        stderr.contains("💡") || stderr.contains("tip: a similar subcommand"),
+        "unknown subcommand should trigger a suggestion\nstderr: {}",
         stderr
     );
 }
