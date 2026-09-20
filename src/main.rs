@@ -273,13 +273,20 @@ fn parse_cli_with_suggestions(guide: &genesis::guide::Guide) -> Cli {
             }
 
             // Use genesis suggestions to provide better error messages for typos
-            let err_str = err.to_string();
-
-            // Extract the unknown subcommand from clap's error.
-            // Clap errors for unknown subcommands look like:
-            // "error: unrecognized subcommand 'slect'"
-            // or "error: Found argument 'slect' which wasn't expected"
-            let unknown = err_str.split('\'').nth(1).map(|s| s.trim().to_string());
+            // — but only for unrecognized subcommands (testaruda-ixp0).
+            // Other clap errors (invalid value, unknown argument, …) carry
+            // quoted text too; extracting the first single-quoted fragment
+            // there yields an option VALUE, not a subcommand, and the typo
+            // engine prints a garbled "Did you mean 'status'?" on top of a
+            // perfectly clear clap error.
+            let unknown = if matches!(err.kind(), ErrorKind::InvalidSubcommand) {
+                let err_str = err.to_string();
+                // Clap errors for unknown subcommands look like:
+                // "error: unrecognized subcommand 'slect'"
+                err_str.split('\'').nth(1).map(|s| s.trim().to_string())
+            } else {
+                None
+            };
 
             if let Some(ref cmd) = unknown {
                 let engine = genesis::suggestions::SuggestionEngine::new();
