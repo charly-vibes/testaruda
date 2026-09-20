@@ -740,6 +740,33 @@ impl Store {
             .prepare("SELECT id, fingerprint FROM content_units WHERE component = ?1 AND path = ?2")
             .map_err(|e| miette::miette!("Query prep failed: {}", e))?;
 
+        // Revision-range mode (testaruda-jdw5): files listed by
+        // `git diff base..head` are changed by definition. Working-tree
+        // fingerprint comparison cannot detect in-range changes when the
+        // store was ingested at head — the normal case — and would
+        // silently report changed_count=0 (recall violation).
+        if delta.from_revisions {
+            for path in &delta.files {
+                let result = stmt.query_row(rusqlite::params!["default", path], |row| {
+                    let id: u32 = row.get(0)?;
+                    Ok(id)
+                });
+                match result {
+                    Ok(id) => ctx.changed.push(id),
+                    Err(_) => {
+                        // New in the range and unknown to the store: no
+                        // edges can be trusted yet, so over-approximate
+                        // per SAFE-004.
+                        let id = self
+                            .ensure_content_unit("default", path, None, "source")
+                            .map_err(|e| miette::miette!("Failed to create content unit: {}", e))?;
+                        ctx.unresolved.push(id);
+                    }
+                }
+            }
+            return Ok(());
+        }
+
         for path in &delta.files {
             let component = "default";
             let abs_path = if Path::new(path).is_absolute() {
@@ -2297,6 +2324,7 @@ mod tests {
             files: vec![abs_path.clone()],
             base: None,
             head: None,
+            from_revisions: false,
         };
         let ctx = store.load_selection_context(&delta).unwrap();
         assert_eq!(ctx.changed.len(), 0, "cold-start should not be changed");
@@ -2344,6 +2372,7 @@ mod tests {
             files: vec![missing_path],
             base: None,
             head: None,
+            from_revisions: false,
         };
         let ctx = store.load_selection_context(&delta).unwrap();
         assert_eq!(ctx.changed.len(), 0);
@@ -2755,6 +2784,7 @@ mod tests {
                 files: vec![],
                 base: None,
                 head: None,
+                from_revisions: false,
             })
             .unwrap();
         assert!(
@@ -2783,6 +2813,7 @@ mod tests {
                 files: vec![],
                 base: None,
                 head: None,
+                from_revisions: false,
             })
             .unwrap();
         assert!(
@@ -2813,6 +2844,7 @@ mod tests {
                 files: vec![],
                 base: None,
                 head: None,
+                from_revisions: false,
             })
             .unwrap();
         assert!(
@@ -2919,6 +2951,7 @@ mod tests {
             files: vec![file_path.to_string_lossy().to_string()],
             base: None,
             head: None,
+            from_revisions: false,
         };
         let sel = engine.select(&delta).unwrap();
         let ids: std::collections::HashSet<u32> = sel.tests.iter().map(|t| t.id).collect();
@@ -3120,6 +3153,7 @@ mod tests {
             files: vec![file_path.to_string_lossy().to_string()],
             base: None,
             head: None,
+            from_revisions: false,
         };
         let sel = engine.select(&delta).unwrap();
 
@@ -3157,6 +3191,7 @@ mod tests {
                 files: vec![],
                 base: None,
                 head: None,
+                from_revisions: false,
             })
             .unwrap();
         assert!(
@@ -3268,6 +3303,7 @@ mod tests {
                 files: vec![],
                 base: None,
                 head: None,
+                from_revisions: false,
             })
             .unwrap();
         assert_eq!(
@@ -3291,6 +3327,7 @@ mod tests {
                 files: vec![],
                 base: None,
                 head: None,
+                from_revisions: false,
             })
             .unwrap();
         assert_eq!(
@@ -3346,6 +3383,7 @@ mod tests {
                 files: vec![],
                 base: None,
                 head: None,
+                from_revisions: false,
             })
             .unwrap();
 
@@ -3428,6 +3466,7 @@ mod tests {
             files: vec!["src/lib.rs".to_string()],
             base: None,
             head: None,
+            ..Default::default()
         };
         let sel = engine.select(&delta).unwrap();
 
@@ -3506,6 +3545,7 @@ mod tests {
             files: vec!["src/lib.rs".to_string()],
             base: None,
             head: None,
+            ..Default::default()
         };
         let sel = engine.select(&delta).unwrap();
 
@@ -3556,6 +3596,7 @@ mod tests {
             files: vec![],
             base: None,
             head: None,
+            ..Default::default()
         };
         let sel = engine.select(&delta).unwrap();
 
@@ -3885,6 +3926,7 @@ mod tests {
             files: vec!["src/lib.rs".to_string()],
             base: None,
             head: None,
+            ..Default::default()
         };
         let sel = engine.select(&delta).unwrap();
 
@@ -3957,6 +3999,7 @@ mod tests {
                 files: vec!["app.config".to_string()],
                 base: None,
                 head: None,
+                ..Default::default()
             })
             .unwrap();
 
@@ -4003,6 +4046,7 @@ mod tests {
                 files: vec!["src/main.rs".to_string()],
                 base: None,
                 head: None,
+                ..Default::default()
             })
             .unwrap();
 
@@ -4055,6 +4099,7 @@ interval_hours = 0
                 files: vec![],
                 base: None,
                 head: None,
+                from_revisions: false,
             })
             .unwrap();
         assert!(
@@ -4208,6 +4253,7 @@ name = "env-a"
                 files: vec![],
                 base: None,
                 head: None,
+                from_revisions: false,
             })
             .unwrap();
         assert_eq!(
@@ -4222,6 +4268,7 @@ name = "env-a"
             files: vec!["src/lib.rs".to_string()],
             base: None,
             head: None,
+            ..Default::default()
         };
         let ctx = store.load_selection_context(&delta).unwrap();
         assert!(!ctx.changed.is_empty(), "no changed CUs");
@@ -4342,6 +4389,7 @@ name = "env-a"
                 files: vec!["src/lib.rs".to_string()],
                 base: None,
                 head: None,
+                ..Default::default()
             })
             .unwrap();
 

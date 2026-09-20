@@ -153,6 +153,7 @@ fn test_ordering_scenarios() {
                 files: vec!["src/helpers.py".to_string()],
                 base: None,
                 head: None,
+                ..Default::default()
             };
 
             let sel1 =
@@ -167,6 +168,7 @@ fn test_ordering_scenarios() {
                 files: vec!["src/helpers.py".to_string()],
                 base: None,
                 head: None,
+                ..Default::default()
             };
             let sel2 = Selector::select_with_ordering(store, &delta2, TestOrdering::Deterministic)
                 .unwrap();
@@ -194,6 +196,7 @@ fn test_ordering_scenarios() {
                 files: vec!["src/session.py".to_string()],
                 base: None,
                 head: None,
+                ..Default::default()
             };
             let sel =
                 Selector::select_with_ordering(store, &delta, TestOrdering::Deterministic).unwrap();
@@ -227,6 +230,7 @@ fn test_ordering_scenarios() {
                 files: vec!["src/invoice.py".to_string()],
                 base: None,
                 head: None,
+                ..Default::default()
             };
             let sel =
                 Selector::select_with_ordering(store, &delta, TestOrdering::ByDuration).unwrap();
@@ -248,6 +252,7 @@ fn test_ordering_scenarios() {
                 files: vec!["src/helpers.py".to_string()],
                 base: None,
                 head: None,
+                ..Default::default()
             };
             let sel =
                 Selector::select_with_ordering(store, &delta, TestOrdering::ByDuration).unwrap();
@@ -282,6 +287,7 @@ fn test_ordering_scenarios() {
                 files: vec!["src/session.py".to_string()],
                 base: None,
                 head: None,
+                ..Default::default()
             };
 
             // Default ordering
@@ -325,6 +331,7 @@ fn test_ordering_scenarios() {
                 files: vec!["src/helpers.py".to_string()],
                 base: None,
                 head: None,
+                ..Default::default()
             };
 
             // Note: setup_graph seeds all 4 tids with a 'passed' run.
