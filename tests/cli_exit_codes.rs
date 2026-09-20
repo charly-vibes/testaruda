@@ -141,6 +141,41 @@ fn agent_mode_exits_with_no_tests_code() {
     );
 }
 
+/// Test that `testaruda select --pre-edit` exits with the outcome-derived
+/// code (not 0) when no tests are selected (exit code 20) — testaruda-ljeg.
+/// Pre-edit mode is also a machine-readable contract: the process status
+/// must carry the CI decision like agent and JSON plan modes do.
+#[test]
+fn pre_edit_mode_exits_with_no_tests_code() {
+    let project = setup_project();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
+        .args(["select", "--pre-edit", "--files", "nonexistent.py"])
+        .current_dir(project.path())
+        .output()
+        .expect("testaruda select --pre-edit failed");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // The process exit code must match the outcome code (20), not 0
+    assert_eq!(
+        output.status.code(),
+        Some(20),
+        "Pre-edit mode should exit with outcome-derived code (20), not 0.\nstderr: {}\nstdout: {}",
+        stderr,
+        stdout,
+    );
+
+    // Valid pre-edit JSON must still be printed despite the non-zero exit
+    assert!(
+        stdout.contains("testaruda-pre-edit-v1"),
+        "Pre-edit mode should still print its JSON payload.\nstdout: {}\nstderr: {}",
+        stdout,
+        stderr
+    );
+}
+
 /// Test that `testaruda select --base/--head` detects changes in a revision
 /// range even when the store was ingested at head (testaruda-jdw5).
 ///
