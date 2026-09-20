@@ -625,7 +625,7 @@ fn emit_select_output(state: &SelectState) -> miette::Result<()> {
     } = state;
 
     if *agent {
-        emit_agent_output(store, selection, changed_ids, unresolved_ids)?;
+        emit_agent_output(store, selection, outcome, changed_ids, unresolved_ids)?;
     } else if *pre_edit {
         emit_pre_edit(store, selection, changed_ids, unresolved_ids)?;
     } else {
@@ -642,6 +642,7 @@ fn emit_select_output(state: &SelectState) -> miette::Result<()> {
 fn emit_agent_output(
     store: &Store,
     selection: &Selection,
+    outcome: &CiOutcome,
     changed_ids: &[u32],
     unresolved_ids: &[u32],
 ) -> miette::Result<()> {
@@ -669,6 +670,19 @@ fn emit_agent_output(
     let out = serde_json::to_string_pretty(&output)
         .map_err(|e| miette!("Agent output serialization failed: {}", e))?;
     println!("{}", out);
+
+    // Agent output is a machine-readable CI decision contract (testaruda-9lbm):
+    // the process status must carry the outcome code exactly like JSON plan
+    // mode (testaruda-fnyi) and human mode. A "tested nothing" agent run
+    // must not report green. Flush before exiting — piped stdout is
+    // block-buffered and std::process::exit must not lose the payload
+    // (testaruda-b7ks).
+    use std::io::Write;
+    std::io::stdout().flush().ok();
+    let code = outcome.exit_code();
+    if code != 0 {
+        std::process::exit(code);
+    }
     Ok(())
 }
 
