@@ -11,6 +11,11 @@ pub struct ChangeSet {
     pub base: Option<String>,
     /// Head revision (git ref).
     pub head: Option<String>,
+    /// True when `files` was computed from a `git diff base..head` range
+    /// (testaruda-jdw5). In-range changes are changed by definition —
+    /// working-tree fingerprint comparison cannot detect them when the
+    /// store was ingested at head.
+    pub from_revisions: bool,
 }
 
 impl ChangeSet {
@@ -27,6 +32,7 @@ impl ChangeSet {
                 files: paths,
                 base: base.map(String::from),
                 head: head.map(String::from),
+                from_revisions: false,
             });
         }
 
@@ -54,6 +60,7 @@ impl ChangeSet {
                 files,
                 base: Some(b.to_string()),
                 head: Some(h.to_string()),
+                from_revisions: true,
             });
         }
 
@@ -72,6 +79,7 @@ impl ChangeSet {
             files,
             base: None,
             head: None,
+            from_revisions: false,
         })
     }
 }

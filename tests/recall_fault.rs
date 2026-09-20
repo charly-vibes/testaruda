@@ -273,6 +273,7 @@ fn test_recall_fault_pipeline() {
         files: vec!["src/lib.rs".to_string()],
         base: None,
         head: None,
+        from_revisions: false,
     };
     let sel = Selector::select(&store, &delta).unwrap();
 
@@ -375,6 +376,7 @@ mod tests {
         files: vec!["src/lib.rs".to_string()],
         base: None,
         head: None,
+        from_revisions: false,
     };
     let sel = Selector::select(&store, &delta).unwrap();
 

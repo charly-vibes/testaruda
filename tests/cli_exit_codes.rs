@@ -26,7 +26,14 @@ fn setup_project() -> tempfile::TempDir {
         .output()
         .expect("git config user.name failed");
 
-    // Create placeholder files
+    // Create placeholder files. Ignore testaruda's own artifacts — real
+    // projects gitignore .testaruda/ (build artifact), so the init output
+    // must not pollute the v2 revision range under test.
+    std::fs::write(
+        project.path().join(".gitignore"),
+        ".testaruda/\n.genesis/\n",
+    )
+    .unwrap();
     std::fs::write(
         project.path().join("Cargo.toml"),
         r#"[package]
@@ -131,6 +138,86 @@ fn agent_mode_exits_with_no_tests_code() {
         !stdout.trim().is_empty(),
         "Agent mode should still print its JSON payload.\nstderr: {}",
         stderr
+    );
+}
+
+/// Test that `testaruda select --base/--head` detects changes in a revision
+/// range even when the store was ingested at head (testaruda-jdw5).
+///
+/// Repro: store fingerprints populated at HEAD, then ask for the range
+/// HEAD~1..HEAD touching a source file. The working-tree fingerprint equals
+/// the stored one, but the range itself proves the file changed —
+/// changed_count must be 1, not 0.
+#[test]
+fn revision_range_detects_in_range_change() {
+    let project = setup_project();
+
+    // Commit a v2 change on top of the initial commit (v1)
+    std::fs::write(
+        project.path().join("src/lib.rs"),
+        "pub fn hello() -> &str { \"hello v2\" }",
+    )
+    .unwrap();
+    std::process::Command::new("git")
+        .args(["add", "."])
+        .current_dir(project.path())
+        .output()
+        .expect("git add failed");
+    std::process::Command::new("git")
+        .args(["commit", "-m", "v2"])
+        .current_dir(project.path())
+        .output()
+        .expect("git commit failed");
+
+    // Populate the store at HEAD (v2), mirroring reality: stores get their
+    // units from selects/ingests on working changes, then match head.
+    // Touch lib.rs in the working tree, select, revert, select again —
+    // the unit now exists with the v2 fingerprint.
+    for i in 0..3 {
+        if i == 0 {
+            std::fs::write(
+                project.path().join("src/lib.rs"),
+                "pub fn hello() -> &str { \"working tree edit\" }",
+            )
+            .unwrap();
+        }
+        if i == 1 {
+            std::process::Command::new("git")
+                .args(["checkout", "--", "src/lib.rs"])
+                .current_dir(project.path())
+                .output()
+                .expect("git checkout failed");
+        }
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
+            .args(["select", "--json"])
+            .current_dir(project.path())
+            .output()
+            .expect("testaruda select failed");
+        assert!(
+            out.status.success() || out.status.code() == Some(20),
+            "baseline select should not crash: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    // Now ask for the range that touches src/lib.rs
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
+        .args(["select", "--json", "--base", "HEAD~1", "--head", "HEAD"])
+        .current_dir(project.path())
+        .output()
+        .expect("testaruda select --base/--head failed");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("select --json output should be valid JSON");
+
+    assert_eq!(
+        parsed["data"]["changed_count"].as_i64(),
+        Some(1),
+        "Revision range touching src/lib.rs must report changed_count=1 \
+         even when the store was ingested at head.\nstderr: {}\nstdout: {}",
+        String::from_utf8_lossy(&output.stderr),
+        stdout
     );
 }
 

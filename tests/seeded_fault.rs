@@ -172,6 +172,7 @@ fn test_seeded_fault_soundness_and_precision() {
                 files: vec!["src/session.py".to_string()],
                 base: None,
                 head: None,
+                from_revisions: false,
             };
             let sel = Selector::select(store, &delta).unwrap();
             let ids: Vec<u32> = sel.tests.iter().map(|t| t.id).collect();
@@ -197,6 +198,7 @@ fn test_seeded_fault_soundness_and_precision() {
                 files: vec!["src/helpers.py".to_string()],
                 base: None,
                 head: None,
+                from_revisions: false,
             };
             let sel = Selector::select(store, &delta).unwrap();
             let ids: Vec<u32> = sel.tests.iter().map(|t| t.id).collect();
@@ -216,6 +218,7 @@ fn test_seeded_fault_soundness_and_precision() {
                 files: vec!["src/session.py".to_string(), "src/invoice.py".to_string()],
                 base: None,
                 head: None,
+                from_revisions: false,
             };
             let sel = Selector::select(store, &delta).unwrap();
             let ids: Vec<u32> = sel.tests.iter().map(|t| t.id).collect();
@@ -238,6 +241,7 @@ fn test_seeded_fault_soundness_and_precision() {
                 files: vec!["src/session.py".to_string()],
                 base: None,
                 head: None,
+                from_revisions: false,
             };
             let sel = Selector::select(store, &delta).unwrap();
             let totp = sel.tests.iter().find(|t| t.id == tids[2]).unwrap();
