@@ -13,6 +13,11 @@ pre-commit:
     beads:
       run: bd hooks run pre-commit
       skip: no_beads
+    dont-prime:
+      # Epistemic gate (dont-bpuo ADR, repo-local opt-in): reject the commit
+      # while any dont claim in this repo is Doubted. See docs/contributing.md
+      # and dont/docs/enforcement.md.
+      run: just check-claims
     format-check:
       glob: "*.rs"
       run: just fmt-check

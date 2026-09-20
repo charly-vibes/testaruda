@@ -39,7 +39,7 @@ pre-push: fmt-check lint test gate
     @echo "✅ Pre-push checks passed"
 
 # Full CI gate: fmt + lint + test + build + gate
-ci: fmt-check lint test build-release gate
+ci: fmt-check lint test build-release gate check-claims
     @echo "✅ CI checks passed"
 
 
@@ -54,6 +54,12 @@ check:
 # Validate specs against tests with espectacular
 ah:
     ah check
+
+# Epistemic gate (dont-bpuo ADR): terminal check — exits 1 while any claim
+# is Doubted, regardless of project mode. Wired into pre-commit (lefthook)
+# and CI.
+check-claims:
+    dont prime
 
 # Gate checks: pretender (src/ only) + ah
 # Runs full scan in tiered mode (advisory for existing issues, catches regressions)
