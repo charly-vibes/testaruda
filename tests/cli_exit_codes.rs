@@ -100,6 +100,40 @@ fn json_mode_exits_with_no_tests_code() {
     );
 }
 
+/// Test that `testaruda select --agent` exits with the outcome-derived code
+/// (not 0) when no tests are selected (exit code 20) — testaruda-9lbm.
+/// Agent mode is a machine-readable JSON contract: the process status must
+/// carry the CI decision like JSON plan mode does (testaruda-fnyi).
+#[test]
+fn agent_mode_exits_with_no_tests_code() {
+    let project = setup_project();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
+        .args(["select", "--agent", "--files", "nonexistent.py"])
+        .current_dir(project.path())
+        .output()
+        .expect("testaruda select --agent failed");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // The process exit code must match the outcome code (20), not 0
+    assert_eq!(
+        output.status.code(),
+        Some(20),
+        "Agent mode should exit with outcome-derived code (20), not 0.\nstderr: {}\nstdout: {}",
+        stderr,
+        stdout,
+    );
+
+    // Valid agent JSON must still be printed despite the non-zero exit
+    assert!(
+        !stdout.trim().is_empty(),
+        "Agent mode should still print its JSON payload.\nstderr: {}",
+        stderr
+    );
+}
+
 /// Test that `testaruda select --json` exits with the outcome-derived code
 /// when confidence is low (exit code 10).
 #[test]
