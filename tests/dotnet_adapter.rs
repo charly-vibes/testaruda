@@ -488,10 +488,16 @@ mod tests {
 
     let stderr = String::from_utf8_lossy(&select_output.stderr);
 
-    // The select command should not crash
-    assert!(
-        select_output.status.success(),
-        "testaruda select should not crash when titi is not installed.\nstderr: {}",
+    // The select command must not crash when titi is not installed
+    // (TIA-ADAPT-012). The unresolved .cs unit over-approximates to the full
+    // suite per SAFE-004, so the degenerate full-suite selection is
+    // classified FULL_RUN and exits 10 (TIA-CI-002) — the sound outcome
+    // since testaruda-ls4t, not a crash. Any other non-zero code
+    // (e.g. ERROR=1) would be a real failure. (testaruda-vk20)
+    assert_eq!(
+        select_output.status.code(),
+        Some(10), // TIA-CI-002 FULL_RUN
+        "testaruda select should exit 10 (FULL_RUN) when titi is not installed.\nstderr: {}",
         stderr,
     );
 
@@ -519,6 +525,23 @@ mod tests {
     assert!(
         !tests.is_empty(),
         "Expected at least one test selected.\nstdout: {}",
+        stdout,
+    );
+
+    // The JSON plan must carry the FULL_RUN classification with its cause
+    // (testaruda-ls4t provenance contract, verified end-to-end — testaruda-vk20).
+    assert_eq!(
+        parsed["data"]["exit_code"].as_i64(),
+        Some(10), // TIA-CI-002 FULL_RUN
+        "JSON plan should report FULL_RUN exit code.\nstdout: {}",
+        stdout,
+    );
+    // Either documented FULL_RUN cause is valid: with the fixture's static
+    // Rust edge, "coverage/confidence floor"; with zero edges, "over-selected".
+    let reason = parsed["data"]["reason"].as_str().unwrap_or_default();
+    assert!(
+        reason.contains("coverage/confidence floor") || reason.contains("over-selected"),
+        "JSON plan reason should expose the FULL_RUN cause.\nstdout: {}",
         stdout,
     );
 }
