@@ -220,6 +220,39 @@ fn static_deps_handles_multiple_source_files() {
     );
 }
 
+/// Babashka-script style: shebang + top-level (require '[...]) uses the
+/// SYMBOL require, not the :require keyword inside an ns form (xcb6).
+#[test]
+fn static_deps_matches_toplevel_require_forms() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::create_dir_all(root.join("test")).unwrap();
+    std::fs::write(
+        root.join("src/store.bb"),
+        "(ns finanzas.store)\n\n(defn save [x] x)\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("test/store_test.bb"),
+        "#!/usr/bin/env bb\n(require '[clojure.test :refer [deftest is]]\n         '[finanzas.store :as store])\n\n(deftest test-save\n  (is (= 1 (store/save 1))))\n",
+    )
+    .unwrap();
+
+    let resp = send_command(
+        r#"{"command":"static-deps","params":{"changed_files":["src/store.bb"]}}"#,
+        root,
+    );
+    assert_eq!(resp["ok"], true, "static-deps should succeed: {resp}");
+    let edges = resp["edges"].as_array().unwrap();
+    assert!(
+        edges
+            .iter()
+            .any(|e| e["to"].as_str().unwrap_or("").contains("src/store.bb")),
+        "expected edge from top-level (require ...) test to src/store.bb, got: {edges:?}"
+    );
+}
+
 #[test]
 fn handshake_still_works() {
     let project = fixture_project();
