@@ -25,8 +25,11 @@ fn genesis_modules_used() -> &'static [&'static str] {
 }
 
 #[test]
-fn genesis_version_is_v0_7() {
-    // genesis 0.7.0 is required for the feedback → regression-scenario APIs
+fn genesis_version_is_v0_8() {
+    // genesis 0.8.x: feedback full-stdin read (gh-27 fix), FeedbackArgs::title,
+    // envelope ok-agrees-with-kind (0.8.2). Pin the API surface testaruda relies on.
+    let args = genesis::feedback::FeedbackArgs::new("bug", false, false).with_title("my title");
+    assert_eq!(args.title.as_deref(), Some("my title"));
     let _ = genesis::envelope::ENVELOPE_VERSION;
 }
 
