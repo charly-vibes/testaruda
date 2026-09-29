@@ -177,3 +177,66 @@ fn feedback_multiline_stdin_is_not_truncated() {
         stdout
     );
 }
+
+/// `testaruda exec` on a repo with no initialized store must fail cleanly
+/// with the standard init diagnostic (same contract as select).
+#[test]
+fn exec_without_initialized_store_fails_cleanly() {
+    let project = tempfile::tempdir().expect("tempdir");
+    std::fs::write(project.path().join("README.md"), "x").unwrap();
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(project.path())
+        .output()
+        .expect("git init");
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
+        .args(["exec"])
+        .current_dir(project.path())
+        .output()
+        .expect("run testaruda exec");
+
+    assert!(
+        !output.status.success(),
+        "exec without store must exit non-zero"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("has not been initialized"),
+        "expected init diagnostic\nstderr: {}",
+        stderr
+    );
+}
+
+/// `testaruda exec` on an initialized-but-uncalibrated store (no run history)
+/// must print the uncalibrated advisory — even on non-zero selection outcomes
+/// like exit 20 (nothing selected), since select process-exits before any
+/// post-run check could fire (gh-26 / testaruda-n5b4).
+#[test]
+fn exec_warns_when_store_is_uncalibrated() {
+    let project = tempfile::tempdir().expect("tempdir");
+    std::fs::write(project.path().join("README.md"), "x").unwrap();
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(project.path())
+        .output()
+        .expect("git init");
+    std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
+        .args(["init"])
+        .current_dir(project.path())
+        .output()
+        .expect("testaruda init");
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
+        .args(["exec"])
+        .current_dir(project.path())
+        .output()
+        .expect("run testaruda exec");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("uncalibrated"),
+        "expected uncalibrated advisory\nstderr: {}",
+        stderr
+    );
+}

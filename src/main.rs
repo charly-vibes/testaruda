@@ -24,6 +24,7 @@ pub fn build_command_registry() -> genesis::suggestions::CommandRegistry {
         vec![
             "init".to_string(),
             "select".to_string(),
+            "exec".to_string(),
             "calibrate".to_string(),
             "ingest".to_string(),
             "graph".to_string(),
@@ -108,6 +109,24 @@ enum Command {
         /// Selection ordering mode
         #[arg(long, default_value_t)]
         ordering: testaruda::TestOrdering,
+    },
+    /// Full loop: select → run selected tests → ingest → calibrate (gh-26)
+    Exec {
+        /// Base revision (git ref)
+        #[arg(long)]
+        base: Option<String>,
+        /// Head revision (git ref)
+        #[arg(long)]
+        head: Option<String>,
+        /// Explicit changed-file list (comma-separated)
+        #[arg(long)]
+        files: Option<String>,
+        /// Selection ordering mode
+        #[arg(long, default_value_t)]
+        ordering: testaruda::TestOrdering,
+        /// Recall threshold (0.0–1.0) for the calibration gate (default: 0.8)
+        #[arg(long, default_value = "0.8")]
+        threshold: f64,
     },
     /// Evaluate the predictive ranking calibration gate (TIA-VER-005)
     Calibrate {
@@ -201,6 +220,7 @@ fn main() -> miette::Result<()> {
     let all_commands = [
         "init",
         "select",
+        "exec",
         "calibrate",
         "ingest",
         "graph",
@@ -341,6 +361,19 @@ fn dispatch(command: Command, format: CliFormat) -> miette::Result<()> {
             ci,
             safe,
             ordering,
+        }),
+        Command::Exec {
+            base,
+            head,
+            files,
+            ordering,
+            threshold,
+        } => commands::exec(commands::ExecArgs {
+            base,
+            head,
+            files,
+            ordering,
+            threshold,
         }),
         Command::Ingest { path, raw, adapter } => {
             commands::ingest(commands::IngestArgs { path, raw, adapter })
