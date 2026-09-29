@@ -171,6 +171,9 @@ enum Command {
         /// Dry run — print what would be submitted
         #[arg(long)]
         dry_run: bool,
+        /// Override the issue title (wins over derived titles)
+        #[arg(long)]
+        title: Option<String>,
     },
     /// Generate CLI documentation in markdown (internal use)
     #[command(hide = true)]
@@ -354,10 +357,12 @@ fn dispatch(command: Command, format: CliFormat) -> miette::Result<()> {
             kind,
             from_last_error,
             dry_run,
+            title,
         } => commands::feedback(genesis::feedback::FeedbackArgs {
             kind,
             from_last_error,
             dry_run,
+            title,
         }),
         Command::GenCliDocs => commands::gen_cli_docs(),
         Command::Completions { shell } => commands::completions(shell),
