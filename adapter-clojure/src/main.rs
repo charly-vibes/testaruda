@@ -126,13 +126,12 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
 
         let ns_query = query::compile_query(include_str!("../queries/ns.scm"));
         let ns_caps = query::run_query(&ns_query, &tree, content.as_bytes());
-        if let Some(ns) = ns_caps
+        let ns = ns_caps
             .iter()
             .find(|c| c.name == "namespace_name")
             .map(|c| c.text.clone())
-        {
-            changed_ns_to_file.insert(ns, file_path.to_string());
-        }
+            .unwrap_or_else(|| infer_namespace_from_path(file_path));
+        changed_ns_to_file.insert(ns, file_path.to_string());
     }
 
     if !any_clojure {
@@ -279,6 +278,25 @@ fn extract_dep_namespaces_from_caps(caps: &[query::Capture], _content: &str) -> 
         }
     }
     namespaces
+}
+
+/// Infer a namespace from a source path using the Clojure/babashka file
+/// convention: the source-root prefix (`src/`, `test/`, `lib/`) is dropped,
+/// remaining segments become ns segments, underscores become dashes
+/// (`src/finanzas/my_ns.bb` → `finanzas.my-ns`). Fallback for ns-less
+/// babashka-script-style files (t79n).
+fn infer_namespace_from_path(path: &str) -> String {
+    let cleaned = path
+        .strip_prefix("./")
+        .unwrap_or(path)
+        .trim_start_matches("src/")
+        .trim_start_matches("test/")
+        .trim_start_matches("lib/");
+    let stem = cleaned
+        .rsplit_once('.')
+        .map(|(stem, _)| stem)
+        .unwrap_or(cleaned);
+    stem.replace('_', "-").replace('/', ".")
 }
 
 /// Clojure-family source extensions. Includes babashka `.bb` (gh-34): the
