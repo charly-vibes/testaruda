@@ -135,3 +135,45 @@ fn ingest_returns_results() {
         "should have per_test_results array"
     );
 }
+
+/// Like `send_command`, but runs the adapter in `work_dir` (discover walks cwd).
+fn send_command_in(cmd: &str, work_dir: &std::path::Path) -> serde_json::Value {
+    let mut binary = Command::cargo_bin("testaruda-adapter-clojure").unwrap();
+    let assert = binary
+        .current_dir(work_dir)
+        .write_stdin(cmd)
+        .assert()
+        .success();
+    let output = assert.get_output();
+    let stdout = std::str::from_utf8(&output.stdout).unwrap();
+    serde_json::from_str(stdout.trim()).unwrap()
+}
+
+#[test]
+fn discover_finds_bb_tests() {
+    // Babashka (.bb) files are mapped to the clojure adapter by user config
+    // (gh-34): discover must treat them as Clojure-family sources.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("src/finanzas")).unwrap();
+    std::fs::create_dir_all(root.join("test/finanzas")).unwrap();
+    std::fs::write(
+        root.join("src/finanzas/cli.bb"),
+        "(ns finanzas.cli)\n\n(defn run [] 1)\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("test/finanzas/cli_test.bb"),
+        "(ns finanzas.cli-test\n  (:require [clojure.test :refer [deftest is]]\n            [finanzas.cli :as cli]))\n\n(deftest test-run\n  (is (= 1 (cli/run))))\n",
+    )
+    .unwrap();
+
+    let resp = send_command_in(r#"{"command":"discover"}"#, root);
+    assert_eq!(resp["ok"], true, "discover should succeed: {resp}");
+    let tests = resp["result"].as_array().unwrap();
+    let node_ids: Vec<&str> = tests.iter().filter_map(|t| t["node_id"].as_str()).collect();
+    assert!(
+        node_ids.iter().any(|n| n.contains("test-run")),
+        "expected a test-run node_id from .bb file, got: {node_ids:?}"
+    );
+}
