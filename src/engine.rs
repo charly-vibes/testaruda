@@ -110,15 +110,15 @@ ascent! {
     lattice test_dist(u32, Dual<u32>);
     impact_dist(c, Dual(0)) <-- changed(c);
     impact_dist(c, Dual(0)) <-- unresolved(c);
-    impact_dist(a, Dual(d + 1)) <-- cu_dep(a, b, _, _), impact_dist(b, ?Dual(d));
-    test_dist(t, Dual(d + 1)) <-- test_dep(t, c, _, _), impact_dist(c, ?Dual(d));
+    impact_dist(a, Dual(d.saturating_add(1))) <-- cu_dep(a, b, _, _), impact_dist(b, ?Dual(d));
+    test_dist(t, Dual(d.saturating_add(1))) <-- test_dep(t, c, _, _), impact_dist(c, ?Dual(d));
 
     // ===== Minimal-witness predecessors (TIA-ENG-009) =====
 
     relation cu_pred(u32, u32, Origin);
     relation test_pred(u32, u32, Origin);
-    cu_pred(a, b, o) <-- cu_dep(a, b, o, _), impact_dist(a, ?Dual(da)), impact_dist(b, ?Dual(db)), if *da == *db + 1;
-    test_pred(t, c, o) <-- test_dep(t, c, o, _), test_dist(t, ?Dual(dt)), impact_dist(c, ?Dual(dc)), if *dt == *dc + 1;
+    cu_pred(a, b, o) <-- cu_dep(a, b, o, _), impact_dist(a, ?Dual(da)), impact_dist(b, ?Dual(db)), if *da == db.saturating_add(1);
+    test_pred(t, c, o) <-- test_dep(t, c, o, _), test_dist(t, ?Dual(dt)), impact_dist(c, ?Dual(dc)), if *dt == dc.saturating_add(1);
 }
 
 /// The reference selection engine, borrowing a store.
@@ -361,5 +361,66 @@ mod tests {
         let prog = AscentProgram::default();
         assert!(prog.changed.is_empty());
         assert!(prog.affected.is_empty());
+    }
+
+    /// Cyclic dependency graphs must converge to finite, correct distances
+    /// (tropical min-plus) — no wrap-to-0 poisoning of the min lattice and
+    /// no debug-build overflow panics. Regression context: the distance
+    /// step uses saturating arithmetic (testaruda-vax) so a hypothetical
+    /// u32::MAX distance can never wrap to 0, which min-plus would treat
+    /// as the best (closest) distance and poison every downstream value.
+    #[test]
+    fn test_impact_distance_converges_on_cycles() {
+        let ctx = crate::store::SelectionContext {
+            changed: vec![1],
+            unresolved: vec![],
+            // 2-cycle: 1 → 2 → 1, plus a self-loop 3 → 3
+            cu_deps: vec![
+                (2, 1, Origin::Static, 0),
+                (1, 2, Origin::Static, 0),
+                (3, 3, Origin::Static, 0),
+            ],
+            test_deps: vec![(10, 1, Origin::Static, 0)],
+            always_run: vec![],
+            comp_fallback: vec![],
+            test_comp: vec![(10, 1)],
+            quarantined: vec![],
+            current_environment: "default".to_string(),
+            invocation_quality: 1_000_000,
+            confidence_threshold: 500_000,
+        };
+
+        let mut prog = build_ascent_program(&ctx, &[]);
+        prog.run();
+
+        let impact: Vec<(u32, u32)> = prog
+            .impact_dist
+            .iter()
+            .map(|&(c, Dual(d))| (c, d))
+            .collect();
+        // Unit 1 is changed → dist 0; unit 2 is one edge away → dist 1.
+        // The self-looped unit 3 must NOT appear (never reached from change).
+        assert!(
+            impact.contains(&(1, 0)),
+            "changed unit at dist 0: {:?}",
+            impact
+        );
+        assert!(
+            impact.contains(&(2, 1)),
+            "cycle partner at dist 1: {:?}",
+            impact
+        );
+        assert!(
+            !impact.iter().any(|&(c, _)| c == 3),
+            "unreachable unit excluded: {:?}",
+            impact
+        );
+
+        let test: Vec<(u32, u32)> = prog.test_dist.iter().map(|&(t, Dual(d))| (t, d)).collect();
+        assert!(
+            test.contains(&(10, 1)),
+            "test one hop from changed unit: {:?}",
+            test
+        );
     }
 }
