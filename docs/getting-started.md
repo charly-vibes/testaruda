@@ -74,8 +74,8 @@ testaruda select
 # Select tests between two revisions
 testaruda select --base main --head feature
 
-# Machine-readable JSON plan
-testaruda select --json
+# Machine-readable JSON plan (both orderings accepted; global flag preferred)
+testaruda --json select
 
 # Shadow mode: compute selection but signal "run all tests"
 testaruda select --shadow
