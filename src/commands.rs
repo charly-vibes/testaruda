@@ -421,6 +421,56 @@ fn inject_beads_block(agents_path: &std::path::Path) {
     }
 }
 
+/// Arguments for the `exec` command (gh-26 / testaruda-n5b4).
+pub struct ExecArgs {
+    pub base: Option<String>,
+    pub head: Option<String>,
+    pub files: Option<String>,
+    pub ordering: TestOrdering,
+    pub threshold: f64,
+}
+
+/// `testaruda exec` — the full selection loop: select → run → ingest →
+/// calibrate.
+///
+/// Selection-only consumers (e.g. `select --json` piped nowhere) pay selection
+/// cost without ever feeding results back. `exec` completes the loop: runs the
+/// selected tests via the adapter (TIA-CI-008 path), ingests results into run
+/// history, then evaluates the calibration gate. Warns when the store has no
+/// run history — selection is then purely static-edge analysis and can't
+/// improve from observed behavior.
+pub fn exec(args: ExecArgs) -> miette::Result<()> {
+    // Uncalibrated advisory, checked BEFORE selection: on non-zero selection
+    // outcomes (10/20) select exits the process with the CI code, so a
+    // post-run check would never fire on those paths.
+    {
+        let store = Store::open_default()?;
+        if store.check_initialized().is_ok() && store.run_history_is_empty().unwrap_or(false) {
+            eprintln!(
+                "⚠️  Store is uncalibrated: no ingested run history. Selection is purely static-edge analysis — ingest real runs (exec does it automatically) so selection can improve."
+            );
+        }
+    }
+
+    select(SelectArgs {
+        base: args.base,
+        head: args.head,
+        files: args.files,
+        shadow: false,
+        format: CliFormat {
+            json: false,
+            human: false,
+        },
+        agent: false,
+        pre_edit: false,
+        ci: true,
+        safe: false,
+        ordering: args.ordering,
+    })?;
+
+    calibrate(args.threshold)
+}
+
 /// `testaruda calibrate` — evaluate the predictive ranking calibration gate (TIA-VER-005).
 pub fn calibrate(threshold: f64) -> miette::Result<()> {
     let store = Store::open_default()?;

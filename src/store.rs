@@ -1210,6 +1210,17 @@ impl Store {
 
     /// Check that the store has been initialized, returning a human-readable error
     /// suggesting `testaruda init` if not (TIA-LOCAL-006).
+    /// Whether any test run has ever been ingested (TIA-RUN-004 history).
+    /// Empty run history means the ranking model is uncalibrated — `exec`
+    /// uses this for the advisory warning (gh-26 / testaruda-n5b4).
+    pub fn run_history_is_empty(&self) -> miette::Result<bool> {
+        let count: u32 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM run_history", [], |row| row.get(0))
+            .map_err(|e| miette::miette!("Failed to read run history: {}", e))?;
+        Ok(count == 0)
+    }
+
     pub fn check_initialized(&self) -> miette::Result<()> {
         let tables_exist: bool = self
             .conn
@@ -4813,5 +4824,43 @@ name = "env-a"
         assert_eq!(metrics.total_test_items, 0, "no hold-out set available");
         assert_eq!(metrics.total_failures, 0);
         assert_eq!(metrics.recall_at_k, 0.0);
+    }
+}
+
+// ── exec: uncalibrated-store warning (gh-26 / testaruda-n5b4) ──
+
+#[cfg(test)]
+mod exec_warning_tests {
+    use super::*;
+
+    #[test]
+    fn test_run_history_is_empty_on_fresh_store() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+        assert!(store.run_history_is_empty().unwrap());
+    }
+
+    #[test]
+    fn test_run_history_is_empty_false_after_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+        let conn = store.conn();
+        conn.execute(
+            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 't1')",
+            [],
+        )
+        .unwrap();
+        let tid: u32 = conn
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
+             VALUES (?1, 'r1', 'passed', 10, 'default')",
+            rusqlite::params![tid],
+        )
+        .unwrap();
+        assert!(!store.run_history_is_empty().unwrap());
     }
 }
