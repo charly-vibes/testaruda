@@ -253,6 +253,40 @@ fn static_deps_matches_toplevel_require_forms() {
     );
 }
 
+/// Ns-less script files: a changed .bb/.clj file with no (ns ...) form must
+/// still map to a namespace via the Clojure path convention (t79n), so tests
+/// requiring the implied namespace produce edges.
+#[test]
+fn static_deps_maps_nsless_changed_file_by_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("src/finanzas")).unwrap();
+    std::fs::create_dir_all(root.join("test")).unwrap();
+    std::fs::write(
+        root.join("src/finanzas/cli.bb"),
+        "#!/usr/bin/env bb\n(defn run [] 1)\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("test/cli_test.bb"),
+        "(require '[clojure.test :refer [deftest is]]\n         '[finanzas.cli :as cli])\n\n(deftest test-run\n  (is (= 1 (cli/run))))\n",
+    )
+    .unwrap();
+
+    let resp = send_command(
+        r#"{"command":"static-deps","params":{"changed_files":["src/finanzas/cli.bb"]}}"#,
+        root,
+    );
+    assert_eq!(resp["ok"], true, "static-deps should succeed: {resp}");
+    let edges = resp["edges"].as_array().unwrap();
+    assert!(
+        edges
+            .iter()
+            .any(|e| e["to"].as_str().unwrap_or("").contains("src/finanzas/cli.bb")),
+        "expected edge from test requiring finanzas.cli to ns-less src/finanzas/cli.bb, got: {edges:?}"
+    );
+}
+
 #[test]
 fn handshake_still_works() {
     let project = fixture_project();
