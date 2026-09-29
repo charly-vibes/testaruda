@@ -228,3 +228,34 @@ fn handshake_still_works() {
     assert_eq!(resp["ok"], true);
     assert_eq!(resp["result"]["languages"][0], "clojure");
 }
+
+#[test]
+fn static_deps_accepts_bb_changed_files() {
+    // Babashka (.bb) files are Clojure-family (gh-34): changed_files with a
+    // .bb extension must be analyzed and produce edges from .bb test files.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("src/finanzas")).unwrap();
+    std::fs::create_dir_all(root.join("test/finanzas")).unwrap();
+    std::fs::write(
+        root.join("src/finanzas/store.bb"),
+        "(ns finanzas.store)\n\n(defn save [x] x)\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("test/finanzas/store_test.bb"),
+        "(ns finanzas.store-test\n  (:require [clojure.test :refer [deftest is]]\n            [finanzas.store :as store]))\n\n(deftest test-save\n  (is (= 1 (store/save 1))))\n",
+    )
+    .unwrap();
+
+    let resp = send_command(
+        r#"{"command":"static-deps","params":{"changed_files":["src/finanzas/store.bb"]}}"#,
+        root,
+    );
+    assert_eq!(resp["ok"], true, "static-deps should succeed: {resp}");
+    let edges = resp["edges"].as_array().unwrap();
+    assert!(
+        !edges.is_empty(),
+        "expected edges from .bb test to changed .bb source, got: {edges:?}"
+    );
+}

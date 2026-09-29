@@ -113,10 +113,7 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
             Some(s) => s,
             None => continue,
         };
-        if !file_path.ends_with(".clj")
-            && !file_path.ends_with(".cljs")
-            && !file_path.ends_with(".cljc")
-        {
+        if !is_clojure_source(file_path) {
             continue;
         }
         any_clojure = true;
@@ -165,7 +162,7 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
         .filter(|e| {
             let p = e.path().to_string_lossy();
             e.file_type().is_file()
-                && (p.ends_with(".clj") || p.ends_with(".cljs") || p.ends_with(".cljc"))
+                && is_clojure_source(&p)
                 && !p.contains("/target/")
                 && !p.contains("/.git/")
                 && !p.contains("/.flatpak-builder/")
@@ -284,6 +281,16 @@ fn extract_dep_namespaces_from_caps(caps: &[query::Capture], _content: &str) -> 
     namespaces
 }
 
+/// Clojure-family source extensions. Includes babashka `.bb` (gh-34): the
+/// discover/static-deps requests carry no extension config, so the adapter
+/// self-detects the full dialect family.
+fn is_clojure_source(path: &str) -> bool {
+    path.ends_with(".clj")
+        || path.ends_with(".cljs")
+        || path.ends_with(".cljc")
+        || path.ends_with(".bb")
+}
+
 /// Discover: enumerate tests by scanning .clj files and running the discover
 /// query to find deftest/deftest- forms (TIA-ADAPT-018).
 fn cmd_discover() -> serde_json::Value {
@@ -295,7 +302,7 @@ fn cmd_discover() -> serde_json::Value {
         .filter(|e| {
             let p = e.path().to_string_lossy();
             e.file_type().is_file()
-                && (p.ends_with(".clj") || p.ends_with(".cljs") || p.ends_with(".cljc"))
+                && is_clojure_source(&p)
                 && !p.contains("/target/")
                 && !p.contains("/.git/")
                 && !p.contains("/.flatpak-builder/")
