@@ -1,6 +1,6 @@
 [package]
 name = "adapter-clojure"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "testaruda adapter for Clojure — tree-sitter-based import extraction and test discovery via deps.edn / project.clj"
 

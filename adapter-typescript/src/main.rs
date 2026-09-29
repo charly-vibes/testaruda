@@ -224,7 +224,7 @@ pub fn run_query_with_lang(
 fn cmd_handshake() -> serde_json::Value {
     json_ok(serde_json::json!({
         "name": "typescript-adapter",
-        "version": "0.1.0",
+        "version": env!("CARGO_PKG_VERSION"),
         "protocol": 1,
         "languages": ["typescript"],
         "granularity": "file",

@@ -73,7 +73,7 @@ fn json_err(msg: &str) -> serde_json::Value {
 fn cmd_handshake() -> serde_json::Value {
     json_ok(serde_json::json!({
         "name": "testaruda-adapter-clojure",
-        "version": "0.1.0",
+        "version": env!("CARGO_PKG_VERSION"),
         "protocol": 1,
         "languages": ["clojure"],
         "granularity": "file",

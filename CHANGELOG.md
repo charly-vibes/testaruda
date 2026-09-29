@@ -1,5 +1,73 @@
 # Changelog
 
+## 0.5.0 — exec subcommand, babashka support in the Clojure adapter (2026-09-29)
+
+### Added
+
+- `testaruda exec` subcommand — select→run→ingest→calibrate loop with an
+  uncalibrated-store advisory that fires before select (gh-26 / testaruda-n5b4).
+
+### Fixed
+
+- Clojure adapter: babashka `.bb` files are now treated as Clojure-family
+  sources — discover and static-deps honor repos that map `.bb` to the adapter
+  (gh-34 / testaruda-rfxa).
+- Clojure adapter: top-level `(require '[ns :as alias])` forms (babashka
+  script style) now produce dependency edges — previously only `:require`
+  keywords inside `(ns ...)` matched (testaruda-xcb6).
+- Clojure adapter: ns-less script files map to a namespace via the Clojure
+  path convention (`src/finanzas/my_ns.bb` → `finanzas.my-ns`) instead of
+  landing in `unresolved` (testaruda-t79n).
+- Engine: saturating distance arithmetic in Ascent rules — u32 overflow on
+  long dependency chains could corrupt distance comparison (testaruda-vax).
+- ISO timestamp formatting now uses the `time` crate instead of ~55 lines of
+  hand-rolled calendar math (testaruda-jxd0).
+- Python adapter: strip trailing comments from import lines
+  (`import ctypes  # noqa` no longer yields a bogus module name)
+  (testaruda-wpil).
+- Feedback: multi-line stdin descriptions no longer truncated to the first
+  line — pinned by regression test; fixed upstream in genesis-vibes 0.8.1
+  (gh-27 / testaruda-p5zl).
+- `validate-imports.py`: relative-import base resolution iterated dotted
+  strings char-by-char, producing phantom mismatches (testaruda-rpqs).
+- Pre-edit mode now exits with the outcome-derived CI code (testaruda-ljeg).
+- Suggestion path only fires on invalid subcommands (testaruda-ixp0).
+- Genesis suggestion suppressed when clap already prints its tip
+  (testaruda-p1uv).
+
+### Changed
+
+- genesis-vibes 0.7 → 0.8.2 (envelope API, feedback `--title` flag).
+- dont epistemic gate wired into pre-commit and CI (`just check-claims`)
+  (testaruda-zvbw).
+- Docs: getting-started example prefers the global `--json` flag (testaruda-qdw9).
+
+---
+
+## 0.4.0 — genesis v0.6.0 adoption, content unit dedup, CI exit codes (2026-08-05)
+
+### Added
+
+- genesis v0.6.0 envelope API adoption (testaruda-2wwn).
+
+### Fixed
+
+- Preserve CI exit status in JSON output mode (testaruda-fnyi).
+- Prevent duplicate content units when symbol is NULL — partial unique
+  indexes (testaruda-p37i).
+- Accept human-readable node_id in `testaruda explain` (testaruda-8dm).
+- Improve ingest error message for invalid outcome (testaruda-7dq).
+- Handle git porcelain rename paths with `->` arrow (testaruda-jzp).
+- Skip genesis suggestion logic on help/version display (testaruda-ll8).
+
+### Changed
+
+- Default tracing level info → warn (testaruda-f05).
+- Command registry updated — validate→oracle, added status/fingerprint
+  (testaruda-iwf).
+- `--help` shows proper description via Cli doc comment (testaruda-kxr).
+
+---
 ## 0.3.1 — Full genesis v0.4.0 adoption (2026-07-31)
 
 ### Added
