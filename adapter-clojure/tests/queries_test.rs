@@ -217,6 +217,21 @@ fn deps_finds_require_with_refer_all() {
 }
 
 #[test]
+fn deps_finds_toplevel_require() {
+    // Babashka-script style (xcb6): top-level (require '[ns :as alias]) with
+    // SYMBOL head and quoted entries. Two quoted vectors + one bare quoted
+    // symbol must each produce a dep_entry capture.
+    let q = make_query(include_str!("../queries/deps.scm"));
+    let src = "(require '[clojure.test :refer [deftest]]\n         '[finanzas.store :as store])\n(require plain.ns)";
+    let tree = parse(src);
+    let caps = captures(&q, &tree, src.as_bytes());
+    let entry_count = caps.iter().filter(|c| c.as_str() == "dep_entry").count();
+    assert_eq!(
+        entry_count, 3,
+        "expected 3 dep_entry captures from top-level require, got: {caps:?}"
+    );
+}
+
 fn deps_ignores_comment() {
     let q = make_query(include_str!("../queries/deps.scm"));
     let src = ";; (:require [some.lib])\n(ns my-project.core)";
