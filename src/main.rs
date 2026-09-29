@@ -421,59 +421,14 @@ fn record_error_scratch() {
     genesis::feedback::scratch::write_scratch_best_effort("testaruda", &record);
 }
 
-/// Format a Unix epoch second count as an ISO-8601 UTC timestamp.
+/// Format a Unix epoch second count as an ISO-8601 UTC timestamp
+/// (`YYYY-MM-DDTHH:MM:SSZ`), via the `time` crate (testaruda-jxd0).
 fn format_iso_ts(now_secs: u64) -> String {
-    let days = now_secs / 86400;
-    let time_secs = now_secs % 86400;
-    let hours = time_secs / 3600;
-    let mins = (time_secs % 3600) / 60;
-    let secs = time_secs % 60;
-    let (y, m, d) = year_month_day(days as i64);
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        y, m, d, hours, mins, secs
-    )
-}
-
-/// Convert a day count since the Unix epoch (1970-01-01) into (year, month, day).
-fn year_month_day(mut remaining: i64) -> (i64, usize, u8) {
-    let mut y = 1970i64;
-    loop {
-        let days_in_year = if is_leap(y) { 366 } else { 365 };
-        if remaining < days_in_year {
-            break;
-        }
-        remaining -= days_in_year;
-        y += 1;
-    }
-    let month_days = month_lengths(y);
-    let mut m = 1usize;
-    for (i, &md) in month_days.iter().enumerate() {
-        if remaining < md as i64 {
-            m = i + 1;
-            break;
-        }
-        remaining -= md as i64;
-    }
-    if m == 0 {
-        m = 12;
-    }
-    let d = (remaining + 1) as u8;
-    (y, m, d)
-}
-
-/// Whether `year` is a Gregorian leap year.
-fn is_leap(y: i64) -> bool {
-    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
-}
-
-/// Day count for each month of `year` (Jan..Dec).
-fn month_lengths(y: i64) -> [u32; 12] {
-    if is_leap(y) {
-        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    } else {
-        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    }
+    use time::format_description::well_known::Rfc3339;
+    let dt = time::OffsetDateTime::from_unix_timestamp(now_secs.min(i64::MAX as u64) as i64)
+        .unwrap_or(time::OffsetDateTime::UNIX_EPOCH);
+    dt.format(&Rfc3339)
+        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
 }
 
 #[cfg(test)]
@@ -739,6 +694,39 @@ mod tests {
         // 2026-07-29T12:00:00Z — 56 years, ~207 days
         // Use a well-known anchor: 2024-01-01T00:00:00Z = 1704067200
         assert_eq!(format_iso_ts(1704067200), "2024-01-01T00:00:00Z");
+    }
+
+    // ========================================================================
+    // format_iso_ts edge cases (testaruda-jxd0 — replace hand-rolled math)
+    // ========================================================================
+
+    #[test]
+    fn test_format_iso_ts_last_second_before_epoch_year_end() {
+        // 2023-12-31T23:59:59Z — one second before the 2024 anchor
+        assert_eq!(format_iso_ts(1704067199), "2023-12-31T23:59:59Z");
+    }
+
+    #[test]
+    fn test_format_iso_ts_leap_day() {
+        // 2024-02-29T00:00:00Z — leap day must resolve to Feb 29
+        assert_eq!(format_iso_ts(1709164800), "2024-02-29T00:00:00Z");
+    }
+
+    #[test]
+    fn test_format_iso_ts_century_non_leap() {
+        // 2100 is not a leap year (÷100, not ÷400): Jan 1 and Mar 1 must
+        // be exactly 59 days apart (28-day February).
+        assert_eq!(format_iso_ts(4102444800), "2100-01-01T00:00:00Z");
+        assert_eq!(
+            format_iso_ts(4102444800 + 59 * 86400),
+            "2100-03-01T00:00:00Z"
+        );
+    }
+
+    #[test]
+    fn test_format_iso_ts_first_leap_second_free_day() {
+        // 1970-12-31T23:59:59Z — first year boundary from epoch
+        assert_eq!(format_iso_ts(31535999), "1970-12-31T23:59:59Z");
     }
 
     // ========================================================================
