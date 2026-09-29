@@ -126,3 +126,54 @@ fn subcommand_help_is_clean() {
         stdout
     );
 }
+
+/// Regression test for gh-27 / testaruda-p5zl: multi-line piped stdin must
+/// NOT be truncated to the first line. genesis 0.7 used `read_line` (first
+/// line only, silent data loss); genesis 0.8 reads the full input and
+/// partitions it — first line becomes the title, the rest lands in the
+/// Description. This test pins that behavior at the CLI boundary.
+#[test]
+fn feedback_multiline_stdin_is_not_truncated() {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_testaruda"))
+        .args(["feedback", "bug", "--dry-run"])
+        .stdin(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("spawn testaruda feedback --dry-run");
+
+    child
+        .stdin
+        .take()
+        .expect("stdin piped")
+        .write_all(b"First line is the title\nSecond line with detail\nThird line with more\n")
+        .expect("write multi-line stdin");
+
+    let output = child.wait_with_output().expect("wait for feedback");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        output.status.success(),
+        "dry-run should exit 0\nstderr: {}",
+        stderr
+    );
+
+    // First line was promoted to the title (not lost, not left in the body)
+    assert!(
+        stderr.contains(r#"--title "[bug] First line is the title""#),
+        "first stdin line must become the issue title\nstderr: {}",
+        stderr
+    );
+
+    // Remaining lines must survive into the Description body
+    assert!(
+        stderr.contains("Second line with detail") && stderr.contains("Third line with more"),
+        "multi-line description must be preserved\nstderr: {}\nstdout: {}",
+        stderr,
+        stdout
+    );
+}
