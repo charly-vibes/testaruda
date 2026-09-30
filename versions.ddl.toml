@@ -5,14 +5,11 @@
 # tests/standard_conformance.rs) requires this file to exist.
 #
 # §4 matrix row (testaruda): pretender ✅ · wai ✅ · bd ✅ · openspec ✅ · ddl ✅
-# CI already pins: pretender@0.3.1 espectacular@0.3.0 dont-cli@0.2.2 (ci.yml);
-# ci.yml pins are reconciled to this file in the DDL-1a0 install pass.
-
 [tools]
-wai = "2026.9.28"          # crates.io: wai-cli — planned install
-pretender = "0.3.1"        # crates.io — matches current ci.yml pin
-espectacular = "0.8.0"     # crates.io; ci.yml still pins 0.3.0 — reconcile (DDL-1a0)
+wai = "2026.9.28"          # crates.io: wai-cli
+pretender = "0.6.0"        # crates.io — installed pinned in ci.yml
+espectacular = "0.8.0"     # crates.io — installed pinned in ci.yml
 dont = "0.2.2"             # crates.io: dont-cli — matches current ci.yml pin
-dulce-de-leche = "0.7.0"   # crates.io (bin: ddl) — planned install
-openspec = "0.19.0"        # npm: @fission-ai/openspec — planned install
-# bd = "1.3.0"             # beads — install mechanism TBD (see DDL-1a0)
+dulce-de-leche = "0.7.0"   # crates.io (bin: ddl)
+openspec = "0.19.0"        # npm: @fission-ai/openspec
+bd = "1.3.0"               # beads — pinned GitHub release download (no versioned homebrew-core formula)
