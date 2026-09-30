@@ -249,6 +249,43 @@ fn rust_adapter_crate_import_resolves_against_package_src_root() {
     );
 }
 
+/// Prefix-collision fixture (testaruda-u1bv): two tests whose names collide
+/// under cargo's substring filter semantics ("foo" matches "foo_bar" too).
+fn create_collision_fixture(dir: &std::path::Path) {
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        r#"[package]
+name = "collision-fixture"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("src/lib.rs"),
+        r#"#[test]
+fn foo() {
+    assert!(true);
+}
+
+#[test]
+fn foo_bar() {
+    assert!(true);
+}
+
+#[test]
+fn unrelated() {
+    assert!(true);
+}
+"#,
+    )
+    .unwrap();
+}
+
 /// Extract node_ids from a discover response.
 fn parse_discover_node_ids(resp: &str) -> Vec<String> {
     let parsed: serde_json::Value =
@@ -299,5 +336,105 @@ fn rust_adapter_discover_excludes_hidden_dirs() {
         node_ids.len(),
         2,
         "expected exactly the 2 real tests, got: {node_ids:?}"
+    );
+}
+
+/// Pin the run-args filter contract (testaruda-u1bv): the adapter emits bare
+/// short test names as cargo substring filters, NOT --exact. Exact matching
+/// requires cargo's full test path (`tests::foo`), but node_id-derived names
+/// are short (`foo`) — a --exact flip would silently select ZERO tests. If
+/// this test fails, someone changed the contract; re-verify short-name
+/// matching before accepting it.
+#[test]
+fn rust_adapter_run_args_uses_substring_filters_not_exact() {
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    create_rust_fixture_with_hidden_worktree(dir.path());
+
+    let mut child = spawn_adapter(dir.path());
+    let resp = send_command(
+        &mut child,
+        r#"{"command":"run-args","params":{"selected":["src/lib.rs::real_unit_test(Test)"]}}"#,
+    );
+    child.kill().ok();
+    child.wait().ok();
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&resp).expect("run-args response should be valid JSON");
+    assert!(
+        parsed["ok"].as_bool().unwrap_or(false),
+        "run-args failed: {resp}"
+    );
+    let args = parsed["result"]["runner_args"]
+        .as_array()
+        .expect("runner_args array");
+    let args: Vec<&str> = args.iter().filter_map(|v| v.as_str()).collect();
+    assert!(
+        args.contains(&"real_unit_test"),
+        "bare short name must be a filter arg: {args:?}"
+    );
+    assert!(
+        !args.contains(&"--exact"),
+        "run-args must NOT use --exact: short names don't match cargo's full \
+         test paths under exact matching — that would select 0 tests: {args:?}"
+    );
+}
+
+/// Characterization (testaruda-u1bv): cargo substring filters over-run on
+/// prefix collisions — selecting `foo` also runs `foo_bar`. Recall-safe by
+/// design (never misses a test; may run extra ones). Pinned so a cargo
+/// semantics change surfaces here instead of silently altering selection.
+#[test]
+fn rust_adapter_run_args_prefix_collision_over_runs() {
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    create_collision_fixture(dir.path());
+
+    let output = Command::new("cargo")
+        .current_dir(dir.path())
+        .args(["test", "--", "foo"])
+        .output()
+        .expect("cargo test failed to run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success(), "cargo test failed: {stdout}");
+    assert!(
+        stdout.contains("foo ... ok") || stdout.contains("test foo ... ok"),
+        "selected test must run: {stdout}"
+    );
+    assert!(
+        stdout.contains("test foo_bar ... ok"),
+        "prefix-colliding test over-runs under substring filters \
+         (recall-safe over-selection): {stdout}"
+    );
+    assert!(
+        !stdout.contains("test unrelated"),
+        "unrelated test must NOT run: {stdout}"
+    );
+}
+
+/// Characterization (testaruda-u1bv): a stale selected name that no longer
+/// matches any test makes cargo run 0 tests and exit 0 — nothing is recorded,
+/// the stale item simply stays in the always-run set (SAFE-007) until it is
+/// pruned by the next discover. Pinned: a cargo change to this exit contract
+/// would silently turn stale selections into failures.
+#[test]
+fn rust_adapter_run_args_stale_name_zero_matches_exits_zero() {
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    create_collision_fixture(dir.path());
+
+    let output = Command::new("cargo")
+        .current_dir(dir.path())
+        .args(["test", "--", "deleted_test_name"])
+        .output()
+        .expect("cargo test failed to run");
+
+    assert!(
+        output.status.success(),
+        "0 matching filters must exit 0 (not an error), got: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("running 0 tests"),
+        "0 matches must run 0 tests: {stdout}"
     );
 }
