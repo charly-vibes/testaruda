@@ -1,7 +1,7 @@
 # Specification
 
 The full Software Requirements Specification (SRS) uses the EARS (Easy Approach
-to Requirements Syntax) notation and is documented in `docs/tia-srs-ears.md`.
+to Requirements Syntax) notation and is documented in `docs/src/tia-srs-ears.md`.
 
 The SRS is a draft normative target, not an implementation-status report. For
 current behavior, consult the generated [CLI Reference](cli.md),

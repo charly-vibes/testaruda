@@ -51,4 +51,4 @@ subgraph reachable from changed content units. The store contains
 content-addressed component-cache primitives, but the current selection path
 does not yet reuse cached selection decisions across invocations.
 
-See `docs/tia-srs-ears.md` for the full specification.
+See `docs/src/tia-srs-ears.md` for the full specification.

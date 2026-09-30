@@ -66,8 +66,8 @@ testaruda discover
 testaruda select
 ```
 
-See [**Getting Started →**](docs/getting-started.md) for a full walkthrough
-with all commands, or [**CLI Reference →**](docs/cli.md) for detailed
+See [**Getting Started →**](docs/src/getting-started.md) for a full walkthrough
+with all commands, or [**CLI Reference →**](docs/src/cli.md) for detailed
 option descriptions.
 
 ## Architecture
@@ -92,8 +92,8 @@ testaruda discovers tests by spawning language-specific adapter processes:
 | `testaruda-adapter-typescript` | TypeScript | Scans `vitest.config.*` or `jest.config.*` for test files |
 
 The Rust, Python, TypeScript, and Clojure adapters ship with testaruda. The Julia adapter is installed
-through Testimonial.jl. See [Getting Started](docs/getting-started.md) for setup
-and [Configuration](docs/configuration.md) for adapter registration.
+through Testimonial.jl. See [Getting Started](docs/src/getting-started.md) for setup
+and [Configuration](docs/src/configuration.md) for adapter registration.
 
 ### TypeScript
 
@@ -146,12 +146,12 @@ testaruda auto-detects Clojure projects by looking for `deps.edn` or
 
 ## Requirements
 
-See `docs/tia-srs-ears.md` for the full Software Requirements Specification
+See `docs/src/tia-srs-ears.md` for the full Software Requirements Specification
 (EARS notation, draft v0.3). The SRS describes normative target behavior; use
 the user guides and generated CLI reference for the currently available surface.
 
 Contributor setup and quality checks are documented in
-[Contributing](docs/contributing.md).
+[Contributing](docs/src/contributing.md).
 
 ## License
 

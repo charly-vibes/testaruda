@@ -32,7 +32,7 @@ just check-claims
 
 This repo keeps a real claim corpus in `.dont/` and has adopted the
 repo-local epistemic gate per the dont-bpuo ADR (see
-[dont's enforcement model](https://github.com/charly-vibes/dont/blob/main/docs/enforcement.md)):
+[dont's enforcement model](https://github.com/charly-vibes/dont/blob/main/docs/src/enforcement.md)):
 
 - `just check-claims` runs `dont prime`, the terminal check — it exits 1
   while any claim in `.dont/` is `Doubted`, regardless of project mode.
@@ -42,7 +42,7 @@ repo-local epistemic gate per the dont-bpuo ADR (see
 - CI runs `check-claims` as part of `just ci`, so a doubted claim fails
   the pipeline.
 - Register claims as you make them during development (see dont's
-  [grounding workflow](https://github.com/charly-vibes/dont/blob/main/docs/grounding-workflow.md));
+  [grounding workflow](https://github.com/charly-vibes/dont/blob/main/docs/src/grounding-workflow.md));
   unverified claims do not block in permissive
   mode, doubted ones always do.
 

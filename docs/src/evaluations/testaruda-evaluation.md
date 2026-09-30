@@ -35,7 +35,7 @@ invariant (it must never skip a test that a change could have broken).
 The repository contains two very different things, and the gap between them is the story of
 this evaluation:
 
-1. **A specification** — `docs/tia-srs-ears.md`, a ~130-requirement Software Requirements
+1. **A specification** — `docs/src/tia-srs-ears.md`, a ~130-requirement Software Requirements
    Specification written in **EARS** notation (Easy Approach to Requirements Syntax, a
    template discipline where every requirement is typed as Ubiquitous / Event-driven /
    State-driven / Optional / Unwanted-behaviour). It is titled "`tia` — SRS" (an earlier
@@ -145,7 +145,7 @@ tests from `run_history`) are therefore both unreachable.
 
 ### 🔴 I3 — CI exit codes are not implemented (violates SRS §5.11).
 
-The SRS and `docs/cli.md` promise a CI contract: exit `20` = "no tests affected, safe to
+The SRS and `docs/src/cli.md` promise a CI contract: exit `20` = "no tests affected, safe to
 skip", exit `10` = "low confidence, run everything", other-nonzero = hard error. Actual:
 
 ```
@@ -207,7 +207,7 @@ like a documentation snippet accidentally committed into the recipe file.
 
 ### 🟢 I7 — A fully-documented config file is never read.
 
-`docs/configuration.md` specifies a detailed `testaruda.toml` (`[store]`, `[confidence]
+`docs/src/configuration.md` specifies a detailed `testaruda.toml` (`[store]`, `[confidence]
 threshold`, `[semiring] default`, `[ci] shadow`, `[adapters]`, `[always_run] patterns`), and
 the crate docs advertise "Config: `testaruda.toml`". No code parses it — the `toml` and
 `serde_yaml` crates are unused, `init` never writes it, and the confidence-threshold fallback
@@ -417,7 +417,7 @@ with zero commits or edits made to the project.
 `Cargo.toml`, or `justfile` changed.** `git diff --stat 75414cb..94fcc5c` touches **177
 files / +3223 −2 lines**, and every one of them is under `openspec/specs/`,
 `.espectacular/` (contract files), `.beads/` (the issue tracker's own store), or docs
-(`docs/tia-srs-ears.md`). The implementation is **byte-for-byte the same 816-line, 6-test
+(`docs/src/tia-srs-ears.md`). The implementation is **byte-for-byte the same 816-line, 6-test
 skeleton** evaluated in §2–3 above. In plain terms: **all work in this window was
 specification and ticket-writing; the code did not move.** This matches the project's own
 beads backlog exactly — 19 of 20 tracked issues are still `open`/`in_progress`, and 4 of
@@ -564,7 +564,7 @@ $ # requirement IDs defined in openspec/specs/*/spec.md
 $ rg -o 'Requirement: (TIA-[A-Z]+-[0-9]+)' -r '$1' openspec/specs/*/spec.md | sort -u | wc -l
 149
 $ # requirement IDs with a [tag] in the SRS
-$ rg -o '\*\*(TIA-[A-Z]+-[0-9]+) \[' -r '$1' docs/tia-srs-ears.md | sort -u | wc -l
+$ rg -o '\*\*(TIA-[A-Z]+-[0-9]+) \[' -r '$1'  docs/src/tia-srs-ears.md | sort -u | wc -l
 149
 $ # set difference both directions
 $ comm -23 srs_ids.txt openspec_ids.txt   # in SRS, missing from openspec

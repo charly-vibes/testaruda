@@ -3,9 +3,12 @@ title = "testaruda"
 authors = ["charly-vibes"]
 language = "en"
 description = "Language-agnostic test selection engine"
-src = "docs"
+src = "docs/src"
 
 [output.html]
+default-theme = "coal"
+preferred-dark-theme = "coal"
+additional-css = ["theme/charly.css"]
 smart-punctuation = true
 git-repository-url = "https://github.com/charly-vibes/testaruda"
 edit-url-template = "https://github.com/charly-vibes/testaruda/edit/main/{path}"

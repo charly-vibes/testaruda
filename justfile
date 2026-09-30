@@ -96,14 +96,14 @@ doc:
 
 # Sync CLI reference docs with real --help output
 doc-cli:
-    @echo "Regenerating docs/cli.md from clap definitions..."
-    @cargo run --bin testaruda -- gen-cli-docs > docs/cli.md
-    @echo "✅ docs/cli.md regenerated"
+    @echo "Regenerating docs/src/cli.md from clap definitions..."
+    @cargo run --bin testaruda -- gen-cli-docs > docs/src/cli.md
+    @echo "✅ docs/src/cli.md regenerated"
 
 # Check that CLI reference docs are in sync with --help
 doc-cli-check:
     @echo "Checking CLI docs are in sync..."
     @cargo run --bin testaruda -- gen-cli-docs > /tmp/testaruda-cli-doc-check.md
-    @diff docs/cli.md /tmp/testaruda-cli-doc-check.md > /dev/null \
-        && echo "✅ docs/cli.md is up to date" \
+    @diff docs/src/cli.md /tmp/testaruda-cli-doc-check.md > /dev/null \
+        && echo "✅ docs/src/cli.md is up to date" \
         || (echo "❌ docs/cli.md is out of date — run 'just doc-cli' to regenerate" && exit 1)

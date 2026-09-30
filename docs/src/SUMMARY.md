@@ -14,3 +14,4 @@
 - [Evaluation Reports](./evaluations/README.md)
   - [Implementation Evaluation](./evaluations/testaruda-evaluation.md)
 - [Contributing](./contributing.md)
+- [Status](./status.md)
