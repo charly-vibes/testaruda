@@ -664,26 +664,31 @@ fn is_junit_xml(trimmed_input: &str) -> bool {
 }
 
 /// Parse pytest verbose output ("test_file.py::test_name PASSED" / "FAILED").
+/// Split a verbose pytest status line into its test id, if the line carries
+/// the given status token. Handles both bare lines (`id PASSED`) and padded
+/// lines with a progress column (`id PASSED   [  4%]`).
+fn pytest_line_status<'a>(line: &'a str, token: &str) -> Option<&'a str> {
+    let pat = format!(" {}", token);
+    let idx = line.find(&pat)?;
+    let id = line[..idx].trim();
+    (!id.is_empty() && id.contains("::")).then_some(id)
+}
+
 fn parse_pytest_output(run_output: &str) -> Option<Vec<serde_json::Value>> {
     let mut results = Vec::new();
     for line in run_output.lines() {
         let trimmed = line.trim();
-        if let Some(test_id) = trimmed.strip_suffix(" PASSED") {
-            let test_id = test_id.trim().to_string();
-            if !test_id.is_empty() {
-                results.push(serde_json::json!({
-                    "test_id": test_id,
-                    "outcome": "passed",
-                }));
-            }
-        } else if let Some(test_id) = trimmed.strip_suffix(" FAILED") {
-            let test_id = test_id.trim().to_string();
-            if !test_id.is_empty() {
-                results.push(serde_json::json!({
-                    "test_id": test_id,
-                    "outcome": "failed",
-                }));
-            }
+        // Verbose status words are followed by padding and a progress column,
+        // so a suffix match is not enough (testaruda round-3 finding).
+        let parsed = pytest_line_status(trimmed, "PASSED")
+            .map(|id| (id, "passed"))
+            .or_else(|| pytest_line_status(trimmed, "FAILED").map(|id| (id, "failed")))
+            .or_else(|| pytest_line_status(trimmed, "ERROR").map(|id| (id, "failed")));
+        if let Some((test_id, outcome)) = parsed {
+            results.push(serde_json::json!({
+                "test_id": test_id.to_string(),
+                "outcome": outcome,
+            }));
         }
     }
     if results.is_empty() {
@@ -1183,6 +1188,52 @@ mod tests {
     }
 
     // ===== cmd_ingest tests =====
+
+    #[test]
+    fn test_cmd_ingest_pytest_verbose_progress_column() {
+        // Real pytest -v output pads the status word and appends a progress
+        // column: "id PASSED   [  4%]" — a suffix match finds nothing
+        // (round-3 finding, bichos: 0 ingested despite a green run).
+        let out = concat!(
+            "============================= test session starts ==============================\n",
+            "collecting ... collected 3 items\n",
+            "tests/test_cli.py::test_version_flag PASSED                              [  4%]\n",
+            "tests/test_cli.py::test_analyze_table_output FAILED                     [  8%]\n",
+            "tests/test_cli.py::test_analyze_json_output ERROR                        [ 12%]\n",
+            "========================= 1 passed, 2 failed in 0.5s ==========================\n"
+        );
+        let cmd = serde_json::json!({
+            "command": "ingest",
+            "params": {"run_output": out}
+        });
+        let result = cmd_ingest(&cmd);
+        assert!(
+            result["ok"].as_bool().unwrap(),
+            "should parse: {:?}",
+            result["error"]
+        );
+
+        let per_test = result["result"]["per_test_results"].as_array().unwrap();
+        assert_eq!(per_test.len(), 3, "got: {per_test:?}");
+        let by_id: std::collections::HashMap<&str, &str> = per_test
+            .iter()
+            .map(|r| {
+                (
+                    r["test_id"].as_str().unwrap(),
+                    r["outcome"].as_str().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(by_id["tests/test_cli.py::test_version_flag"], "passed");
+        assert_eq!(
+            by_id["tests/test_cli.py::test_analyze_table_output"],
+            "failed"
+        );
+        assert_eq!(
+            by_id["tests/test_cli.py::test_analyze_json_output"],
+            "failed"
+        );
+    }
 
     #[test]
     fn test_cmd_ingest_pytest_output_returns_runtime_edges() {
