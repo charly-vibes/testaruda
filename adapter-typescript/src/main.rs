@@ -98,6 +98,17 @@ fn is_in_test_dir(path: &std::path::Path) -> bool {
     })
 }
 
+/// Extensions the adapter can meaningfully index. Files inside test dirs are
+/// only treated as tests when they carry one of these — foreign fixtures
+/// (e.g. .jl files under test/fixtures) are not selectable tests
+/// (testaruda-rx2x).
+fn is_project_source_ext(ext: &str) -> bool {
+    matches!(
+        ext,
+        "ts" | "tsx" | "mts" | "cts" | "js" | "jsx" | "mjs" | "cjs"
+    )
+}
+
 /// Parse a TypeScript/TSX source file and return test items from discover.scm.
 fn parse_test_file(path: &str, source: &str, ext: &str) -> Vec<serde_json::Value> {
     use streaming_iterator::StreamingIterator;
@@ -262,7 +273,8 @@ fn cmd_discover(_cmd: &serde_json::Value) -> serde_json::Value {
             None => continue,
         };
 
-        let is_test_by_name = is_test_file(&fname) || is_in_test_dir(entry.path());
+        let is_test_by_name =
+            is_test_file(&fname) || (is_in_test_dir(entry.path()) && is_project_source_ext(ext));
 
         if !is_test_by_name {
             continue;
@@ -880,6 +892,38 @@ mod tests {
         let mut parser = Parser::new();
         parser.set_language(&ts_language()).unwrap();
         parser.parse(source, None).unwrap()
+    }
+
+    #[test]
+    fn discover_ignores_non_ts_files_in_test_dirs() {
+        with_cwd(|| {
+            // TS test in a test dir — must be discovered
+            std::fs::create_dir_all("test").unwrap();
+            std::fs::write("test/app.test.ts", "test('a', () => {});\n").unwrap();
+            // Foreign fixture in a test dir — must NOT become a test item (testaruda-rx2x)
+            std::fs::create_dir_all("test/fixtures/julia").unwrap();
+            std::fs::write(
+                "test/fixtures/julia/runtests.jl",
+                "@testset \"x\" begin end\n",
+            )
+            .unwrap();
+
+            let resp = super::cmd_discover(&serde_json::json!({}));
+            assert!(resp["ok"].as_bool().unwrap());
+            let items = resp["result"].as_array().unwrap();
+            let ids: Vec<String> = items
+                .iter()
+                .filter_map(|t| t["node_id"].as_str().map(String::from))
+                .collect();
+            assert!(
+                !ids.iter().any(|id| id.ends_with(".jl")),
+                "non-TS/JS files in test dirs must not be indexed, got: {ids:?}"
+            );
+            assert!(
+                ids.iter().any(|id| id.contains("test/app.test.ts")),
+                "TS test must still be discovered, got: {ids:?}"
+            );
+        });
     }
 
     #[test]
