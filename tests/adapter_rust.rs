@@ -109,6 +109,146 @@ fn send_command(child: &mut std::process::Child, cmd: &str) -> String {
     line.trim().to_string()
 }
 
+/// Parse a static-deps response and return (edges, unresolved).
+///
+/// static-deps responses are flat envelopes (top-level edges/unresolved,
+/// matching the engine's StaticDepsResponse deserialization) — unlike
+/// discover/ingest which wrap in "result".
+fn parse_static_deps(resp: &str) -> (Vec<(String, String)>, Vec<String>) {
+    let parsed: serde_json::Value =
+        serde_json::from_str(resp).expect("static-deps response should be valid JSON");
+    assert!(
+        parsed["ok"].as_bool().unwrap_or(false),
+        "static-deps failed: {resp}"
+    );
+    let edges = parsed["edges"]
+        .as_array()
+        .unwrap_or(&Vec::new())
+        .iter()
+        .filter_map(|e| {
+            Some((
+                e["from"].as_str()?.to_string(),
+                e["to"].as_str()?.to_string(),
+            ))
+        })
+        .collect();
+    let unresolved = parsed["unresolved"]
+        .as_array()
+        .unwrap_or(&Vec::new())
+        .iter()
+        .filter_map(|u| u.as_str().map(String::from))
+        .collect();
+    (edges, unresolved)
+}
+
+/// Fotos-like fixture (testaruda-khn7): a Tauri-style repo whose Rust crate
+/// lives at `src-tauri/` — NOT the cwd `src/`. `ai/ocr.rs` carries inline
+/// `#[cfg(test)]` tests; `commands/mod.rs` imports it via `use crate::ai::ocr`.
+fn create_nested_crate_fixture(dir: &std::path::Path) {
+    let src = dir.join("src-tauri/src");
+    std::fs::create_dir_all(src.join("ai")).unwrap();
+    std::fs::create_dir_all(src.join("commands")).unwrap();
+    std::fs::write(
+        dir.join("src-tauri/Cargo.toml"),
+        r#"[package]
+name = "fotos"
+version = "0.1.0"
+edition = "2021"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("src-tauri/src/lib.rs"),
+        "pub mod ai;\npub mod commands;\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("src-tauri/src/ai/ocr.rs"),
+        r#"pub fn ocr(path: &str) -> String { path.to_string() }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ocr_test() {
+        assert!(true);
+    }
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("src-tauri/src/commands/mod.rs"),
+        r#"use crate::ai::ocr::ocr;
+
+pub fn run(path: &str) -> String { ocr(path) }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn run_test() {
+        assert!(true);
+    }
+}
+"#,
+    )
+    .unwrap();
+}
+
+#[test]
+fn rust_adapter_inline_self_edge_outside_src_root() {
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    create_nested_crate_fixture(dir.path());
+
+    let mut child = spawn_adapter(dir.path());
+    let resp = send_command(
+        &mut child,
+        r#"{"command":"static-deps","params":{"changed_files":["src-tauri/src/ai/ocr.rs"]}}"#,
+    );
+    let (edges, unresolved) = parse_static_deps(&resp);
+    child.kill().ok();
+    child.wait().ok();
+
+    // The changed file carries inline tests: it must self-link, never be
+    // unresolved (before the fix it was unresolved → engine over-selected 66/66).
+    assert!(
+        !unresolved.contains(&"src-tauri/src/ai/ocr.rs".to_string()),
+        "inline-test file must not be unresolved, got: {unresolved:?}"
+    );
+    assert!(
+        edges
+            .iter()
+            .any(|(from, to)| { to == "src-tauri/src/ai/ocr.rs" && from.contains("ocr_test") }),
+        "changed file's own inline test must be selected, got edges: {edges:?}"
+    );
+}
+
+#[test]
+fn rust_adapter_crate_import_resolves_against_package_src_root() {
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    create_nested_crate_fixture(dir.path());
+
+    let mut child = spawn_adapter(dir.path());
+    let resp = send_command(
+        &mut child,
+        r#"{"command":"static-deps","params":{"changed_files":["src-tauri/src/ai/ocr.rs"]}}"#,
+    );
+    let (edges, _) = parse_static_deps(&resp);
+    child.kill().ok();
+    child.wait().ok();
+
+    // `use crate::ai::ocr` in commands/mod.rs must resolve against the
+    // package src root (src-tauri/src), so commands' inline tests depend
+    // on the changed file too.
+    assert!(
+        edges
+            .iter()
+            .any(|(from, to)| { to == "src-tauri/src/ai/ocr.rs" && from.contains("run_test") }),
+        "crate::-rooted importer's tests must depend on changed file, got edges: {edges:?}"
+    );
+}
+
 /// Extract node_ids from a discover response.
 fn parse_discover_node_ids(resp: &str) -> Vec<String> {
     let parsed: serde_json::Value =
