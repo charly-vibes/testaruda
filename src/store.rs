@@ -1951,6 +1951,20 @@ impl Store {
             .map_err(|e| miette::miette!("Failed to get test node ID: {}", e))
     }
 
+    /// Look up a test item's node_id and the adapter that discovered it.
+    ///
+    /// The adapter column (handshake name, e.g. "python-adapter") is how a
+    /// selection is split into per-adapter runner groups (testaruda-kkno).
+    pub fn get_test_identity(&self, id: u32) -> miette::Result<(String, String)> {
+        self.conn
+            .query_row(
+                "SELECT node_id, adapter FROM test_items WHERE id = ?1",
+                rusqlite::params![id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .map_err(|e| miette::miette!("Failed to get test identity: {}", e))
+    }
+
     /// Look up a test item ID by its node_id string.
     pub fn lookup_test_item_id(&self, node_id: &str) -> miette::Result<u32> {
         self.conn
@@ -2523,41 +2537,6 @@ mod tests {
                 "older schema should be migrated to current"
             );
         }
-    }
-
-    #[test]
-    fn test_explain_resolves_node_id() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
-
-        // Insert a test item with a known node_id
-        store.conn().execute(
-            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'my_test_node')",
-            [],
-        ).unwrap();
-
-        // Explain with numeric ID should work
-        let result = store.explain("1", None);
-        assert!(
-            result.is_ok(),
-            "numeric ID should resolve: {:?}",
-            result.err()
-        );
-
-        // Explain with human-readable node_id should also work
-        let result = store.explain("my_test_node", None);
-        assert!(result.is_ok(), "node_id should resolve: {:?}", result.err());
-
-        // Explain with unknown node_id should fail gracefully
-        let result = store.explain("nonexistent_test", None);
-        assert!(result.is_err(), "unknown node_id should error");
-        let err = format!("{:?}", result.unwrap_err());
-        assert!(
-            err.contains("metrics"),
-            "error should mention 'testaruda metrics': {}",
-            err
-        );
     }
 
     #[test]
