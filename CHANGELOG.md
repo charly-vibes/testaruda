@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.5.1 — cold-start loop fixes, Rust inline-test self-edges (2026-09-30)
+
+Fixes-only release closing the biggest value-prop gaps found in the
+round-1–3 benchmark across 12 Rust + 12 Python repos: on 0.5.0 a fresh
+`init → exec` on a Python repo ingested **0 results** (the one cycle the
+whole product depends on) and inline-test Rust repos always over-selected.
+
+### Fixed
+
+- Engine: cold-store `exec`/`select --ci` deadlock — the emitter exited 10
+  before run+ingest, so run history stayed empty forever; exit now happens
+  after run+ingest (testaruda-1m3i).
+- Engine: runner ids resolve tolerantly against store node ids (exact,
+  then unique fn-name suffix) instead of silently dropping results
+  (testaruda-1m3i, testaruda-a6gw); `LIKE` wildcards in test names escaped
+  (testaruda-a6gw).
+- Python adapter: real pytest JUnit XML parsed — single-line format and
+  classname-derived file paths (testaruda-00p9).
+- Python adapter: verbose-mode progress-column parsing; `file::fn` ids get
+  a file-prefix store rule (testaruda-l0ts).
+- Python adapter: project-local `.venv/bin/pytest` preferred over global
+  pytest (testaruda-n3wn).
+- Rust adapter: inline `#[cfg(test)]` tests under any package root get
+  self-edges via test-map membership (not path prefix) — inline-test repos
+  no longer over-select (testaruda-khn7).
+- Rust adapter: `crate::` imports resolve against discovered package src
+  roots from Cargo.toml lib paths (testaruda-khn7).
+- Rust adapter: cargo run-args filter contract pinned — bare short names as
+  substring filters (never `--exact`), prefix collisions over-run
+  (recall-safe), stale names run 0 tests and exit 0 (testaruda-u1bv).
+- All adapters + engine: hidden directories (`.claude/worktrees/agent-*`,
+  dot configs) are skipped in discovery walks — agent worktrees no longer
+  inflate discovery 9x (testaruda-n338, testaruda-zlyk).
+- TypeScript adapter: test-dir convention requires TS/JS extensions
+  (testaruda-rx2x).
+- Engine: polyglot selections run through per-adapter runner groups — a
+  single-adapter resolution sent pytest `.ts` paths and exited 4
+  (testaruda-kkno).
+- Engine: failed runners surface the last 5 stderr lines with the exit
+  code, making e.g. un-instantiated Julia `[extras]` deps diagnosable
+  (testaruda-ylyl).
+
+### Changed
+
+- adapter-typescript / adapter-clojure 0.2.0 → 0.2.1 (hidden-dir walk fix).
+- Docs: calibration ramp documented in getting-started — cold stores run
+  the full suite by design (SAFE-007), exit 10 on early cycles is expected
+  (testaruda-ycg8); docs/cli.md regenerated (exec subcommand was missing
+  since v0.3.0).
+
 ## 0.5.0 — exec subcommand, babashka support in the Clojure adapter (2026-09-29)
 
 ### Added
