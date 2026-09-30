@@ -262,21 +262,6 @@ fn is_python_test_file(file: &str) -> bool {
 
 // ===== JUnit XML parsing (TIA-RUN-001) =====
 
-/// Parse a JUnit XML `<testcase>` tag and extract its attributes.
-fn parse_junit_testcase(line: &str) -> Option<(&str, &str, &str, f64)> {
-    let tag_start = line.find("<testcase")?;
-    let tag_end = line[tag_start..].find('>')? + tag_start + 1;
-    let tag = &line[tag_start..tag_end];
-
-    let name = extract_xml_attr(tag, "name")?;
-    let classname = extract_xml_attr(tag, "classname")?;
-    let file = extract_xml_attr(tag, "file")?;
-    let time_str = extract_xml_attr(tag, "time").unwrap_or("0");
-    let time_secs: f64 = time_str.parse().unwrap_or(0.0);
-
-    Some((name, classname, file, time_secs))
-}
-
 /// Extract the value of an XML attribute from a tag string.
 fn extract_xml_attr<'a>(tag: &'a str, attr: &str) -> Option<&'a str> {
     // Try double-quoted first: attr="value"
@@ -317,44 +302,80 @@ fn has_failure_element(text: &str) -> bool {
 /// Parse JUnit XML output from pytest and return per-test results.
 fn parse_junit_xml(content: &str) -> Vec<serde_json::Value> {
     let mut results = Vec::new();
-    let lines: Vec<&str> = content.lines().collect();
 
-    let mut i = 0;
-    while i < lines.len() {
-        let line = lines[i];
-        if let Some((name, _classname, file, time_secs)) = parse_junit_testcase(line) {
-            let test_id = format!("{}::{}", file, name);
+    // Scan the whole content — pytest writes the entire JUnit doc on a single
+    // line, so a line-based scanner silently yields zero results (round-3
+    // finding, testaruda ingest gap).
+    let mut search_from = 0;
+    while let Some(rel) = content[search_from..].find("<testcase") {
+        let tag_start = search_from + rel;
+        let Some(gt_rel) = content[tag_start..].find('>') else {
+            break;
+        };
+        let tag_end = tag_start + gt_rel + 1;
+        let tag = &content[tag_start..tag_end];
 
-            // Collect content until </testcase> (may span multiple lines)
-            let mut block = line.to_string();
-            if !line.trim().ends_with("</testcase>") {
-                for (j, next_line) in lines.iter().enumerate().skip(i + 1) {
-                    block.push_str(next_line);
-                    if next_line.contains("</testcase>") {
-                        i = j;
-                        break;
-                    }
-                }
+        let Some(name) = extract_xml_attr(tag, "name") else {
+            search_from = tag_end;
+            continue;
+        };
+        let classname = extract_xml_attr(tag, "classname").unwrap_or("");
+        // pytest's standard junitxml emits classname/name but no file attr;
+        // derive the file path from the dotted module classname.
+        let file = match extract_xml_attr(tag, "file") {
+            Some(f) => f.to_string(),
+            None => file_from_classname(classname),
+        };
+        let time_str = extract_xml_attr(tag, "time").unwrap_or("0");
+        let time_secs: f64 = time_str.parse().unwrap_or(0.0);
+
+        // Block extends to the matching </testcase>, or ends at the tag itself
+        // for self-closed testcases.
+        let block_end = if tag.trim_end().ends_with("/>") {
+            tag_end
+        } else {
+            match content[tag_end..].find("</testcase>") {
+                Some(rel) => tag_end + rel + "</testcase>".len(),
+                None => content.len(),
             }
+        };
+        let block = &content[tag_start..block_end];
 
-            let outcome = if has_failure_element(&block) {
-                "failed"
-            } else {
-                "passed"
-            };
+        let outcome = if has_failure_element(block) {
+            "failed"
+        } else {
+            "passed"
+        };
 
-            let duration_ms = (time_secs * 1000.0).round() as u64;
+        let duration_ms = (time_secs * 1000.0).round() as u64;
 
-            results.push(serde_json::json!({
-                "test_id": test_id,
-                "outcome": outcome,
-                "duration_ms": duration_ms,
-            }));
-        }
-        i += 1;
+        results.push(serde_json::json!({
+            "test_id": format!("{}::{}", file, name),
+            "outcome": outcome,
+            "duration_ms": duration_ms,
+        }));
+
+        search_from = block_end;
     }
 
     results
+}
+
+/// Derive the test file path from a pytest classname (dotted module path).
+/// Trailing components that look like classes (leading uppercase) are dropped:
+/// `tests.test_orchestrator.TestSwarmState` → `tests/test_orchestrator.py`.
+fn file_from_classname(classname: &str) -> String {
+    let mut parts: Vec<&str> = classname.split('.').collect();
+    while parts.len() > 1
+        && parts
+            .last()
+            .and_then(|p| p.chars().next())
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false)
+    {
+        parts.pop();
+    }
+    format!("{}.py", parts.join("/"))
 }
 
 /// Parse `import` and `from ... import` statements from Python source.
@@ -1313,6 +1334,70 @@ mod tests {
         assert!(
             !runtime_edges.is_empty(),
             "JUnit XML should produce runtime edges"
+        );
+    }
+
+    #[test]
+    fn test_cmd_ingest_junit_single_line_real_pytest_shape() {
+        // pytest writes the entire JUnit doc on ONE line — the line-based
+        // parser must not depend on newlines (round-3 finding, bichos).
+        let xml = r#"<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="1" tests="3" time="1.7"><testcase classname="tests.test_a" name="test_x" time="0.001" /><testcase classname="tests.test_a" name="test_y" time="0.002" /><testcase classname="tests.test_b" name="test_z" time="0.003"><skipped type="pytest.skip" message="no key" /></testcase></testsuite></testsuites>"#;
+        let cmd = serde_json::json!({
+            "command": "ingest",
+            "params": {"run_output": xml}
+        });
+        let result = cmd_ingest(&cmd);
+        assert!(
+            result["ok"].as_bool().unwrap(),
+            "should parse: {:?}",
+            result["error"]
+        );
+
+        let per_test = result["result"]["per_test_results"].as_array().unwrap();
+        assert_eq!(
+            per_test.len(),
+            3,
+            "single-line JUnit XML must yield all testcases, got: {per_test:?}"
+        );
+    }
+
+    #[test]
+    fn test_cmd_ingest_junit_no_file_attr_derives_from_classname() {
+        // Real pytest JUnit emits only classname/name — the file path must be
+        // derived from the dotted classname (round-3 finding, bichos).
+        let xml = r#"<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest" tests="3"><testcase classname="tests.test_ant_aco" name="test_probabilities" time="0.001" /><testcase classname="tests.test_orchestrator.TestSwarmState" name="test_state" time="0.002" /><testcase classname="tests.test_model" name="test_fail" time="0.003"><failure message="boom">trace</failure></testcase></testsuite></testsuites>"#;
+        let cmd = serde_json::json!({
+            "command": "ingest",
+            "params": {"run_output": xml}
+        });
+        let result = cmd_ingest(&cmd);
+        assert!(
+            result["ok"].as_bool().unwrap(),
+            "should parse: {:?}",
+            result["error"]
+        );
+
+        let per_test = result["result"]["per_test_results"].as_array().unwrap();
+        assert_eq!(per_test.len(), 3, "got: {per_test:?}");
+        let ids: Vec<&str> = per_test
+            .iter()
+            .filter_map(|r| r["test_id"].as_str())
+            .collect();
+        assert!(
+            ids.contains(&"tests/test_ant_aco.py::test_probabilities"),
+            "dotted classname → path, got: {ids:?}"
+        );
+        assert!(
+            ids.contains(&"tests/test_orchestrator.py::test_state"),
+            "class component dropped from classname, got: {ids:?}"
+        );
+        let failed = per_test
+            .iter()
+            .find(|r| r["test_id"].as_str() == Some("tests/test_model.py::test_fail"))
+            .unwrap();
+        assert_eq!(
+            failed["outcome"], "failed",
+            "failure element must mark failed"
         );
     }
 
