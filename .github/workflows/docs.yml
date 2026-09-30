@@ -25,6 +25,14 @@ jobs:
         with:
           mdbook-version: latest
 
+      - name: Copy OpenSpec specs into docs source
+        run: |
+          mkdir -p docs/src/specs
+          for dir in openspec/specs/*/; do
+            name=$(basename "$dir")
+            cp "$dir/spec.md" "docs/src/specs/$name.md"
+          done
+
       - name: Build book
         run: mdbook build
 

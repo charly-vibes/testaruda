@@ -44,3 +44,4 @@ __pycache__/
 Thumbs.db
 tracefile.info
 .vscode/
+docs/src/specs/
