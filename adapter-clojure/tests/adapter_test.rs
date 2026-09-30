@@ -150,6 +150,39 @@ fn send_command_in(cmd: &str, work_dir: &std::path::Path) -> serde_json::Value {
 }
 
 #[test]
+fn discover_skips_hidden_dirs() {
+    // Hidden directories (e.g. .claude/worktrees) are agent workspaces, not
+    // project source — must not be indexed (testaruda-zlyk).
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("test/finanzas")).unwrap();
+    std::fs::write(
+        root.join("test/finanzas/cli_test.bb"),
+        "(ns finanzas.cli-test\n  (:require [clojure.test :refer [deftest is]]\n            [finanzas.cli :as cli]))\n\n(deftest test-run\n  (is (= 1 (cli/run))))\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join(".claude/worktrees/agent-x/test/finanzas")).unwrap();
+    std::fs::write(
+        root.join(".claude/worktrees/agent-x/test/finanzas/cli_test.bb"),
+        "(ns finanzas.cli-test\n  (:require [clojure.test :refer [deftest is]]\n            [finanzas.cli :as cli]))\n\n(deftest test-run\n  (is (= 1 (cli/run))))\n",
+    )
+    .unwrap();
+
+    let resp = send_command_in(r#"{"command":"discover"}"#, root);
+    assert_eq!(resp["ok"], true, "discover should succeed: {resp}");
+    let tests = resp["result"].as_array().unwrap();
+    let node_ids: Vec<&str> = tests.iter().filter_map(|t| t["node_id"].as_str()).collect();
+    assert!(
+        !node_ids.iter().any(|n| n.contains(".claude")),
+        "hidden dirs must not be indexed, got: {node_ids:?}"
+    );
+    assert!(
+        node_ids.iter().any(|n| n.contains("test-run")),
+        "project test must still be discovered, got: {node_ids:?}"
+    );
+}
+
+#[test]
 fn discover_finds_bb_tests() {
     // Babashka (.bb) files are mapped to the clojure adapter by user config
     // (gh-34): discover must treat them as Clojure-family sources.
