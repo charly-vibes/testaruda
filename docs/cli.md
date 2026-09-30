@@ -7,6 +7,7 @@ This document contains the help content for the `testaruda` command-line program
 * [`testaruda`↴](#testaruda)
 * [`testaruda init`↴](#testaruda-init)
 * [`testaruda select`↴](#testaruda-select)
+* [`testaruda exec`↴](#testaruda-exec)
 * [`testaruda calibrate`↴](#testaruda-calibrate)
 * [`testaruda ingest`↴](#testaruda-ingest)
 * [`testaruda graph`↴](#testaruda-graph)
@@ -23,19 +24,7 @@ This document contains the help content for the `testaruda` command-line program
 
 ## `testaruda`
 
-Clap-derivable args struct for `--json` / `--human`.
-
-Embed this in your clap CLI struct with `#[command(flatten)]`:
-
-```rust,no_run use clap::Parser; use genesis::guide::CliFormat;
-
-#[derive(Parser)] struct Cli { #[command(flatten)] pub format: CliFormat, }
-
-let cli = Cli::parse(); let fmt = cli.format.format();  // auto-detects TTY vs pipe/agent ```
-
-When neither `--json` nor `--human` is set, the format is auto-detected: - stdout is a terminal (TTY) → `Human` - stdout is piped or redirected → `Json`
-
-This ensures agents and CI pipelines always receive machine-readable JSON by default, while humans at a terminal get readable output.
+Language-agnostic test selection engine — compute the affected test set from a code change via provenance-semiring dependency analysis
 
 **Usage:** `testaruda [OPTIONS] <COMMAND>`
 
@@ -43,6 +32,7 @@ This ensures agents and CI pipelines always receive machine-readable JSON by def
 
 * `init` — Initialize store and config in the current project
 * `select` — Select affected tests from a code change
+* `exec` — Full loop: select → run selected tests → ingest → calibrate (gh-26)
 * `calibrate` — Evaluate the predictive ranking calibration gate (TIA-VER-005)
 * `ingest` — Ingest test run results to update the model
 * `graph` — Show the current dependency graph
@@ -104,6 +94,37 @@ Select affected tests from a code change
   - `predictive`:
     Order by descending historical failure rate (TIA-SEL-007)
 
+
+
+
+## `testaruda exec`
+
+Full loop: select → run selected tests → ingest → calibrate (gh-26)
+
+**Usage:** `testaruda exec [OPTIONS]`
+
+###### **Options:**
+
+* `--base <BASE>` — Base revision (git ref)
+* `--head <HEAD>` — Head revision (git ref)
+* `--files <FILES>` — Explicit changed-file list (comma-separated)
+* `--ordering <ORDERING>` — Selection ordering mode
+
+  Default value: `default`
+
+  Possible values:
+  - `default`:
+    No specific ordering — results in Ascent's internal iteration order
+  - `deterministic`:
+    Byte-stable ordering: sort by test ID (TIA-SEL-005)
+  - `duration`:
+    Order by descending recorded mean duration (TIA-SEL-006)
+  - `predictive`:
+    Order by descending historical failure rate (TIA-SEL-007)
+
+* `--threshold <THRESHOLD>` — Recall threshold (0.0–1.0) for the calibration gate (default: 0.8)
+
+  Default value: `0.8`
 
 
 
@@ -236,6 +257,7 @@ Submit a feedback issue about an error
 
 * `--from-last-error` — Use the last error from scratch (--from-last-error)
 * `--dry-run` — Dry run — print what would be submitted
+* `--title <TITLE>` — Override the issue title (wins over derived titles)
 
 
 

@@ -88,6 +88,44 @@ A successful selection prints the selected test records and the reason for any
 safety fallback. If no dependency data exists yet, testaruda intentionally
 over-selects rather than risking a missed test.
 
+## The calibration ramp (first cycles run everything — by design)
+
+Selection quality depends on run history in the store. A **cold** store (fresh
+`init`) has no evidence about which tests failed recently or how tests relate
+to each other at runtime, so testaruda errs on the side of recall (SAFE-007):
+every test with no recorded history lands in the always-run set and the engine
+falls back to the full suite. Expect this sequence:
+
+| Cycle | Command | What you see |
+|---|---|---|
+| 1. `init` + `discover` | `testaruda init && testaruda discover` | Store + test inventory, no selection data |
+| 2. First full run | `testaruda exec` (or CI with ingest) | Full suite runs, results are ingested |
+| 3. Warm selection | `testaruda exec` again after a change | Small, surgical selection |
+
+On the first `exec` cycle a full-suite run is **expected, not a bug**. If
+selection falls back with
+
+```
+exit code 10: confidence below threshold
+```
+
+that is the confidence-threshold fallback (TIA-SAFE-002) telling you history
+is still too thin — run the suite once more and the ramp completes. Real
+measured ramps from the Rust benchmark suite (warm cycle after 1–2 exec runs):
+
+| Repo | Selected / Total | Notes |
+|---|---|---|
+| dont | 5 / 950 | full history |
+| genesis | 6 / 502 | full history |
+| espectacular | 17 / 401 | includes inline-test self-edges |
+| vampiro | 91 / 856 | threshold-gated until history accumulates |
+
+Repositories with partial git history (shallow clones, squashed imports) ramp
+slower: SAFE-007 keeps tests without any recorded run in the always-run set
+until each has executed at least once. Two to three `exec` cycles is the
+normal ramp; `testaruda calibrate` reports the ranking gate if you use
+predictive ranking.
+
 ## CI safety mode
 
 Use safe mode when selection should execute tests in CI. It performs preflight
