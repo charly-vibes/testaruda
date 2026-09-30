@@ -159,9 +159,10 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
     let all_tests = discover_all_tests();
     let tests_by_file = group_tests_by_file(&all_tests);
     let cargo_info = parse_cargo_toml();
+    let src_roots = discover_src_roots();
 
     // 2. Build reverse map: source file → test IDs that depend on it
-    let source_to_tests = build_source_to_test_map(&tests_by_file, &cargo_info);
+    let source_to_tests = build_source_to_test_map(&tests_by_file, &cargo_info, &src_roots);
 
     // 3. For each changed file, find dependent test edges
     let mut edges = Vec::new();
@@ -322,23 +323,32 @@ fn group_tests_by_file(
 
 /// Build a map from source file path → test IDs that depend on it.
 ///
-/// For each test file, parses its `use` statements and resolves them to concrete
-/// filesystem paths. Also handles the common inline-test pattern where tests
-/// inside `src/` files depend on their own file.
+/// Every file that carries test items depends on itself (inline `#[cfg(test)]`
+/// modules live in arbitrary package roots — `src-tauri/src/`, `crates/*/src/`
+/// — so a path prefix check cannot be the trigger; membership in the test map
+/// is, per testaruda-khn7). On top of that, parses `use` statements and
+/// resolves them to concrete filesystem paths.
 fn build_source_to_test_map(
     tests_by_file: &std::collections::HashMap<String, Vec<String>>,
     cargo_info: &Option<CargoInfo>,
+    src_roots: &[String],
 ) -> std::collections::HashMap<String, Vec<String>> {
     let mut source_to_tests: std::collections::HashMap<String, Vec<String>> =
         std::collections::HashMap::new();
 
     for (test_file, test_ids) in tests_by_file {
+        // Inline tests: a file with test items depends on its own source.
+        let entry = source_to_tests.entry(test_file.clone()).or_default();
+        for test_id in test_ids {
+            entry.push(test_id.clone());
+        }
+
         let content = match std::fs::read_to_string(test_file) {
             Ok(c) => c,
             Err(_) => continue,
         };
 
-        let source_deps = resolve_test_file_deps(test_file, &content, cargo_info);
+        let source_deps = resolve_test_file_deps(&content, cargo_info, src_roots);
 
         for source_file in &source_deps {
             let entry = source_to_tests.entry(source_file.clone()).or_default();
@@ -354,25 +364,18 @@ fn build_source_to_test_map(
 /// Resolve the source files a test file depends on, given its content and
 /// Cargo.toml info.
 ///
-/// Covers three patterns:
-/// - **Inline tests** (`src/*.rs`): tests in source files depend on the same file.
-/// - **`use crate::module::item`**: resolves `crate::module` to `src/module.rs`.
-/// - **`use crate_name::item`** (integration tests): resolves crate name to lib.rs.
+/// Self-dependency (inline tests) is handled separately in
+/// `build_source_to_test_map` via test-map membership, so this covers:
+/// - `use crate::module::item`: resolved against each package src root.
+/// - `use crate_name::item` (integration tests): resolves crate name to lib.rs.
 fn resolve_test_file_deps(
-    test_file: &str,
     content: &str,
     cargo_info: &Option<CargoInfo>,
+    src_roots: &[String],
 ) -> Vec<String> {
     let mut deps: Vec<String> = Vec::new();
 
-    // Pattern 1: inline tests — test file is also a source file.
-    // Tests inside src/*.rs with #[cfg(test)] mod tests { use super::*; ... }
-    // depend on their own source file.
-    if test_file.starts_with("src/") || test_file.starts_with("tests/") {
-        deps.push(test_file.to_string());
-    }
-
-    // Pattern 2: `use crate::module::item;` — resolve to source file path.
+    // Pattern 1: `use crate::module::item;` — resolve to source file path.
     for line in content.lines() {
         let trimmed = line.trim();
 
@@ -382,16 +385,8 @@ fn resolve_test_file_deps(
             .map(|s| s.trim())
         {
             let parts: Vec<&str> = path.split("::").collect();
-            let file_deps = resolve_crate_module_to_file(&parts);
+            let file_deps = resolve_crate_module_to_file(&parts, src_roots);
             deps.extend(file_deps);
-        }
-
-        // Pattern 3: `use super::*;` or `use super::item;` in inline test mods.
-        if trimmed.starts_with("use super::") || trimmed == "use super::*;" {
-            // For inline tests, super::* refers to the parent module (the file itself)
-            if test_file.starts_with("src/") || test_file.starts_with("tests/") {
-                deps.push(test_file.to_string());
-            }
         }
     }
 
@@ -419,34 +414,103 @@ fn resolve_test_file_deps(
 
 /// Resolve a `crate::module::submodule::...` path to filesystem paths.
 ///
-/// Tries progressively shorter path prefixes:
-/// - `crate::foo::bar::Baz` → `src/foo/bar/baz.rs`, `src/foo/bar.rs`, `src/foo.rs`
+/// `crate::` is rooted at each discovered package src root (a repo can host
+/// several — `src/`, `src-tauri/src/`, `crates/*/src/`). For each root, tries
+/// progressively shorter path prefixes:
+/// - `crate::foo::bar::Baz` → `<root>/foo/bar/baz.rs`, `<root>/foo/bar.rs`, `<root>/foo.rs`
 /// - Only returns paths that actually exist on disk.
-fn resolve_crate_module_to_file(parts: &[&str]) -> Vec<String> {
+fn resolve_crate_module_to_file(parts: &[&str], src_roots: &[String]) -> Vec<String> {
     if parts.is_empty() {
         return Vec::new();
     }
 
     let mut candidates = Vec::new();
 
-    // The last part might be a named item, not a module. Try progressively
-    // shorter paths to find the actual module file.
-    for len in 1..=parts.len() {
-        let segments: Vec<&str> = parts[..len].to_vec();
-        let rel = segments.join("/");
+    for root in src_roots {
+        // The last part might be a named item, not a module. Try progressively
+        // shorter paths to find the actual module file.
+        for len in 1..=parts.len() {
+            let segments: Vec<&str> = parts[..len].to_vec();
+            let rel = segments.join("/");
 
-        let as_file = format!("src/{}.rs", rel);
-        if std::path::Path::new(&as_file).is_file() {
-            candidates.push(as_file);
-        }
+            let as_file = format!("{root}/{rel}.rs");
+            if std::path::Path::new(&as_file).is_file() {
+                candidates.push(as_file);
+            }
 
-        let as_mod = format!("src/{}/mod.rs", rel);
-        if std::path::Path::new(&as_mod).is_file() {
-            candidates.push(as_mod);
+            let as_mod = format!("{root}/{rel}/mod.rs");
+            if std::path::Path::new(&as_mod).is_file() {
+                candidates.push(as_mod);
+            }
         }
     }
 
     candidates
+}
+
+/// Discover package src roots for `crate::` import resolution.
+///
+/// Scans for Cargo.toml files (skipping hidden dirs, `target/`,
+/// `.flatpak-builder/`), and derives each package's module root from its lib
+/// path (`[lib] path` or default `src/lib.rs`). `src/` is always included so
+/// single-crate repos with no Cargo.toml at cwd still resolve.
+fn discover_src_roots() -> Vec<String> {
+    let mut roots: Vec<String> = vec!["src".to_string()];
+
+    for entry in walkdir::WalkDir::new(".")
+        .into_iter()
+        .filter_entry(|e| e.depth() == 0 || !e.file_name().to_string_lossy().starts_with('.'))
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            let p = e.path().to_string_lossy();
+            e.file_type().is_file()
+                && e.file_name().to_string_lossy() == "Cargo.toml"
+                && !p.contains("/target/")
+                && !p.contains("/.flatpak-builder/")
+        })
+    {
+        let path = entry.path().to_string_lossy().to_string();
+        let cargo_dir = std::path::Path::new(&path)
+            .parent()
+            .and_then(|p| p.to_str())
+            .unwrap_or("")
+            .trim_start_matches("./")
+            .to_string();
+        let content = match std::fs::read_to_string(entry.path()) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let lib_path = toml::from_str::<toml::Value>(&content)
+            .ok()
+            .and_then(|parsed| {
+                parsed
+                    .get("lib")
+                    .and_then(|lib| lib.get("path"))
+                    .and_then(|p| p.as_str())
+                    .map(String::from)
+            })
+            .unwrap_or_else(|| "src/lib.rs".to_string());
+        let lib_dir = std::path::Path::new(&lib_path)
+            .parent()
+            .and_then(|p| p.to_str())
+            .unwrap_or("src")
+            .to_string();
+        let root = match (cargo_dir.as_str(), lib_dir.as_str()) {
+            ("", "") | (_, "") => {
+                // lib.rs sits directly in the crate dir
+                cargo_dir
+            }
+            ("", _) => lib_dir,
+            (dir, _) => format!("{dir}/{lib_dir}"),
+        };
+        if !root.is_empty() {
+            roots.push(root);
+        }
+    }
+
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    roots.retain(|r| seen.insert(r.clone()));
+    roots
 }
 
 /// Fingerprint: compute blake3 hashes for files (TIA-ADAPT-006).
