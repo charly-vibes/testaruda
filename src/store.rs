@@ -1966,20 +1966,31 @@ impl Store {
     /// item id. Adapters discover tests with file-derived node_ids
     /// (`src::lib::foo(Test)`) that never equal the runner's path form, so an
     /// exact match alone would silently drop every per-test result
-    /// (testaruda-1m3i). Falls back to a unique match on the trailing
-    /// `::fn_name(Test)` segment; ambiguous or missing names are not resolved.
+    /// (testaruda-1m3i). Resolution order: exact node_id, then the `src::`
+    /// path variant, then a unique match on the trailing `::fn_name(Test)`
+    /// segment; ambiguous or missing names are not resolved.
     pub fn resolve_test_item_id(&self, runner_test_id: &str) -> Option<u32> {
         if let Ok(id) = self.lookup_test_item_id(runner_test_id) {
+            return Some(id);
+        }
+        let path_variant = format!("src::{}(Test)", runner_test_id);
+        if let Ok(id) = self.lookup_test_item_id(&path_variant) {
             return Some(id);
         }
         let fn_name = runner_test_id.rsplit("::").next()?;
         if fn_name.is_empty() {
             return None;
         }
-        let pattern = format!("%::{}(Test)", fn_name);
+        // Escape LIKE wildcards so `_` matches a literal underscore, not any
+        // single character (testaruda-a6gw).
+        let escaped = fn_name
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        let pattern = format!("%::{}(Test)", escaped);
         let mut stmt = self
             .conn
-            .prepare("SELECT id FROM test_items WHERE node_id LIKE ?1")
+            .prepare("SELECT id FROM test_items WHERE node_id LIKE ?1 ESCAPE '\\'")
             .ok()?;
         let ids: Vec<u32> = stmt
             .query_map(rusqlite::params![pattern], |row| row.get(0))
@@ -2622,6 +2633,54 @@ mod tests {
             )
             .unwrap();
         assert_eq!(store.resolve_test_item_id("tests::always_passes"), None);
+    }
+
+    /// Insert a test item and return its id.
+    fn insert_item(store: &Store, node_id: &str) -> u32 {
+        store
+            .conn()
+            .execute(
+                "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', ?1)",
+                [node_id],
+            )
+            .unwrap();
+        store
+            .conn()
+            .query_row(
+                "SELECT id FROM test_items WHERE node_id = ?1",
+                [node_id],
+                |row| row.get(0),
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn resolve_test_item_id_tries_src_path_variant_before_fn_fallback() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().to_path_buf()).unwrap();
+        store.initialize().unwrap();
+        // Same-named tests in two modules make the fn-name fallback ambiguous;
+        // only the src:: path variant can disambiguate.
+        let src_lib_id = insert_item(&store, "src::lib::specific_name(Test)");
+        insert_item(&store, "tests::web::specific_name(Test)");
+        assert_eq!(
+            store.resolve_test_item_id("lib::specific_name"),
+            Some(src_lib_id)
+        );
+    }
+
+    #[test]
+    fn resolve_test_item_id_escapes_like_wildcards_in_fn_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().to_path_buf()).unwrap();
+        store.initialize().unwrap();
+        // foo_bar (underscore) and fooXbar differ only by the character an
+        // unescaped LIKE '_' wildcard would match as any single char.
+        let foo_bar_id = insert_item(&store, "src::mod::foo_bar(Test)");
+        insert_item(&store, "src::mod::fooXbar(Test)");
+        assert_eq!(store.resolve_test_item_id("mod::foo_bar"), Some(foo_bar_id));
+        // Percent in a name must not become a wildcard either.
+        assert_eq!(store.resolve_test_item_id("mod::foo%bar"), None);
     }
 
     #[test]
