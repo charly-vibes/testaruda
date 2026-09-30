@@ -92,7 +92,9 @@ fn cmd_discover() -> serde_json::Value {
         .into_iter()
         .filter_entry(|e| {
             let name = e.file_name().to_string_lossy();
-            !excluded_dirs.contains(&name.as_ref())
+            // Hidden directories (agent worktrees, dot configs) are never
+            // project source — skip them wholesale (testaruda-n338).
+            (e.depth() == 0 || !name.starts_with('.')) && !excluded_dirs.contains(&name.as_ref())
         })
         .filter_map(|e| e.ok())
     {

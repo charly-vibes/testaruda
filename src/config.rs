@@ -307,10 +307,16 @@ pub fn detect_project_language(project_root: &Path) -> Option<String> {
 /// Build a filter_entry closure from a list of directory names to exclude.
 /// Returns a function that returns `true` if the entry should be included,
 /// `false` if it should be skipped (matched by name).
+///
+/// Hidden directories (any dot-prefixed name below the walk root) are always
+/// skipped: agent worktrees (`.claude/worktrees/agent-*/`), dot configs, and
+/// caches must never be indexed as project source (testaruda-n338 — a single
+/// crate with an agent worktree discovered 9x its real test count).
 pub fn make_exclude_filter(exclude: &[String]) -> impl Fn(&walkdir::DirEntry) -> bool + '_ {
     move |entry: &walkdir::DirEntry| {
         let name = entry.file_name().to_string_lossy();
-        !exclude.iter().any(|pat| name == pat.as_str())
+        (entry.depth() == 0 || !name.starts_with('.'))
+            && !exclude.iter().any(|pat| name == pat.as_str())
     }
 }
 
@@ -461,6 +467,37 @@ pub fn normalize_adapters_config(content: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exclude_filter_skips_hidden_dirs_but_not_walk_root() {
+        let exclude: Vec<String> = vec![];
+        let f = make_exclude_filter(&exclude);
+
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("src")).unwrap();
+        std::fs::write(root.path().join("src/lib.rs"), "fn main() {}\n").unwrap();
+        let hidden = root.path().join(".hidden");
+        std::fs::create_dir_all(&hidden).unwrap();
+        std::fs::write(hidden.join("x.rs"), "fn hidden() {}\n").unwrap();
+        let wt = root.path().join(".claude/worktrees/agent-1/src");
+        std::fs::create_dir_all(&wt).unwrap();
+        std::fs::write(wt.join("lib.rs"), "fn agent() {}\n").unwrap();
+
+        let walk = walkdir::WalkDir::new(root.path())
+            .into_iter()
+            .filter_entry(f)
+            .filter_map(|e| e.ok());
+
+        let names: Vec<String> = walk
+            .filter(|e| e.file_type().is_file())
+            .map(|e| e.path().to_string_lossy().to_string())
+            .collect();
+
+        // The real source file is walked; files under hidden dirs are not.
+        assert!(names.iter().any(|p| p.ends_with("src/lib.rs")));
+        assert!(names.iter().all(|p| !p.contains("/.hidden/")), "{names:?}");
+        assert!(names.iter().all(|p| !p.contains("/.claude/")), "{names:?}");
+    }
 
     #[test]
     fn generated_config_round_trips_adapter_extensions() {
