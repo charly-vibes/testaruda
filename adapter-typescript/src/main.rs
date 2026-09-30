@@ -244,7 +244,8 @@ fn cmd_discover(_cmd: &serde_json::Value) -> serde_json::Value {
         .into_iter()
         .filter_entry(|e| {
             let name = e.file_name().to_string_lossy();
-            !EXCLUDED_DIRS.contains(&name.as_ref())
+            // Hidden dirs are agent/editor worktrees, not project source (testaruda-n338/zlyk)
+            (e.depth() == 0 || !name.starts_with('.')) && !EXCLUDED_DIRS.contains(&name.as_ref())
         })
         .filter_map(|e| e.ok())
     {
@@ -879,6 +880,38 @@ mod tests {
         let mut parser = Parser::new();
         parser.set_language(&ts_language()).unwrap();
         parser.parse(source, None).unwrap()
+    }
+
+    #[test]
+    fn discover_skips_hidden_dirs() {
+        with_cwd(|| {
+            // Project test file
+            std::fs::create_dir_all("src").unwrap();
+            std::fs::write("src/app.test.ts", "test('a', () => {});\n").unwrap();
+            // Agent worktree copy inside a hidden directory (testaruda-zlyk)
+            std::fs::create_dir_all(".claude/worktrees/agent-x/src").unwrap();
+            std::fs::write(
+                ".claude/worktrees/agent-x/src/app.test.ts",
+                "test('a', () => {});\n",
+            )
+            .unwrap();
+
+            let resp = super::cmd_discover(&serde_json::json!({}));
+            assert!(resp["ok"].as_bool().unwrap());
+            let items = resp["result"].as_array().unwrap();
+            let ids: Vec<String> = items
+                .iter()
+                .filter_map(|t| t["node_id"].as_str().map(String::from))
+                .collect();
+            assert!(
+                !ids.iter().any(|id| id.contains(".claude")),
+                "hidden dirs must not be indexed, got: {ids:?}"
+            );
+            assert!(
+                ids.iter().any(|id| id.contains("src/app.test.ts")),
+                "project test must still be discovered, got: {ids:?}"
+            );
+        });
     }
 
     #[test]

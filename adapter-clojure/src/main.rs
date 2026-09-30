@@ -157,6 +157,8 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
 
     for entry in walkdir::WalkDir::new(".")
         .into_iter()
+        // Hidden dirs are agent/editor worktrees, not project source (testaruda-n338/zlyk)
+        .filter_entry(|e| e.depth() == 0 || !e.file_name().to_string_lossy().starts_with('.'))
         .filter_map(|e| e.ok())
         .filter(|e| {
             let p = e.path().to_string_lossy();
@@ -316,6 +318,8 @@ fn cmd_discover() -> serde_json::Value {
 
     for entry in walkdir::WalkDir::new(".")
         .into_iter()
+        // Hidden dirs are agent/editor worktrees, not project source (testaruda-n338/zlyk)
+        .filter_entry(|e| e.depth() == 0 || !e.file_name().to_string_lossy().starts_with('.'))
         .filter_map(|e| e.ok())
         .filter(|e| {
             let p = e.path().to_string_lossy();
