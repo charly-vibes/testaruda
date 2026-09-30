@@ -57,7 +57,7 @@ jobs:
         env:
           DO_NOT_TRACK: "1"
         run: |
-          bd list >/dev/null
+          bd --version >/dev/null
           ddl status >/dev/null
           wai status >/dev/null
           openspec validate --all >/dev/null
