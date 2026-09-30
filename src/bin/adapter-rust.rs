@@ -75,6 +75,7 @@ fn cmd_discover() -> serde_json::Value {
 
     for entry in walkdir::WalkDir::new(".")
         .into_iter()
+        .filter_entry(|e| e.depth() == 0 || !e.file_name().to_string_lossy().starts_with('.'))
         .filter_map(|e| e.ok())
         .filter(|e| {
             let p = e.path().to_string_lossy();
@@ -252,6 +253,7 @@ fn discover_all_tests() -> Vec<serde_json::Value> {
 
     for entry in walkdir::WalkDir::new(".")
         .into_iter()
+        .filter_entry(|e| e.depth() == 0 || !e.file_name().to_string_lossy().starts_with('.'))
         .filter_map(|e| e.ok())
         .filter(|e| {
             let p = e.path().to_string_lossy();
