@@ -966,6 +966,9 @@ fn collect_selected_by_adapter(
     groups
 }
 
+/// How many stderr tail lines to print when a runner fails (testaruda-ylyl).
+const RUNNER_STDERR_TAIL_LINES: usize = 5;
+
 /// Borrowed view for the CI test-running phase of `select`.
 struct CiRunCtx<'a> {
     store: &'a Store,
@@ -1096,7 +1099,29 @@ fn run_adapter_group(
     if output.status.success() {
         return Ok(None);
     }
+    // Surface the tail of the runner's stderr so the failure is actionable
+    // (testaruda-ylyl): "exit code 101" alone hid julia's
+    // "Package Aqua not found in current path" remediation line.
+    let tail = stderr_tail(&output.stderr, RUNNER_STDERR_TAIL_LINES);
+    if !tail.is_empty() {
+        eprintln!("  ❌  CI: runner stderr (last {RUNNER_STDERR_TAIL_LINES} lines):\n{tail}");
+    }
     Ok(Some(output.status.code().unwrap_or(1)))
+}
+
+/// Last lines of a runner's stderr, for failure diagnosis (testaruda-ylyl).
+///
+/// The runner's output is already forwarded to the adapter for ingest, but a
+/// failed run previously printed only "test runner failed with exit code N" —
+/// the operator had no way to see WHY (e.g. julia's "Package Aqua not found
+/// in current path" from un-instantiated `[extras]` test deps). Returns the
+/// final `max_lines` non-empty stderr lines, verbatim, as a single string
+/// (empty when the runner wrote nothing to stderr).
+fn stderr_tail(stderr: &[u8], max_lines: usize) -> String {
+    let text = String::from_utf8_lossy(stderr);
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    let start = lines.len().saturating_sub(max_lines);
+    lines[start..].join("\n")
 }
 
 /// Combine a test runner's stdout/stderr into a single string for adapter ingest.
@@ -1538,6 +1563,44 @@ pub fn completions(shell: clap_complete::Shell) -> miette::Result<()> {
 mod tests {
     use super::*;
     use testaruda::adapter::TestItem;
+
+    /// A failed runner's stderr tail must surface its remediation lines
+    /// (testaruda-ylyl): julia's
+    ///
+    ///   "Package Aqua not found in current path.
+    ///   - Run `import Pkg; Pkg.add("Aqua")` to install the Aqua package."
+    ///
+    /// was previously invisible behind "test runner failed with exit code 1".
+    #[test]
+    fn stderr_tail_returns_last_nonempty_lines() {
+        let stderr = b"WARNING: dep
+Package Aqua not found in current path.
+- Run `import Pkg; Pkg.add(\"Aqua\")` to install the Aqua package.
+Stacktrace:
+ [1] require
+";
+        let tail = stderr_tail(stderr, 5);
+        assert!(tail.contains("Package Aqua not found"), "{tail}");
+        assert!(tail.contains("Pkg.add"), "{tail}");
+        assert!(tail.ends_with(" [1] require"), "{tail}");
+        assert_eq!(tail.lines().count(), 5, "capped at max_lines: {tail}");
+    }
+
+    #[test]
+    fn stderr_tail_handles_empty_and_whitespace_only_stderr() {
+        assert_eq!(stderr_tail(b"", 5), "");
+        assert_eq!(stderr_tail(b"\n\n  \n", 5), "");
+    }
+
+    #[test]
+    fn stderr_tail_returns_all_lines_when_under_cap() {
+        let tail = stderr_tail(
+            b"line one
+line two",
+            5,
+        );
+        assert_eq!(tail, "line one\nline two");
+    }
 
     /// Polyglot selections must group by the adapter that discovered each
     /// test item (testaruda-kkno): run_ci_tests used to resolve ONE adapter
