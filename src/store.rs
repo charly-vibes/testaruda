@@ -1973,26 +1973,31 @@ impl Store {
         if let Ok(id) = self.lookup_test_item_id(runner_test_id) {
             return Some(id);
         }
-        let path_variant = format!("src::{}(Test)", runner_test_id);
-        if let Ok(id) = self.lookup_test_item_id(&path_variant) {
+        // File-granular adapters (adapter-python) report runner ids as "<file>::<test>" — resolve to the file item when the prefix is a path (has a dot), not a Rust module (l0ts).
+        if let Some((file, rest)) = runner_test_id.split_once("::") {
+            if !rest.is_empty() && file.contains('.') {
+                if let Ok(id) = self.lookup_test_item_id(file) {
+                    return Some(id);
+                }
+            }
+        }
+        if let Ok(id) = self.lookup_test_item_id(&format!("src::{}(Test)", runner_test_id)) {
             return Some(id);
         }
-        let fn_name = runner_test_id.rsplit("::").next()?;
-        if fn_name.is_empty() {
-            return None;
-        }
-        // Escape LIKE wildcards so `_` matches a literal underscore, not any
-        // single character (testaruda-a6gw).
+        let fn_name = runner_test_id
+            .rsplit("::")
+            .next()
+            .filter(|f| !f.is_empty())?;
+        // Escape LIKE wildcards so `_` matches a literal underscore, not any single character (testaruda-a6gw).
         let escaped = fn_name
             .replace('\\', "\\\\")
             .replace('%', "\\%")
             .replace('_', "\\_");
         let pattern = format!("%::{}(Test)", escaped);
-        let mut stmt = self
+        let ids: Vec<u32> = self
             .conn
             .prepare("SELECT id FROM test_items WHERE node_id LIKE ?1 ESCAPE '\\'")
-            .ok()?;
-        let ids: Vec<u32> = stmt
+            .ok()?
             .query_map(rusqlite::params![pattern], |row| row.get(0))
             .ok()?
             .filter_map(|r| r.ok())
