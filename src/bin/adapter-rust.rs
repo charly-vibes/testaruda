@@ -550,6 +550,7 @@ fn parse_cargo_test_output(run_output: &str) -> Option<Vec<serde_json::Value>> {
             let test_name = trimmed
                 .strip_prefix("test ")
                 .and_then(|s| s.strip_suffix(" ok"))
+                .map(|s| s.trim().strip_suffix(" ...").unwrap_or(s.trim()))
                 .map(|s| s.trim().to_string())
                 .unwrap_or_default();
             if !test_name.is_empty() {
@@ -562,6 +563,7 @@ fn parse_cargo_test_output(run_output: &str) -> Option<Vec<serde_json::Value>> {
             let test_name = trimmed
                 .strip_prefix("test ")
                 .and_then(|s| s.strip_suffix(" FAILED"))
+                .map(|s| s.trim().strip_suffix(" ...").unwrap_or(s.trim()))
                 .map(|s| s.trim().to_string())
                 .unwrap_or_default();
             if !test_name.is_empty() {

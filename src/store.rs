@@ -1962,6 +1962,37 @@ impl Store {
             .map_err(|e| miette::miette!("Failed to look up test item '{}': {}", node_id, e))
     }
 
+    /// Resolve a runner-reported test id (e.g. cargo's `tests::foo`) to a test
+    /// item id. Adapters discover tests with file-derived node_ids
+    /// (`src::lib::foo(Test)`) that never equal the runner's path form, so an
+    /// exact match alone would silently drop every per-test result
+    /// (testaruda-1m3i). Falls back to a unique match on the trailing
+    /// `::fn_name(Test)` segment; ambiguous or missing names are not resolved.
+    pub fn resolve_test_item_id(&self, runner_test_id: &str) -> Option<u32> {
+        if let Ok(id) = self.lookup_test_item_id(runner_test_id) {
+            return Some(id);
+        }
+        let fn_name = runner_test_id.rsplit("::").next()?;
+        if fn_name.is_empty() {
+            return None;
+        }
+        let pattern = format!("%::{}(Test)", fn_name);
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM test_items WHERE node_id LIKE ?1")
+            .ok()?;
+        let ids: Vec<u32> = stmt
+            .query_map(rusqlite::params![pattern], |row| row.get(0))
+            .ok()?
+            .filter_map(|r| r.ok())
+            .collect();
+        if ids.len() == 1 {
+            ids.into_iter().next()
+        } else {
+            None
+        }
+    }
+
     /// Look up a content unit ID by component and path.
     pub fn lookup_content_unit(
         &self,
@@ -2552,6 +2583,45 @@ mod tests {
     #[test]
     fn test_schema_constant_is_positive() {
         assert!(SCHEMA_VERSION > 0, "schema version must be positive");
+    }
+
+    #[test]
+    fn resolve_test_item_id_matches_runner_paths_tolerantly() {
+        let project = tempfile::tempdir().unwrap();
+        let store = Store::open(project.path().to_path_buf()).unwrap();
+        store.initialize().unwrap();
+        store
+            .conn()
+            .execute(
+                "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'src::lib::always_passes(Test)')",
+                [],
+            )
+            .unwrap();
+        let expected: u32 = store
+            .conn()
+            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
+            .unwrap();
+
+        // Exact node_id match.
+        assert_eq!(
+            store.resolve_test_item_id("src::lib::always_passes(Test)"),
+            Some(expected)
+        );
+        // Runner form (cargo): no file prefix, no (Test) suffix.
+        assert_eq!(
+            store.resolve_test_item_id("tests::always_passes"),
+            Some(expected)
+        );
+        // Unknown and ambiguous names stay unresolved.
+        assert_eq!(store.resolve_test_item_id("nope::missing"), None);
+        store
+            .conn()
+            .execute(
+                "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'src::other::always_passes(Test)')",
+                [],
+            )
+            .unwrap();
+        assert_eq!(store.resolve_test_item_id("tests::always_passes"), None);
     }
 
     #[test]

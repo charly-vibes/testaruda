@@ -240,3 +240,105 @@ fn exec_warns_when_store_is_uncalibrated() {
         stderr
     );
 }
+
+/// `testaruda exec` on a cold (uncalibrated) store with a degenerate selection
+/// (outcome 10, full-run) must STILL run the selected tests and ingest the
+/// results — before the fix, the emitter's exit-on-outcome fired before the
+/// CI run, so run_history stayed empty forever and calibration was
+/// unreachable (testaruda-1m3i, found in the dulce-de-leche value-prop round).
+#[test]
+fn exec_on_cold_store_runs_tests_and_ingests() {
+    let project = tempfile::tempdir().expect("tempdir");
+    let dir = project.path();
+
+    // Minimal Rust crate with one test, committed to git.
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(dir)
+        .output()
+        .expect("git init");
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        r#"[package]
+name = "exec-fixture"
+version = "0.1.0"
+edition = "2021"
+"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::write(
+        dir.join("src/lib.rs"),
+        "#[cfg(test)]\nmod tests {\n    #[test]\n    fn always_passes() {\n        assert!(true);\n    }\n}\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("README.md"), "hello\n").unwrap();
+    let git_steps: &[&[&str]] = &[
+        &["add", "-A"],
+        &[
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-qm",
+            "init",
+        ],
+    ];
+    for args in git_steps {
+        std::process::Command::new("git")
+            .args(*args)
+            .current_dir(dir)
+            .output()
+            .expect("git");
+    }
+
+    // Touch a non-source file so the changed set resolves no edges →
+    // degenerate full-run outcome (exit 10) on the cold store.
+    std::fs::write(dir.join("README.md"), "changed\n").unwrap();
+    std::process::Command::new("git")
+        .args([
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-aqm",
+            "docs",
+        ])
+        .current_dir(dir)
+        .output()
+        .expect("git commit");
+
+    std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
+        .args(["init"])
+        .current_dir(dir)
+        .output()
+        .expect("testaruda init");
+
+    // Prepend the freshly-built binary dir so the engine's adapter spawn
+    // (testaruda-adapter-rust) resolves to current code, not a stale installed
+    // binary (testaruda-wpil gotcha).
+    let target_debug = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/debug");
+    let path_var = std::env::var("PATH").unwrap_or_default();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
+        .args(["exec", "--base", "HEAD~1", "--head", "HEAD"])
+        .current_dir(dir)
+        .env("PATH", format!("{}:{}", target_debug.display(), path_var))
+        .output()
+        .expect("run testaruda exec");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("running tests") && stderr.contains("ingesting"),
+        "exec must run and ingest even on a degenerate selection\nstderr: {}",
+        stderr
+    );
+
+    // The feedback loop must actually close: run history non-empty.
+    let store = testaruda::Store::open(dir.join(".testaruda")).expect("open store");
+    assert!(
+        !store.run_history_is_empty().expect("run history check"),
+        "exec must ingest run results — run_history is empty"
+    );
+}
