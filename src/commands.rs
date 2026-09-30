@@ -937,13 +937,33 @@ fn build_changed_units(
 
 /// Collect node IDs for the given tests (skips any that fail lookup).
 fn collect_test_node_ids(store: &Store, tests: &[SelectedTest]) -> Vec<String> {
-    let mut ids = Vec::new();
+    collect_selected_by_adapter(store, tests)
+        .into_iter()
+        .flat_map(|(_, ids)| ids)
+        .collect()
+}
+
+/// Group selected test node_ids by the adapter that discovered them.
+///
+/// Keys are handshake names as stored in test_items.adapter (e.g.
+/// "python-adapter"); groups preserve first-seen order. Stale ids (item no
+/// longer in the store) are skipped, matching collect_test_node_ids.
+fn collect_selected_by_adapter(
+    store: &Store,
+    tests: &[SelectedTest],
+) -> Vec<(String, Vec<String>)> {
+    let mut groups: Vec<(String, Vec<String>)> = Vec::new();
     for t in tests {
-        if let Ok(node_id) = store.get_test_node_id(t.id) {
-            ids.push(node_id);
+        let Ok((node_id, adapter)) = store.get_test_identity(t.id) else {
+            continue;
+        };
+        if let Some(group) = groups.iter_mut().find(|(a, _)| *a == adapter) {
+            group.1.push(node_id);
+        } else {
+            groups.push((adapter, vec![node_id]));
         }
     }
-    ids
+    groups
 }
 
 /// Borrowed view for the CI test-running phase of `select`.
@@ -954,41 +974,108 @@ struct CiRunCtx<'a> {
     exit_code: i32,
 }
 
-/// CI mode (TIA-CI-008): run selected tests via the adapter and ingest results.
+/// CI mode (TIA-CI-008): run selected tests via the adapters and ingest results.
+///
+/// The selection is grouped by discovering adapter (testaruda-kkno): a
+/// polyglot repo runs one runner per adapter group. Resolving a single
+/// adapter from selected[0] sent every group's ids to it — pytest received
+/// .ts paths, exited 4, ingested nothing, and the store stayed cold forever.
 fn run_ci_tests(ctx: &CiRunCtx) -> miette::Result<()> {
-    let selected_files = collect_test_node_ids(ctx.store, &ctx.selection.tests);
-    if selected_files.is_empty() {
+    let groups = collect_selected_by_adapter(ctx.store, &ctx.selection.tests);
+    if groups.is_empty() {
         return Ok(());
     }
 
-    // Find the adapter for the first test file
-    let adapter_binary = ctx
-        .registry
-        .resolve(&selected_files[0])
-        .or_else(|| ctx.registry.default_binary())
-        .unwrap_or("testaruda-adapter-python");
+    // Map handshake names (test_items.adapter) to binaries by spawning each
+    // distinct registry binary once and reading its handshake name. There is
+    // no static name→binary mapping: the handshake is the source of truth.
+    let mut binaries: Vec<&str> = ctx.registry.extensions().map(|(_, b)| b).collect();
+    if let Some(default) = ctx.registry.default_binary() {
+        if !binaries.contains(&default) {
+            binaries.push(default);
+        }
+    }
+    let mut known_adapters: Vec<(String, &str)> = Vec::new();
+    for binary in &binaries {
+        match spawn_adapter(binary, None) {
+            Ok(adapter) => {
+                known_adapters.push((adapter.name.clone(), binary));
+            }
+            Err(e) => {
+                eprintln!("⚠️  CI: failed to spawn adapter {}: {}", binary, e);
+            }
+        }
+    }
 
+    // Run each adapter group's runner and ingest its results. Every group is
+    // processed before exiting so a failing runner doesn't starve the other
+    // groups' run history (the ingest-before-exit contract, TIA-CI-008).
+    let mut first_failure: Option<i32> = None;
+    let mut spawned_all = true;
+    for (adapter_name, node_ids) in &groups {
+        let Some(binary) = known_adapters
+            .iter()
+            .find(|(name, _)| name == adapter_name)
+            .map(|(_, b)| *b)
+        else {
+            eprintln!(
+                "⚠️  CI: no adapter binary answers to handshake name '{}' — skipping {} test(s)",
+                adapter_name,
+                node_ids.len()
+            );
+            spawned_all = false;
+            continue;
+        };
+        match run_adapter_group(ctx, binary, node_ids)? {
+            Some(code) => {
+                if first_failure.is_none() {
+                    first_failure = Some(code);
+                }
+            }
+            None => spawned_all = false,
+        }
+    }
+
+    // Exit with the first failing runner code (ingests already happened);
+    // spawn failures fall back to the selection outcome code as before.
+    if let Some(code) = first_failure {
+        eprintln!("  ❌  CI: test runner failed with exit code {}", code);
+        std::process::exit(code);
+    }
+    if !spawned_all && ctx.exit_code != 0 {
+        std::process::exit(ctx.exit_code);
+    }
+
+    Ok(())
+}
+
+/// Run one adapter group's runner and ingest its results.
+///
+/// Returns Some(exit_code) when the runner ran and failed, None when the
+/// group could not run (spawn/run-args failure — no results to ingest).
+fn run_adapter_group(
+    ctx: &CiRunCtx,
+    adapter_binary: &str,
+    node_ids: &[String],
+) -> miette::Result<Option<i32>> {
     let mut adapter = match spawn_adapter(adapter_binary, None) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("⚠️  CI: failed to spawn adapter {}: {}", adapter_binary, e);
-            if ctx.exit_code != 0 {
-                std::process::exit(ctx.exit_code);
-            }
-            return Ok(());
+            return Ok(None);
         }
     };
 
     // Get runner args from the adapter
-    let run_args_result = match adapter.run_args(&selected_files) {
+    let run_args_result = match adapter.run_args(node_ids) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("⚠️  CI: failed to get run args: {}", e);
-            return Ok(());
+            return Ok(None);
         }
     };
 
-    eprintln!("  🏃 CI: running tests...");
+    eprintln!("  🏃 CI: running tests via {}...", adapter_binary);
     let output = match std::process::Command::new(&run_args_result.runner_args[0])
         .args(&run_args_result.runner_args[1..])
         .output()
@@ -996,29 +1083,20 @@ fn run_ci_tests(ctx: &CiRunCtx) -> miette::Result<()> {
         Ok(o) => o,
         Err(e) => {
             eprintln!("⚠️  CI: failed to run tests: {}", e);
-            return Ok(());
+            return Ok(None);
         }
     };
 
-    // Capture exit code, ingest FIRST, then exit with captured code.
-    // This preserves the feedback loop: failed runs are recorded (TIA-CI-008).
-    let test_runner_ok = output.status.success();
-    let test_runner_code = output.status.code().unwrap_or(1);
+    // Ingest FIRST, then report the exit code. This preserves the feedback
+    // loop: failed runs are recorded (TIA-CI-008).
     let combined = combine_output(&output.stdout, &output.stderr);
-
     eprintln!("  📥 CI: ingesting results...");
     ingest_ci_results(&mut adapter, ctx.store, &combined)?;
 
-    // Exit with test runner code AFTER ingest preserves history
-    if !test_runner_ok {
-        eprintln!(
-            "  ❌  CI: test runner failed with exit code {}",
-            test_runner_code
-        );
-        std::process::exit(test_runner_code);
+    if output.status.success() {
+        return Ok(None);
     }
-
-    Ok(())
+    Ok(Some(output.status.code().unwrap_or(1)))
 }
 
 /// Combine a test runner's stdout/stderr into a single string for adapter ingest.
@@ -1454,4 +1532,131 @@ pub fn completions(shell: clap_complete::Shell) -> miette::Result<()> {
     genesis::cli::generate_completions(&mut cmd, shell)
         .map_err(|e| miette::miette!("Failed to generate completions: {}", e))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use testaruda::adapter::TestItem;
+
+    /// Polyglot selections must group by the adapter that discovered each
+    /// test item (testaruda-kkno): run_ci_tests used to resolve ONE adapter
+    /// from selected[0] and send every group's ids to it — pytest received
+    /// .ts paths, exited 4, ingested 0 results, and the store stayed cold.
+    #[test]
+    fn group_selected_by_adapter_separates_adapters() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let py_items: Vec<TestItem> = (0..3)
+            .map(|i| TestItem {
+                node_id: format!("tests/test_py_{i}.py::test_{i}"),
+                suite_kind: "unit".into(),
+                file: format!("tests/test_py_{i}.py"),
+            })
+            .collect();
+        let ts_items: Vec<TestItem> = (0..2)
+            .map(|i| TestItem {
+                node_id: format!("src/t{i}.test.ts::t{i} test"),
+                suite_kind: "unit".into(),
+                file: format!("src/t{i}.test.ts"),
+            })
+            .collect();
+        store.store_test_items("python-adapter", &py_items).unwrap();
+        store
+            .store_test_items("typescript-adapter", &ts_items)
+            .unwrap();
+
+        // SelectedTest ids: look up inserted ids in insertion order.
+        let ids_for = |adapter: &str, n: usize| -> Vec<SelectedTest> {
+            let mut stmt = store
+                .conn()
+                .prepare("SELECT id FROM test_items WHERE adapter = ?1 ORDER BY id")
+                .unwrap();
+            let ids: Vec<u32> = stmt
+                .query_map([adapter], |r| r.get(0))
+                .unwrap()
+                .map_while(Result::ok)
+                .take(n)
+                .collect();
+            ids.into_iter()
+                .map(|id| SelectedTest {
+                    id,
+                    confidence: 1.0,
+                    distance: None,
+                    witness: None,
+                    quarantined: false,
+                })
+                .collect()
+        };
+        let mut tests = ids_for("typescript-adapter", 2);
+        tests.extend(ids_for("python-adapter", 3));
+
+        let groups = collect_selected_by_adapter(&store, &tests);
+
+        assert_eq!(groups.len(), 2, "two adapters → two groups: {groups:?}");
+        let ts = groups
+            .iter()
+            .find(|(a, _)| a == "typescript-adapter")
+            .expect("typescript group");
+        let py = groups
+            .iter()
+            .find(|(a, _)| a == "python-adapter")
+            .expect("python group");
+        assert_eq!(ts.1.len(), 2, "all 163-style ts ids in one group");
+        assert_eq!(py.1.len(), 3, "all python ids in one group");
+        assert!(
+            ts.1.iter().all(|id| id.contains(".ts")),
+            "ts group only has ts ids: {:?}",
+            ts.1
+        );
+        assert!(
+            py.1.iter().all(|id| id.contains(".py")),
+            "py group only has py ids: {:?}",
+            py.1
+        );
+    }
+
+    /// A selected id that no longer resolves (deleted item) must not break
+    /// grouping — it's skipped, matching collect_test_node_ids behavior.
+    #[test]
+    fn group_selected_by_adapter_skips_unresolved_ids() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+
+        let items = vec![TestItem {
+            node_id: "tests/test_a.py::test_a".into(),
+            suite_kind: "unit".into(),
+            file: "tests/test_a.py".into(),
+        }];
+        store.store_test_items("python-adapter", &items).unwrap();
+        let id: u32 = store
+            .conn()
+            .query_row("SELECT id FROM test_items", [], |r| r.get(0))
+            .unwrap();
+
+        let tests = vec![
+            SelectedTest {
+                id,
+                confidence: 1.0,
+                distance: None,
+                witness: None,
+                quarantined: false,
+            },
+            SelectedTest {
+                id: 999_999,
+                confidence: 1.0,
+                distance: None,
+                witness: None,
+                quarantined: false,
+            },
+        ];
+
+        let groups = collect_selected_by_adapter(&store, &tests);
+        assert_eq!(groups.len(), 1, "stale id skipped: {groups:?}");
+        assert_eq!(groups[0].0, "python-adapter");
+        assert_eq!(groups[0].1, vec!["tests/test_a.py::test_a".to_string()]);
+    }
 }
