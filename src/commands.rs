@@ -594,6 +594,11 @@ pub fn select(args: SelectArgs) -> miette::Result<()> {
         reason = %outcome.reason(),
     );
 
+    // CI mode (TIA-CI-008): run selected tests and ingest results. On runner
+    // failure run_ci_tests exits with the runner's code after ingesting; on
+    // success we fall through and preserve the selection outcome code (10/20)
+    // for the CI contract (testaruda-ls4t) — the run has already happened.
+    let effective_ci = args.ci || args.safe;
     let state = SelectState {
         store: &store,
         selection: &selection,
@@ -605,11 +610,10 @@ pub fn select(args: SelectArgs) -> miette::Result<()> {
         agent: args.agent,
         pre_edit: args.pre_edit,
         safe: args.safe,
+        defer_exit: effective_ci && !selection.tests.is_empty(),
     };
     emit_select_output(&state)?;
 
-    // CI mode (TIA-CI-008): run selected tests and ingest results
-    let effective_ci = args.ci || args.safe;
     if effective_ci && !selection.tests.is_empty() {
         run_ci_tests(&CiRunCtx {
             store: &store,
@@ -617,6 +621,12 @@ pub fn select(args: SelectArgs) -> miette::Result<()> {
             selection: &selection,
             exit_code: outcome.exit_code(),
         })?;
+        if !args.safe {
+            let code = outcome.exit_code();
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
     }
 
     Ok(())
@@ -634,6 +644,10 @@ struct SelectState<'a> {
     agent: bool,
     pre_edit: bool,
     safe: bool,
+    /// CI mode defers the emitter's exit-on-outcome so the selected tests can
+    /// run and ingest first (testaruda-1m3i): a degenerate selection (10/20)
+    /// on a cold store must not abort the select→run→ingest→calibrate loop.
+    defer_exit: bool,
 }
 
 /// `--safe` pre-flight: verify the project is initialized; otherwise fall back
@@ -672,29 +686,48 @@ fn emit_select_output(state: &SelectState) -> miette::Result<()> {
         agent,
         pre_edit,
         safe,
+        defer_exit,
     } = state;
 
     if *agent {
-        emit_agent_output(store, selection, outcome, changed_ids, unresolved_ids)?;
+        emit_agent_output(
+            store,
+            selection,
+            outcome,
+            changed_ids,
+            unresolved_ids,
+            *defer_exit,
+        )?;
     } else if *pre_edit {
-        emit_pre_edit(store, selection, outcome, changed_ids, unresolved_ids)?;
+        emit_pre_edit(
+            store,
+            selection,
+            outcome,
+            changed_ids,
+            unresolved_ids,
+            *defer_exit,
+        )?;
     } else {
         // Use global CliFormat for Human vs Json dispatch (genesis v0.4.0)
         match format.format() {
-            OutputFormat::Json => emit_json_plan(selection, outcome, *shadow)?,
-            OutputFormat::Human => emit_human_output(selection, outcome, *shadow, *safe)?,
+            OutputFormat::Json => emit_json_plan(selection, outcome, *shadow, *defer_exit)?,
+            OutputFormat::Human => {
+                emit_human_output(selection, outcome, *shadow, *safe, *defer_exit)?
+            }
         }
     }
     Ok(())
 }
 
 /// Agent output format (TIA-AGENT-001).
+#[allow(clippy::too_many_arguments)]
 fn emit_agent_output(
     store: &Store,
     selection: &Selection,
     outcome: &CiOutcome,
     changed_ids: &[u32],
     unresolved_ids: &[u32],
+    defer_exit: bool,
 ) -> miette::Result<()> {
     let changed_units = build_changed_units(store, changed_ids, unresolved_ids);
 
@@ -730,14 +763,19 @@ fn emit_agent_output(
     use std::io::Write;
     std::io::stdout().flush().ok();
     let code = outcome.exit_code();
-    if code != 0 {
+    if code != 0 && !defer_exit {
         std::process::exit(code);
     }
     Ok(())
 }
 
 /// Machine-readable JSON plan (TIA-CI-006) via genesis envelope.
-fn emit_json_plan(selection: &Selection, outcome: &CiOutcome, shadow: bool) -> miette::Result<()> {
+fn emit_json_plan(
+    selection: &Selection,
+    outcome: &CiOutcome,
+    shadow: bool,
+    defer_exit: bool,
+) -> miette::Result<()> {
     let plan = CiPlan {
         shadow_mode: shadow,
         exit_code: outcome.exit_code(),
@@ -764,19 +802,21 @@ fn emit_json_plan(selection: &Selection, outcome: &CiOutcome, shadow: bool) -> m
     use std::io::Write;
     std::io::stdout().flush().ok();
     let code = outcome.exit_code();
-    if code != 0 {
+    if code != 0 && !defer_exit {
         std::process::exit(code);
     }
     Ok(())
 }
 
 /// Pre-edit blast radius (TIA-AGENT-005): structured JSON output.
+#[allow(clippy::too_many_arguments)]
 fn emit_pre_edit(
     store: &Store,
     selection: &Selection,
     outcome: &CiOutcome,
     changed_ids: &[u32],
     unresolved_ids: &[u32],
+    defer_exit: bool,
 ) -> miette::Result<()> {
     let mut changed_files = Vec::new();
     for &cu_id in changed_ids {
@@ -816,7 +856,7 @@ fn emit_pre_edit(
     use std::io::Write;
     std::io::stdout().flush().ok();
     let code = outcome.exit_code();
-    if code != 0 {
+    if code != 0 && !defer_exit {
         std::process::exit(code);
     }
     Ok(())
@@ -828,6 +868,7 @@ fn emit_human_output(
     outcome: &CiOutcome,
     shadow: bool,
     safe: bool,
+    defer_exit: bool,
 ) -> miette::Result<()> {
     let reason_note = outcome.reason();
     if shadow {
@@ -855,7 +896,9 @@ fn emit_human_output(
             eprintln!("  \u{2705}  No tests affected by this change — skipping");
             std::process::exit(0);
         }
-        std::process::exit(code);
+        if !defer_exit {
+            std::process::exit(code);
+        }
     }
     Ok(())
 }
@@ -1002,16 +1045,34 @@ fn ingest_ci_results(
                 let _ = store.store_static_deps(&adapter.name, &ingest_result.runtime_edges);
             }
 
-            // Convert per-test results to store format
+            // Convert per-test results to store format. Runner ids (cargo's
+            // `tests::foo`) never equal file-derived node_ids, so resolve
+            // tolerantly; report unmatched ids instead of silently dropping
+            // them (testaruda-1m3i).
             let mut store_tests = Vec::new();
+            let mut unmatched: Vec<&str> = Vec::new();
             for test in &ingest_result.per_test_results {
-                if let Ok(tid) = store.lookup_test_item_id(&test.test_id) {
+                if let Some(tid) = store.resolve_test_item_id(&test.test_id) {
                     store_tests.push(serde_json::json!({
                         "id": tid,
                         "outcome": test.outcome,
                         "duration_ms": test.duration_ms,
                     }));
+                } else {
+                    unmatched.push(&test.test_id);
                 }
+            }
+            if !unmatched.is_empty() {
+                eprintln!(
+                    "  ⚠️  CI: {} run result(s) matched no known test item: {}",
+                    unmatched.len(),
+                    unmatched
+                        .iter()
+                        .take(5)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
             }
 
             let ci_run_id = store.generate_run_id()?;
@@ -1023,10 +1084,7 @@ fn ingest_ci_results(
             if let Err(e) = store.ingest(&payload) {
                 eprintln!("  ⚠️  CI: ingest failed: {}", e);
             } else {
-                eprintln!(
-                    "  ✅ CI: ingested {} test results",
-                    ingest_result.per_test_results.len()
-                );
+                eprintln!("  ✅ CI: ingested {} test results", store_tests.len());
             }
         }
         Err(e) => {
