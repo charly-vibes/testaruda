@@ -4,6 +4,7 @@
 //! Protocol: single JSON line → single JSON line response.
 
 use std::io::{BufRead, BufReader, Write};
+use std::path::Path;
 
 fn main() {
     let stdin = std::io::stdin();
@@ -548,6 +549,26 @@ fn cmd_fingerprint(cmd: &serde_json::Value) -> serde_json::Value {
     serde_json::json!({"ok": true, "fingerprints": fingerprints})
 }
 
+/// Resolve the runner prefix from the project-local virtualenv, if any
+/// (testaruda-n3wn). Prefers `<venv>/bin/pytest`, then `<venv>/bin/python -m`
+/// pytest; returns None when no project venv exists (global pytest fallback).
+fn resolve_runner_prefix(base: &Path) -> Option<Vec<String>> {
+    for venv_dir in [".venv", "venv"] {
+        let bin = base.join(venv_dir).join("bin");
+        if bin.join("pytest").exists() {
+            return Some(vec![format!("{venv_dir}/bin/pytest")]);
+        }
+        if bin.join("python").exists() {
+            return Some(vec![
+                format!("{venv_dir}/bin/python"),
+                "-m".to_string(),
+                "pytest".to_string(),
+            ]);
+        }
+    }
+    None
+}
+
 /// Run-args: return native runner arguments for the selected test set (TIA-ADAPT-007).
 /// Does NOT execute the tests.
 fn cmd_run_args(cmd: &serde_json::Value) -> serde_json::Value {
@@ -564,8 +585,13 @@ fn cmd_run_args(cmd: &serde_json::Value) -> serde_json::Value {
         return json_err("no tests selected");
     }
 
-    // Build pytest args: pass selected test file paths directly
-    let runner_args: Vec<String> = std::iter::once("pytest".to_string())
+    // Build pytest args: pass selected test file paths directly.
+    // Runner resolved from the project-local venv when present (testaruda-n3wn):
+    // global pytest fails collection on venv-only dependencies.
+    let runner_prefix =
+        resolve_runner_prefix(Path::new(".")).unwrap_or_else(|| vec!["pytest".to_string()]);
+    let runner_args: Vec<String> = runner_prefix
+        .into_iter()
         .chain(selected.iter().cloned())
         .chain(std::iter::once("-v".to_string()))
         .chain(std::iter::once(
@@ -1401,6 +1427,94 @@ traceback line 2
             per_test[0]["test_id"].as_str().unwrap(),
             "tests/test_model.py::test_something"
         );
+    }
+
+    #[test]
+    fn test_cmd_run_args_uses_venv_pytest_when_present() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join(".venv").join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(bin.join("pytest"), "#!/bin/sh\n").unwrap();
+
+        let result = with_cwd(dir.path(), || {
+            cmd_run_args(&serde_json::json!({"params": {"selected": ["tests/test_a.py"]}}))
+        });
+
+        assert!(result["ok"].as_bool().unwrap());
+        let args: Vec<String> = result["result"]["runner_args"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(
+            args[0], ".venv/bin/pytest",
+            "project-local venv pytest must win over global pytest"
+        );
+    }
+
+    #[test]
+    fn test_cmd_run_args_uses_venv_python_m_pytest_fallback() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join(".venv").join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(bin.join("python"), "#!/bin/sh\n").unwrap();
+
+        let result = with_cwd(dir.path(), || {
+            cmd_run_args(&serde_json::json!({"params": {"selected": ["tests/test_a.py"]}}))
+        });
+
+        assert!(result["ok"].as_bool().unwrap());
+        let args: Vec<String> = result["result"]["runner_args"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(
+            &args[..2],
+            &[".venv/bin/python".to_string(), "-m".to_string()],
+            "venv without bin/pytest should run via python -m pytest"
+        );
+    }
+
+    #[test]
+    fn test_cmd_run_args_recognizes_venv_without_dot_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("venv").join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(bin.join("pytest"), "#!/bin/sh\n").unwrap();
+
+        let result = with_cwd(dir.path(), || {
+            cmd_run_args(&serde_json::json!({"params": {"selected": ["tests/test_a.py"]}}))
+        });
+
+        assert!(result["ok"].as_bool().unwrap());
+        let args: Vec<String> = result["result"]["runner_args"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(args[0], "venv/bin/pytest");
+    }
+
+    #[test]
+    fn test_cmd_run_args_falls_back_to_global_without_venv() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let result = with_cwd(dir.path(), || {
+            cmd_run_args(&serde_json::json!({"params": {"selected": ["tests/test_a.py"]}}))
+        });
+
+        assert!(result["ok"].as_bool().unwrap());
+        let args: Vec<String> = result["result"]["runner_args"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(args[0], "pytest", "no venv: global pytest is the fallback");
     }
 
     #[test]
