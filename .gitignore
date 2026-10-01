@@ -45,3 +45,5 @@ Thumbs.db
 tracefile.info
 .vscode/
 docs/src/specs/
+# §6: generated from Cargo.toml by docs.yml — never committed
+docs/src/release.md

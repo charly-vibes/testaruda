@@ -1,6 +1,7 @@
 # Summary
 
 [testaruda](./index.md)
+[Release Status](./release.md)
 
 - [Getting Started](./getting-started.md)
 - [Architecture](./architecture.md)
