@@ -7,7 +7,7 @@
 # §4 matrix row (testaruda): pretender ✅ · wai ✅ · bd ✅ · openspec ✅ · ddl ✅
 [tools]
 wai = "2026.9.28"          # crates.io: wai-cli
-pretender = "0.6.0"        # crates.io — installed pinned in ci.yml
+pretender = "0.7.0"        # crates.io — 0.7.0: gate-by-default + advisory lease TTL (pretender-1te)
 espectacular = "0.8.0"     # crates.io — installed pinned in ci.yml
 dont = "0.2.2"             # crates.io: dont-cli — matches current ci.yml pin
 dulce-de-leche = "0.7.0"   # crates.io (bin: ddl)

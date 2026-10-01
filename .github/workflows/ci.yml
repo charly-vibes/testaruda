@@ -41,7 +41,7 @@ jobs:
         # `dont-cli` provides the `dont` binary (epistemic gate, check-claims);
         # bump versions together with local installs. See also: `ah doctor`.
         run: |
-          cargo install --locked pretender@0.6.0 espectacular@0.8.0 dont-cli@0.2.2 wai-cli@2026.9.28
+          cargo install --locked pretender@0.7.0 espectacular@0.8.0 dont-cli@0.2.2 wai-cli@2026.9.28
 
       - name: Install ecosystem tools (§4 dogfood matrix, pinned)
         run: |
