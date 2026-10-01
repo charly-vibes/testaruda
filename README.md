@@ -10,8 +10,7 @@
 > agents (and humans) either run everything (slow) or guess (flaky).
 > testaruda derives the minimal test set from what actually changed,
 > language-agnostically, via adapters.
-> **Status:** [beta](docs/src/status.md) · select/doctor/explain shipped, five adapters · [Motivation & design](docs/src/index.md)
-
+> **Status:** [beta](docs/src/status.md) · select/doctor/explain shipped, five adapters · [Motivation & design](docs/src/index.md) · [charly-vibes Tool Ecosystem](https://charly-vibes.github.io/dulce-de-leche/ecosystem-map.html)
 [![tracked with wai](https://img.shields.io/badge/tracked%20with-wai-blue)](https://github.com/charly-vibes/wai)
 
 **testaruda** is a language-agnostic test selection engine. Given a code change,
