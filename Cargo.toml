@@ -58,7 +58,7 @@ blake3 = "1"
 walkdir = "2"
 clap-markdown = "0.1"
 clap_complete = "4.6.7"
-genesis-vibes = "0.8"
+genesis-vibes = "0.10"
 shell-words = "1"
 time = { version = "0.3.55", features = ["formatting"] }
 
