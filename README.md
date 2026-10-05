@@ -20,6 +20,16 @@ recall-first soundness invariant.
 
 ## Installation
 
+### Binary (curl)
+
+```bash
+V=$(basename "$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+  https://github.com/charly-vibes/testaruda/releases/latest)" | sed 's/^v//')
+TGT="$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/^x86_64$/amd64/; s/^aarch64$/arm64/')"
+curl -fsSL "https://github.com/charly-vibes/testaruda/releases/download/v${V}/testaruda_${V}_${TGT}.tar.gz" | tar xz
+chmod +x testaruda testaruda-adapter-rust testaruda-adapter-python && sudo mv testaruda testaruda-adapter-rust testaruda-adapter-python /usr/local/bin/
+```
+
 ### Cargo
 
 ```bash
