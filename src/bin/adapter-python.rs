@@ -1,7 +1,10 @@
-//! testaruda-adapter-python — Reference adapter for Python projects.
+//! Purpose: Expose Python test evidence through the testaruda adapter protocol.
+//! Responsibilities:
+//! - Discover tests and compute fingerprints and static dependencies.
+//! - Provide runner arguments and ingest results over line-delimited JSON.
 //!
-//! Reads JSON commands from stdin, responds on stdout.
-//! Protocol: single JSON line → single JSON line response.
+//! Rationale: Reuse project discovery exclusions to keep fixture projects out
+//! of the runnable test inventory (testaruda-vpnf).
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -75,28 +78,13 @@ fn cmd_handshake() -> serde_json::Value {
 fn cmd_discover() -> serde_json::Value {
     let mut tests = Vec::new();
 
-    let excluded_dirs = [
-        ".venv",
-        "venv",
-        "__pycache__",
-        ".mypy_cache",
-        ".pytest_cache",
-        "build",
-        "dist",
-        ".git",
-        "target",
-        "node_modules",
-        ".tox",
-    ];
+    let config = testaruda::config::Config::load_or_default(Path::new("."));
 
     for entry in walkdir::WalkDir::new(".")
         .into_iter()
-        .filter_entry(|e| {
-            let name = e.file_name().to_string_lossy();
-            // Hidden directories (agent worktrees, dot configs) are never
-            // project source — skip them wholesale (testaruda-n338).
-            (e.depth() == 0 || !name.starts_with('.')) && !excluded_dirs.contains(&name.as_ref())
-        })
+        .filter_entry(testaruda::config::make_exclude_filter(
+            &config.discover.exclude,
+        ))
         .filter_map(|e| e.ok())
     {
         if !entry.file_type().is_file() {
