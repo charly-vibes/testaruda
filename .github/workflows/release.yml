@@ -151,6 +151,10 @@ jobs:
           VERSION="${TAG#v}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           mkdir -p dist
+          # upload-artifact does not preserve file permissions across the
+          # artifact roundtrip — restore the exec bit or the archives ship
+          # 644 binaries and `curl | tar xz` installs are not runnable (DDL-3av).
+          chmod +x -- bins/*/*
 
           for plat in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
             tar -czf "dist/testaruda_${VERSION}_${plat}.tar.gz" \
