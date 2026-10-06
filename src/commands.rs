@@ -1,9 +1,10 @@
-//! Command handlers for the testaruda CLI.
+//! Purpose: Implement testaruda CLI command workflows.
+//! Responsibilities:
+//! - Coordinate selection, adapter evidence and store updates.
+//! - Execute and ingest selected groups and report actionable failures.
 //!
-//! Each subcommand maps to one free function here; `main()` is a thin dispatch
-//! over [`crate::Command`] that delegates to these handlers. Splitting handlers
-//! out keeps the CLI entry point small (see pretender thresholds in
-//! `pretender.toml`) and gives each command a self-contained, testable unit.
+//! Rationale: Distinguish completed execution from unavailable groups so CI
+//! cannot accept silently skipped tests (testaruda-oeft).
 
 use genesis::guide::{CliFormat, OutputFormat};
 use miette::miette;
@@ -619,7 +620,6 @@ pub fn select(args: SelectArgs) -> miette::Result<()> {
             store: &store,
             registry: &registry,
             selection: &selection,
-            exit_code: outcome.exit_code(),
         })?;
         if !args.safe {
             let code = outcome.exit_code();
@@ -974,7 +974,6 @@ struct CiRunCtx<'a> {
     store: &'a Store,
     registry: &'a AdapterRegistry,
     selection: &'a Selection,
-    exit_code: i32,
 }
 
 /// CI mode (TIA-CI-008): run selected tests via the adapters and ingest results.
@@ -1029,24 +1028,27 @@ fn run_ci_tests(ctx: &CiRunCtx) -> miette::Result<()> {
             spawned_all = false;
             continue;
         };
-        match run_adapter_group(ctx, binary, node_ids)? {
-            Some(code) => {
+        match run_adapter_group(ctx, binary, node_ids) {
+            Ok(Some(code)) => {
                 if first_failure.is_none() {
                     first_failure = Some(code);
                 }
             }
-            None => spawned_all = false,
+            Ok(None) => {}
+            Err(e) => {
+                eprintln!("⚠️  CI: {}: {}", adapter_name, e);
+                spawned_all = false;
+            }
         }
     }
 
-    // Exit with the first failing runner code (ingests already happened);
-    // spawn failures fall back to the selection outcome code as before.
+    // All runnable groups have executed and ingested before reporting errors.
+    if !spawned_all {
+        return Err(miette!("CI: incomplete execution of selected test groups"));
+    }
     if let Some(code) = first_failure {
         eprintln!("  ❌  CI: test runner failed with exit code {}", code);
         std::process::exit(code);
-    }
-    if !spawned_all && ctx.exit_code != 0 {
-        std::process::exit(ctx.exit_code);
     }
 
     Ok(())
@@ -1054,8 +1056,8 @@ fn run_ci_tests(ctx: &CiRunCtx) -> miette::Result<()> {
 
 /// Run one adapter group's runner and ingest its results.
 ///
-/// Returns Some(exit_code) when the runner ran and failed, None when the
-/// group could not run (spawn/run-args failure — no results to ingest).
+/// Returns Some(exit_code) when the runner failed, None on successful execution,
+/// and an error when execution or ingestion could not complete.
 fn run_adapter_group(
     ctx: &CiRunCtx,
     adapter_binary: &str,
@@ -1064,8 +1066,7 @@ fn run_adapter_group(
     let mut adapter = match spawn_adapter(adapter_binary, None) {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("⚠️  CI: failed to spawn adapter {}: {}", adapter_binary, e);
-            return Ok(None);
+            return Err(miette!("failed to spawn adapter {}: {}", adapter_binary, e));
         }
     };
 
@@ -1073,20 +1074,21 @@ fn run_adapter_group(
     let run_args_result = match adapter.run_args(node_ids) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("⚠️  CI: failed to get run args: {}", e);
-            return Ok(None);
+            return Err(miette!("failed to get run args: {}", e));
         }
     };
 
+    let Some((runner, args)) = run_args_result.runner_args.split_first() else {
+        return Err(miette!(
+            "adapter {} returned empty runner arguments",
+            adapter_binary
+        ));
+    };
     eprintln!("  🏃 CI: running tests via {}...", adapter_binary);
-    let output = match std::process::Command::new(&run_args_result.runner_args[0])
-        .args(&run_args_result.runner_args[1..])
-        .output()
-    {
+    let output = match std::process::Command::new(runner).args(args).output() {
         Ok(o) => o,
         Err(e) => {
-            eprintln!("⚠️  CI: failed to run tests: {}", e);
-            return Ok(None);
+            return Err(miette!("failed to run tests via {}: {}", runner, e));
         }
     };
 
