@@ -21,6 +21,7 @@ default = "testaruda-adapter-rust"
 # Directory/file names to exclude from discover walks.
 # Matches the end of the directory name (e.g., ".venv" matches any path
 # ending in ".venv"). The default list covers common tool/build artifacts.
+# Fixture projects are inputs to the Rust integration tests, not standalone suites.
 exclude = ["target", ".git", "node_modules", ".venv", "venv",
           "__pycache__", ".mypy_cache", ".pytest_cache",
-          "build", "dist", ".tox"]
+          "build", "dist", ".tox", "fixtures"]

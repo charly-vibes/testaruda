@@ -1,7 +1,10 @@
-//! CLI exit code tests (testaruda-fnyi).
+//! Purpose: Verify selection and execution exit contracts through the CLI.
+//! Responsibilities:
+//! - Compare selection exit codes across output modes.
+//! - Reject incomplete execution while preserving other groups' run history.
 //!
-//! Verifies that JSON and human output modes return the same process exit
-//! code derived from the selection outcome, not just success.
+//! Rationale: Isolated adapters distinguish unavailable execution from success
+//! without depending on installed language tools (testaruda-oeft).
 
 /// Set up a minimal git project with a testaruda store.
 /// Spawned children get `current_dir` explicitly — no process-cwd mutation
@@ -71,6 +74,102 @@ version = "0.1.0"
     );
 
     project
+}
+
+fn readiness_execution_case(failure: &str, expected: i32, diagnostic: &str) {
+    let project = setup_project();
+    let adapter = project.path().join("adapter.py");
+    std::fs::write(&adapter, r#"import json, sys
+name, mode = sys.argv[1:]
+for line in sys.stdin:
+    cmd = json.loads(line)['command']
+    result = []
+    if cmd == 'handshake':
+        result = dict(name=name, version='1', protocol=1, languages=['fake'], granularity='file', capabilities={})
+    elif cmd == 'static-deps':
+        print(json.dumps(dict(candidates=[], edges=[], unresolved=[])), flush=True)
+        continue
+    elif cmd == 'fingerprint':
+        print(json.dumps(dict(fingerprints=[])), flush=True)
+        continue
+    elif cmd == 'run-args':
+        if mode == 'error':
+            print(json.dumps(dict(ok=False, error='controlled run-args error')), flush=True)
+            continue
+        argv = ['python3', '-c', "open('executed', 'w').write('yes')"]
+        if mode == 'empty': argv = []
+        if mode == 'runner': argv = ['./absent-runner']
+        if mode == 'failed': argv = ['python3', '-c', 'import sys; sys.exit(7)']
+        result = dict(runner_args=argv, collection_path='unused')
+    elif cmd == 'ingest':
+        result = dict(per_test_results=[dict(test_id=name, outcome='passed')])
+    print(json.dumps(dict(ok=True, result=result)), flush=True)
+"#).unwrap();
+    let good = format!("python3 {} healthy ok", adapter.display());
+    let bad = if failure == "adapter" {
+        "./absent-adapter".to_string()
+    } else {
+        format!("python3 {} faulty {}", adapter.display(), failure)
+    };
+    std::fs::write(project.path().join("testaruda.toml"), format!(
+        "confidence_threshold = 0.0\n[adapters.extensions]\n\".foo\" = {bad:?}\n\".bar\" = {good:?}\n"
+    )).unwrap();
+    std::fs::write(project.path().join("source.foo"), "change").unwrap();
+    let conn = rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap();
+    conn.execute_batch("INSERT INTO test_items(component, adapter, node_id) VALUES
+        ('default','faulty','faulty'), ('default','healthy','healthy'), ('default','healthy','spare');
+        INSERT INTO run_history(test_item_id,run_id,outcome,environment)
+        VALUES(3,'previous','passed','default');").unwrap();
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"));
+    command.args(["select", "--safe", "--json", "--files", "source.foo"]);
+    if failure == "ok" {
+        command.arg("--shadow");
+    }
+    let output = command.current_dir(project.path()).output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(expected), "{stderr}");
+    assert!(stderr.contains(diagnostic), "{stderr}");
+    assert!(
+        project.path().join("executed").exists(),
+        "healthy runner must execute"
+    );
+    let ingested: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM run_history WHERE test_item_id=2",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(ingested > 0, "healthy group's results must be ingested");
+    let plan: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    if failure != "ok" {
+        assert_eq!(plan["data"]["selected_count"], 2);
+    }
+}
+
+#[test]
+fn readiness_execution_missing_adapter() {
+    readiness_execution_case("adapter", 1, "no adapter binary");
+}
+#[test]
+fn readiness_execution_run_args_error() {
+    readiness_execution_case("error", 1, "run args");
+}
+#[test]
+fn readiness_execution_empty_argv() {
+    readiness_execution_case("empty", 1, "empty runner");
+}
+#[test]
+fn readiness_execution_missing_runner() {
+    readiness_execution_case("runner", 1, "failed to run tests");
+}
+#[test]
+fn readiness_execution_success() {
+    readiness_execution_case("ok", 0, "ingesting results");
+}
+#[test]
+fn readiness_execution_runner_failure() {
+    readiness_execution_case("failed", 7, "test runner failed with exit code 7");
 }
 
 /// Test that `testaruda select --json` exits with the outcome-derived code

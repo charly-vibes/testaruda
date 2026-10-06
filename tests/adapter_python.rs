@@ -1,8 +1,10 @@
-//! Python adapter integration tests (testaruda-6yw).
+//! Purpose: Verify the Python adapter protocol against isolated projects.
+//! Responsibilities:
+//! - Check discovery, dependencies and protocol responses for src-layout projects.
+//! - Exercise configured discovery exclusions using the freshly built adapter.
 //!
-//! Verifies the Python adapter's discover and static-deps commands against
-//! a synthetic src-layout project fixture. Tests are conditional on the
-//! Python adapter binary being available on PATH.
+//! Rationale: Pin exclusion behavior without relying on installed binaries
+//! (testaruda-vpnf); existing fixture tests also cover PATH-installed adapters.
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
@@ -49,6 +51,42 @@ fn send_command(child: &mut std::process::Child, cmd: &str) -> String {
     let mut line = String::new();
     reader.read_line(&mut line).unwrap();
     line.trim().to_string()
+}
+
+#[test]
+fn discover_honors_configured_exclusions() {
+    let project = tempfile::tempdir().unwrap();
+    for directory in ["tests", "fixtures/nested", ".hidden", "target"] {
+        std::fs::create_dir_all(project.path().join(directory)).unwrap();
+        std::fs::write(
+            project.path().join(directory).join("test_example.py"),
+            "def test_example(): pass\n",
+        )
+        .unwrap();
+    }
+    std::fs::write(
+        project.path().join("testaruda.toml"),
+        "[discover]\nexclude = [\"fixtures\", \"target\"]\n",
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_testaruda-adapter-python"))
+        .current_dir(project.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            writeln!(child.stdin.take().unwrap(), "{{\"command\":\"discover\"}}")?;
+            child.wait_with_output()
+        })
+        .unwrap();
+    assert!(output.status.success());
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let items = response["result"].as_array().unwrap();
+    let files: Vec<_> = items
+        .iter()
+        .map(|item| item["file"].as_str().unwrap())
+        .collect();
+    assert_eq!(files, ["tests/test_example.py"]);
 }
 
 // ============================================================================
