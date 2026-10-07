@@ -6,18 +6,48 @@
       "distinct_days": 2
     },
     {
-      "fingerprint": "src/main.rs::main::abc_max",
+      "fingerprint": "src/main.rs::main::cyclomatic_max",
       "count": 20,
       "distinct_days": 2
     },
     {
-      "fingerprint": "src/main.rs::main::cyclomatic_max",
+      "fingerprint": "src/main.rs::main::abc_max",
       "count": 20,
       "distinct_days": 2
     },
     {
       "fingerprint": "src/main.rs::main::cognitive_max",
       "count": 20,
+      "distinct_days": 2
+    },
+    {
+      "fingerprint": "tests/adapter_python.rs::static_deps_nonexistent_file_unresolved::min_assertions",
+      "count": 4,
+      "distinct_days": 2
+    },
+    {
+      "fingerprint": "tests/adapter_julia.rs::julia_adapter_monorepo_fingerprint::min_assertions",
+      "count": 4,
+      "distinct_days": 2
+    },
+    {
+      "fingerprint": "tests/adapter_julia.rs::julia_adapter_static_deps_multiple_files::min_assertions",
+      "count": 4,
+      "distinct_days": 2
+    },
+    {
+      "fingerprint": "tests/adapter_julia.rs::julia_adapter_ingest_mixed_outcomes::min_assertions",
+      "count": 4,
+      "distinct_days": 2
+    },
+    {
+      "fingerprint": "tests/recall_fault.rs::test_recall_fault_pipeline::min_assertions",
+      "count": 4,
+      "distinct_days": 2
+    },
+    {
+      "fingerprint": "tests/fixtures/typescript/src/greeting.ts::farewell::min_assertions",
+      "count": 4,
       "distinct_days": 2
     }
   ],
@@ -55,6 +85,14 @@
       "distinct_days": 1
     },
     {
+      "rule_key": "min_assertions",
+      "role": "test",
+      "area": "tests",
+      "count": 457,
+      "distinct_files": 14,
+      "distinct_days": 2
+    },
+    {
       "rule_key": "abc_max",
       "role": "app",
       "area": "target/scratch",
@@ -69,14 +107,6 @@
       "count": 338,
       "distinct_files": 8,
       "distinct_days": 2
-    },
-    {
-      "rule_key": "min_assertions",
-      "role": "test",
-      "area": "tests",
-      "count": 315,
-      "distinct_files": 9,
-      "distinct_days": 1
     },
     {
       "rule_key": "cognitive_max",

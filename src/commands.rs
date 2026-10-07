@@ -1084,6 +1084,11 @@ fn run_adapter_group(
             adapter_binary
         ));
     };
+    // Snapshot the collection file's mtime so a stale result file from a
+    // previous run is never mistaken for this run's output.
+    let collection_mtime = std::fs::metadata(&run_args_result.collection_path)
+        .ok()
+        .and_then(|m| m.modified().ok());
     eprintln!("  🏃 CI: running tests via {}...", adapter_binary);
     let output = match std::process::Command::new(runner).args(args).output() {
         Ok(o) => o,
@@ -1095,8 +1100,13 @@ fn run_adapter_group(
     // Ingest FIRST, then report the exit code. This preserves the feedback
     // loop: failed runs are recorded (TIA-CI-008).
     let combined = combine_output(&output.stdout, &output.stderr);
+    let run_output = run_output_for_ingest(
+        &run_args_result.collection_path,
+        collection_mtime,
+        &combined,
+    );
     eprintln!("  📥 CI: ingesting results...");
-    ingest_ci_results(&mut adapter, ctx.store, &combined)?;
+    ingest_ci_results(&mut adapter, ctx.store, &run_output)?;
 
     if output.status.success() {
         return Ok(None);
@@ -1134,6 +1144,41 @@ fn combine_output(stdout: &[u8], stderr: &[u8]) -> String {
         stdout_s.into_owned()
     } else {
         format!("{}\n{}", stdout_s, stderr_s)
+    }
+}
+
+/// Decide what to feed the adapter's ingest after a runner run.
+///
+/// Adapters whose runners write structured results to a file (vitest
+/// `--outputFile`, pytest `--junitxml`) declare that path as
+/// `collection_path` in their run-args response — the XML never reaches
+/// stdout, so feeding the runner's console output to ingest parses 0
+/// testcases and the store stays cold (tambor-06p). Prefer the collection
+/// file's contents when the runner (re)wrote it during this run; a stale
+/// file from a previous run must not be ingested, and adapters with no
+/// collection_path (mocha, ava) fall back to the combined stdout/stderr.
+fn run_output_for_ingest(
+    collection_path: &str,
+    mtime_before: Option<std::time::SystemTime>,
+    combined: &str,
+) -> String {
+    if collection_path.is_empty() {
+        return combined.to_string();
+    }
+    let Ok(meta) = std::fs::metadata(collection_path) else {
+        return combined.to_string();
+    };
+    let rewritten = match (meta.modified().ok(), mtime_before) {
+        (Some(after), Some(before)) => after > before,
+        (Some(_), None) => true, // file appeared during the run
+        (None, _) => false,
+    };
+    if !rewritten {
+        return combined.to_string();
+    }
+    match std::fs::read_to_string(collection_path) {
+        Ok(content) if !content.trim().is_empty() => content,
+        _ => combined.to_string(),
     }
 }
 
@@ -1602,6 +1647,58 @@ line two",
             5,
         );
         assert_eq!(tail, "line one\nline two");
+    }
+
+    /// A runner whose results land in a file (vitest --outputFile, pytest
+    /// --junitxml) leaves its JUnit XML out of stdout entirely, so feeding
+    /// the console output to ingest parses 0 testcases (tambor-06p). The
+    /// adapter-declared collection_path must win when the runner (re)wrote
+    /// it during this run; a stale file from a previous run must NOT be
+    /// ingested, and adapters with no collection_path fall back to stdout.
+    #[test]
+    fn run_output_prefers_freshly_written_collection_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test-results.xml");
+        std::fs::write(&path, "<?xml version=\"1.0\"?><testsuites tests=\"1\"/>").unwrap();
+
+        // mtime_before = None models a file that appeared during the run.
+        let out = run_output_for_ingest(path.to_str().unwrap(), None, "console output");
+        assert_eq!(out, "<?xml version=\"1.0\"?><testsuites tests=\"1\"/>");
+    }
+
+    #[test]
+    fn run_output_ignores_stale_collection_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test-results.xml");
+        std::fs::write(&path, "<?xml version=\"1.0\"?><stale/>").unwrap();
+
+        // mtime_before after the file's mtime models a run that did NOT
+        // rewrite the file.
+        let stale_mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
+        let later = stale_mtime + std::time::Duration::from_secs(1);
+        let out = run_output_for_ingest(path.to_str().unwrap(), Some(later), "console output");
+        assert_eq!(out, "console output");
+    }
+
+    #[test]
+    fn run_output_falls_back_without_collection_path() {
+        assert_eq!(
+            run_output_for_ingest("", None, "console output"),
+            "console output"
+        );
+        assert_eq!(
+            run_output_for_ingest("/nonexistent/test-results.xml", None, "console output"),
+            "console output"
+        );
+    }
+
+    #[test]
+    fn run_output_falls_back_on_empty_collection_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test-results.xml");
+        std::fs::write(&path, "   \n").unwrap();
+        let out = run_output_for_ingest(path.to_str().unwrap(), None, "console output");
+        assert_eq!(out, "console output");
     }
 
     /// Polyglot selections must group by the adapter that discovered each
