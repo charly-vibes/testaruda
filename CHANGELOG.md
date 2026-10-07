@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.5.2 — ingest, discovery, and selected-execution fixes (2026-10-07)
+
+Fixes-only release closing three selection-correctness gaps and one
+release-infra gap found in fleet dogfooding.
+
+### Fixed
+
+- Engine: CI ingest now picks up results written to the `collection_path`
+  file — the typescript adapter writes junit XML via `vitest --outputFile`, so
+  the XML never reached stdout and `exec` ingested 0 testcases, leaving the
+  selection store cold. `run_output_for_ingest` prefers the collection_path
+  file when the runner (re)wrote it during the run (mtime snapshot before
+  spawn, stale-file protected) (testaruda-2xn1).
+- Python adapter: discovery honors project exclusion globs instead of
+  walking everything (testaruda-vpnf).
+- Engine: selected execution fails loudly when the selected target is
+  unavailable instead of silently proceeding (testaruda-oeft).
+- Release: published tarballs ship the binary with the executable bit set —
+  upload-artifact does not preserve file permissions, so `curl | tar xz &&
+  ./testaruda` failed with "Permission denied" (testaruda fleet DDL-3av).
+
 ## 0.5.1 — cold-start loop fixes, Rust inline-test self-edges (2026-09-30)
 
 Fixes-only release closing the biggest value-prop gaps found in the
