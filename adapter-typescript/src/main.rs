@@ -136,56 +136,94 @@ fn parse_test_file(path: &str, source: &str, ext: &str) -> Vec<serde_json::Value
     let mut cursor = tree_sitter::QueryCursor::new();
     let mut matches = cursor.matches(&query, tree.root_node(), source.as_bytes());
 
-    // Build a stack of describe chains. Each match gives us test_declaration + test_name.
-    // We track the current nesting depth by the position of each declaration.
-    let mut tests = Vec::new();
-    let mut chain: Vec<String> = Vec::new();
-    let mut chain_depth: Vec<usize> = Vec::new(); // depth of each chain element
+    // Nesting depth is tree ancestry, not the source row (the old row-based
+    // pop logic chained sequential top-level tests combinatorially — the
+    // tambor discovery pollution bug). Two passes:
+    //   1. collect every match's declaration node + name + describe-ness;
+    //   2. for each match, walk its ancestors to assemble the describe chain.
+    struct Found<'a> {
+        decl_node: tree_sitter::Node<'a>,
+        name: String,
+        is_describe: bool,
+    }
+    let mut found: Vec<Found> = Vec::new();
 
     while let Some(m) = matches.next() {
         let mut test_name: Option<String> = None;
-        let mut depth: Option<usize> = None;
+        let mut decl: Option<tree_sitter::Node> = None;
+        let mut fn_kind = String::new();
 
         for capture in m.captures {
-            let name = query.capture_names()[capture.index as usize].to_string();
-            match name.as_str() {
+            let cap = query.capture_names()[capture.index as usize].to_string();
+            match cap.as_str() {
                 "test_name" => {
-                    let text = capture
+                    test_name = Some(
+                        capture
+                            .node
+                            .utf8_text(source.as_bytes())
+                            .unwrap_or("")
+                            .to_string(),
+                    );
+                }
+                "test_declaration" => {
+                    decl = Some(capture.node);
+                }
+                "_test_fn" | "_each_obj" => {
+                    fn_kind = capture
                         .node
                         .utf8_text(source.as_bytes())
                         .unwrap_or("")
                         .to_string();
-                    test_name = Some(text);
-                    depth = Some(capture.node.start_position().row);
-                }
-                "test_declaration" => {
-                    // declaration marker — name is attached via test_name
                 }
                 _ => {}
             }
         }
 
-        if let Some(name) = test_name {
-            let row = depth.unwrap_or(0);
-
-            // Pop chain elements that are deeper than current row
-            while !chain_depth.is_empty() && *chain_depth.last().unwrap() >= row {
-                chain.pop();
-                chain_depth.pop();
-            }
-
-            // Push the current test name
-            chain.push(name.clone());
-            chain_depth.push(row);
-
-            // Emit a test item
-            let node_id = format!("{}::{}", path, chain.join("::"));
-            tests.push(serde_json::json!({
-                "node_id": node_id,
-                "suite_kind": "unit",
-                "file": path,
-            }));
+        if let (Some(name), Some(node)) = (test_name, decl) {
+            let is_describe = fn_kind.starts_with("describe");
+            found.push(Found {
+                decl_node: node,
+                name,
+                is_describe,
+            });
         }
+    }
+
+    // describe name lookup by declaration node id
+    use std::collections::HashMap;
+    let describe_names: HashMap<usize, &String> = found
+        .iter()
+        .filter(|f| f.is_describe)
+        .map(|f| (f.decl_node.id(), &f.name))
+        .collect();
+
+    let mut tests = Vec::new();
+    for f in &found {
+        // Walk ancestors of the declaration; every ancestor that is itself a
+        // describe declaration contributes a chain segment (outermost first).
+        let mut chain: Vec<&String> = Vec::new();
+        let mut cur = f.decl_node.parent();
+        while let Some(p) = cur {
+            if let Some(dn) = describe_names.get(&p.id()) {
+                chain.push(dn);
+            }
+            cur = p.parent();
+        }
+        chain.reverse();
+
+        let mut segs: Vec<&str> = chain.iter().map(|s| s.as_str()).collect();
+        if !f.is_describe {
+            segs.push(&f.name);
+        }
+        if segs.is_empty() {
+            continue;
+        }
+        let node_id = format!("{}::{}", path, segs.join("::"));
+        tests.push(serde_json::json!({
+            "node_id": node_id,
+            "suite_kind": "unit",
+            "file": path,
+        }));
     }
 
     tests
@@ -922,6 +960,51 @@ mod tests {
             assert!(
                 ids.iter().any(|id| id.contains("test/app.test.ts")),
                 "TS test must still be discovered, got: {ids:?}"
+            );
+        });
+    }
+
+    #[test]
+    fn discover_sequential_top_level_tests_do_not_chain() {
+        // Regression (tambor T-wave discovery pollution): two top-level
+        // tests on different source rows must each get their own flat id
+        // — nesting depth is tree ancestry, not the source line number.
+        // The old row-based pop logic accumulated every prior test name
+        // into the chain: file::t1, file::t1::t2, file::t1::t2::t3 …
+        with_cwd(|| {
+            std::fs::create_dir_all("tests").unwrap();
+            std::fs::write(
+                "tests/seq.test.ts",
+                concat!(
+                    "it(\"alpha does one\", () => {});\n\n",
+                    "// a comment gap so the rows differ widely\n",
+                    "// another filler line\n",
+                    "// and a third\n",
+                    "test(\"beta does two\", () => {});\n\n",
+                    "describe(\"group\", () => {\n",
+                    "  it(\"gamma nested\", () => {});\n",
+                    "});\n"
+                ),
+            )
+            .unwrap();
+
+            let resp = super::cmd_discover(&serde_json::json!({}));
+            assert!(resp["ok"].as_bool().unwrap());
+            let items = resp["result"].as_array().unwrap();
+            let mut ids: Vec<String> = items
+                .iter()
+                .filter_map(|t| t["node_id"].as_str().map(String::from))
+                .filter(|id| id.starts_with("tests/seq.test.ts"))
+                .collect();
+            ids.sort();
+            assert_eq!(
+                ids,
+                vec![
+                    "tests/seq.test.ts::alpha does one",
+                    "tests/seq.test.ts::beta does two",
+                    "tests/seq.test.ts::group::gamma nested",
+                ],
+                "sequential top-level tests must not chain into combinatorial ids"
             );
         });
     }
