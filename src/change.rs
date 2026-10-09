@@ -1,6 +1,11 @@
 //! Change detection — compute Δ from a diff or explicit file list.
 //!
 //! See TIA-CHG-001 through TIA-CHG-008.
+//!
+//! All git invocation is delegated to `genesis::git` (genesis-vibes ≥ 0.13)
+//! — no local subprocess spawning or porcelain parsing lives here.
+
+use genesis::git::{self, GitError};
 
 /// The set of changed content units.
 #[derive(Debug, Clone, Default)]
@@ -37,24 +42,8 @@ impl ChangeSet {
         }
 
         if let (Some(b), Some(h)) = (base, head) {
-            let output = std::process::Command::new("git")
-                .args(["diff", "--name-only", b, h])
-                .output()
-                .map_err(|e| miette::miette!("Failed to run git diff: {}", e))?;
-
-            if !output.status.success() {
-                return Err(miette::miette!(
-                    "git diff exited with {}: {}",
-                    output.status,
-                    String::from_utf8_lossy(&output.stderr)
-                ));
-            }
-
-            let files: Vec<String> = String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .filter(|l| !l.is_empty())
-                .map(String::from)
-                .collect();
+            let root = git::repo_root().map_err(git_error)?;
+            let files = git::changed_files_between(&root, b, h).map_err(git_error)?;
 
             return Ok(Self {
                 files,
@@ -64,16 +53,10 @@ impl ChangeSet {
             });
         }
 
-        // Uncommitted changes in working tree
-        let output = std::process::Command::new("git")
-            .args(["status", "--porcelain"])
-            .output()
-            .map_err(|e| miette::miette!("Failed to run git status: {}", e))?;
-
-        let files: Vec<String> = String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .filter_map(parse_porcelain_line)
-            .collect();
+        // Uncommitted changes in working tree (staged, unstaged, renames,
+        // untracked — per the shared porcelain v1 parser contract)
+        let root = git::repo_root().map_err(git_error)?;
+        let files = git::uncommitted_files(&root).map_err(git_error)?;
 
         Ok(Self {
             files,
@@ -84,36 +67,26 @@ impl ChangeSet {
     }
 }
 
-/// Parse a single line from `git status --porcelain` v1 output.
-///
-/// Returns the file path, or `None` for empty lines. Handles rename/copy
-/// lines (e.g., `R  src/old.rs -> src/new.rs`) by extracting the new path.
-pub fn parse_porcelain_line(l: &str) -> Option<String> {
-    let trimmed = l.trim_start();
-
-    // Rename/copy: "R  oldpath -> newpath" (git status --porcelain v1)
-    if trimmed.starts_with('R') || trimmed.starts_with('C') {
-        if let Some(idx) = trimmed.find(" -> ") {
-            let new_path = trimmed[idx + 4..].trim().to_string();
-            return if new_path.is_empty() {
-                None
-            } else {
-                Some(new_path)
-            };
+/// Map a `genesis::git` typed error onto miette, preserving the failure
+/// shape: git failures carry the args, exit code and stderr; non-repo
+/// starts carry the walk start directory. No silent degradation.
+fn git_error(e: GitError) -> miette::Report {
+    match e {
+        GitError::Git { args, code, stderr } => {
+            miette::miette!("git {} exited with {}: {}", args.join(" "), code, stderr)
         }
-    }
-
-    // Standard line: "XY path"
-    let rest = trimmed
-        .chars()
-        .skip(2)
-        .collect::<String>()
-        .trim()
-        .to_string();
-    if rest.is_empty() {
-        None
-    } else {
-        Some(rest)
+        GitError::NotInRepo { start } => miette::miette!(
+            "not inside a git repository: no .git entry found in {} or any parent",
+            start.display()
+        ),
+        GitError::Spawn { source } => {
+            miette::miette!("failed to spawn git: {}", source)
+        }
+        GitError::Io {
+            path,
+            message,
+            source,
+        } => miette::miette!("io error at {}: {} ({})", path.display(), message, source),
     }
 }
 
@@ -151,57 +124,21 @@ mod tests {
         assert!(cs.is_ok() || cs.is_err());
     }
 
-    #[test]
-    fn test_parse_git_status_porcelain_modified() {
-        let output = " M src/lib.rs";
-        let files: Vec<String> = output.lines().filter_map(parse_porcelain_line).collect();
-        assert_eq!(files, vec!["src/lib.rs"]);
-    }
+    // --- genesis::git shared-parser characterization ports (genesis-tpf.2) ---
 
     #[test]
-    fn test_parse_git_status_porcelain_untracked() {
-        let output = "?? src/new.py";
-        let files: Vec<String> = output.lines().filter_map(parse_porcelain_line).collect();
-        assert_eq!(files, vec!["src/new.py"]);
-    }
-
-    #[test]
-    fn test_parse_git_status_porcelain_mixed() {
-        let output = " M src/lib.rs\nA  src/new.rs\n?? src/untracked.py\nMM src/conflict.rs";
-        let files: Vec<String> = output.lines().filter_map(parse_porcelain_line).collect();
+    fn test_shared_parse_modified_untracked_mixed() {
+        // Ported from the local parser tests: plain XY records pass
+        // through, untracked entries are included, and multiple statuses
+        // parse independently.
+        let body = " M src/lib.rs\nA  src/new.rs\n?? src/untracked.py\nMM src/conflict.rs";
+        let files = genesis::git::parse_porcelain(body);
         assert_eq!(files.len(), 4);
         assert!(files.contains(&"src/lib.rs".to_string()));
         assert!(files.contains(&"src/new.rs".to_string()));
         assert!(files.contains(&"src/untracked.py".to_string()));
         assert!(files.contains(&"src/conflict.rs".to_string()));
     }
-
-    #[test]
-    fn test_parse_git_status_porcelain_rename() {
-        // Rename: "R  old -> new"
-        let output = "R  src/old.rs -> src/new.rs";
-        let files: Vec<String> = output.lines().filter_map(parse_porcelain_line).collect();
-        assert_eq!(
-            files,
-            vec!["src/new.rs"],
-            "rename should yield new path only"
-        );
-    }
-
-    #[test]
-    fn test_parse_git_status_porcelain_rename_modified() {
-        // Rename with working tree change: "RM old -> new"
-        // X=R (rename), Y=M (modified in working tree)
-        let output = "RM src/old.rs -> src/new.rs";
-        let files: Vec<String> = output.lines().filter_map(parse_porcelain_line).collect();
-        assert_eq!(
-            files,
-            vec!["src/new.rs"],
-            "rename+modify should yield new path only"
-        );
-    }
-
-    // --- genesis::git shared-parser characterization ports (genesis-tpf.2) ---
 
     #[test]
     fn test_shared_parse_rename_reports_new_path() {
