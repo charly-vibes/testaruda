@@ -120,6 +120,22 @@ pub fn parse_porcelain_line(l: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
+    use std::sync::{LazyLock, Mutex};
+
+    /// Global lock for CWD-manipulating tests (parallel test threads
+    /// share the process CWD — never mutate it without this guard).
+    static CWD_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    /// Run `f` with the process CWD set to `dir`, then restore.
+    fn with_cwd<R>(dir: &Path, f: impl FnOnce() -> R) -> R {
+        let _guard = CWD_LOCK.lock().unwrap();
+        let orig = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir).unwrap();
+        let result = f();
+        std::env::set_current_dir(&orig).unwrap();
+        result
+    }
 
     #[test]
     fn test_explicit_file_list() {
@@ -182,6 +198,72 @@ mod tests {
             files,
             vec!["src/new.rs"],
             "rename+modify should yield new path only"
+        );
+    }
+
+    // --- genesis::git shared-parser characterization ports (genesis-tpf.2) ---
+
+    #[test]
+    fn test_shared_parse_rename_reports_new_path() {
+        // Rename: "R  old -> new" — shared parser reports the new path only.
+        let body = "R  src/old.rs -> src/new.rs";
+        assert_eq!(
+            genesis::git::parse_porcelain(body),
+            vec!["src/new.rs"],
+            "shared parser: rename should yield new path only"
+        );
+    }
+
+    #[test]
+    fn test_shared_parse_rename_modified_reports_new_path() {
+        let body = "RM src/old.rs -> src/new.rs";
+        assert_eq!(
+            genesis::git::parse_porcelain(body),
+            vec!["src/new.rs"],
+            "shared parser: rename+modify should yield new path only"
+        );
+    }
+
+    #[test]
+    fn test_shared_parse_quoted_untracked_path_is_unquoted() {
+        // core.quotePath puts quotes around paths with special characters;
+        // the shared parser unquotes them (spec: quoted paths are unquoted).
+        let body = "?? \"quote path.rs\"";
+        assert_eq!(
+            genesis::git::parse_porcelain(body),
+            vec!["quote path.rs"],
+            "shared parser: quoted paths should be unquoted"
+        );
+    }
+
+    // --- migrated-contract tests (RED until from_diff delegates to genesis::git) ---
+
+    #[test]
+    fn test_from_diff_nonrepo_is_error_not_silent_empty() {
+        // In a directory that is NOT a git repo, from_diff must return a
+        // miette error (declared failure semantics), not Ok with an empty
+        // set (silent degradation is not in this operation's contract).
+        let dir = tempfile::tempdir().unwrap();
+        let err = with_cwd(dir.path(), || {
+            ChangeSet::from_diff(None, None, None).unwrap_err()
+        });
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("not inside a git repository"),
+            "expected helpful not-in-repo error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_from_diff_bad_revision_error_keeps_code_and_stderr() {
+        // A failing range diff keeps the "exited with <code> + stderr" shape.
+        let err =
+            ChangeSet::from_diff(Some("nonexistent-base-xyz"), Some("HEAD"), None).unwrap_err();
+        let msg = format!("{}", err);
+        assert!(msg.contains("128"), "expected exit code 128, got: {msg}");
+        assert!(
+            msg.contains("unknown revision") || msg.contains("bad revision"),
+            "expected stderr content, got: {msg}"
         );
     }
 }
