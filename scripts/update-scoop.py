@@ -34,6 +34,8 @@ manifest = {
         "testaruda.exe",
         "testaruda-adapter-rust.exe",
         "testaruda-adapter-python.exe",
+        "testaruda-adapter-typescript.exe",
+        "testaruda-adapter-clojure.exe",
     ],
     "checkver": {
         "github": "https://github.com/charly-vibes/testaruda"

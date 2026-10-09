@@ -17,13 +17,9 @@ with open(checksums_path) as f:
             for platform in ["darwin_arm64", "darwin_amd64", "linux_arm64", "linux_amd64"]:
                 if platform in name:
                     shas.setdefault(platform, {})
-                    # Multiple tarballs per platform: main + adapters
-                    if "adapter-rust" in name:
-                        shas[platform]["adapter-rust"] = sha
-                    elif "adapter-python" in name:
-                        shas[platform]["adapter-python"] = sha
-                    else:
-                        shas[platform]["main"] = sha
+                    # One tarball per platform: engine + all adapters in a
+                    # single archive, so the archive sha is the main sha.
+                    shas[platform]["main"] = sha
 
 base = f"https://github.com/charly-vibes/testaruda/releases/download/{tag}"
 
@@ -65,6 +61,8 @@ class Testaruda < Formula
     bin.install "testaruda"
     bin.install "testaruda-adapter-rust"
     bin.install "testaruda-adapter-python"
+    bin.install "testaruda-adapter-typescript"
+    bin.install "testaruda-adapter-clojure"
   end
 
   test do
