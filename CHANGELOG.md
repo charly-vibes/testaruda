@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.5.3 — adapter discovery ancestry + collection_path ingest, tarballs ship all adapters (2026-10-09)
+
+Fixes release so consumer repos (tambor CI) can pin one version and get a
+working `init → exec → ingest` cycle with the TypeScript adapter.
+
+### Fixed
+
+- Engine: CI ingest now picks up results written to the `collection_path`
+  file on top of the 0.5.2 stdout fix — `vitest --reporter=junit
+  --outputFile` writes the XML to the file and nothing to stdout
+  (testaruda-2xn1, 4a51638).
+- TypeScript adapter: discovery nesting depth is derived from the directory
+  tree ancestry, not source rows — pre-fix ids collapsed nested describe
+  blocks and only 59/325 vitest results matched (testaruda-0ej2, 73ca44f).
+
+### Changed
+
+- Release: tarballs and zip now bundle `testaruda-adapter-typescript` and
+  `testaruda-adapter-clojure` alongside the engine and the Rust/Python
+  adapters, and the Homebrew/Scoop manifests install all five binaries —
+  consumer repos previously had to cargo-install the missing adapters from
+  a git tag.
+
 ## 0.5.2 — ingest, discovery, and selected-execution fixes (2026-10-07)
 
 Fixes-only release closing three selection-correctness gaps and one
