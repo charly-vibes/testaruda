@@ -252,11 +252,25 @@ fn exec_on_cold_store_runs_tests_and_ingests() {
     let dir = project.path();
 
     // Minimal Rust crate with one test, committed to git.
-    std::process::Command::new("git")
-        .args(["init", "-q"])
-        .current_dir(dir)
-        .output()
-        .expect("git init");
+    // Hook-env hygiene (testaruda-c64 pattern): when this test runs under a
+    // git hook, git exports GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE pointing at
+    // the OUTER repo — `git init` would then create the store there instead
+    // of in the fixture dir, and exec would report "not inside a git
+    // repository". Strip them for every spawned process in this fixture.
+    let git_env_clean = |cmd: &mut std::process::Command| {
+        for var in [
+            "GIT_DIR",
+            "GIT_WORK_TREE",
+            "GIT_INDEX_FILE",
+            "GIT_COMMON_DIR",
+        ] {
+            cmd.env_remove(var);
+        }
+    };
+    let mut init = std::process::Command::new("git");
+    init.args(["init", "-q"]).current_dir(dir);
+    git_env_clean(&mut init);
+    init.output().expect("git init");
     std::fs::write(
         dir.join("Cargo.toml"),
         r#"[package]
@@ -286,29 +300,28 @@ edition = "2021"
         ],
     ];
     for args in git_steps {
-        std::process::Command::new("git")
-            .args(*args)
-            .current_dir(dir)
-            .output()
-            .expect("git");
+        let mut cmd = std::process::Command::new("git");
+        cmd.args(*args).current_dir(dir);
+        git_env_clean(&mut cmd);
+        cmd.output().expect("git");
     }
 
     // Touch a non-source file so the changed set resolves no edges →
     // degenerate full-run outcome (exit 10) on the cold store.
     std::fs::write(dir.join("README.md"), "changed\n").unwrap();
-    std::process::Command::new("git")
-        .args([
-            "-c",
-            "user.email=t@t",
-            "-c",
-            "user.name=t",
-            "commit",
-            "-aqm",
-            "docs",
-        ])
-        .current_dir(dir)
-        .output()
-        .expect("git commit");
+    let mut docs = std::process::Command::new("git");
+    docs.args([
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "commit",
+        "-aqm",
+        "docs",
+    ])
+    .current_dir(dir);
+    git_env_clean(&mut docs);
+    docs.output().expect("git commit");
 
     std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
         .args(["init"])
@@ -321,12 +334,13 @@ edition = "2021"
     // binary (testaruda-wpil gotcha).
     let target_debug = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/debug");
     let path_var = std::env::var("PATH").unwrap_or_default();
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
+    let mut exec_cmd = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"));
+    exec_cmd
         .args(["exec", "--base", "HEAD~1", "--head", "HEAD"])
         .current_dir(dir)
-        .env("PATH", format!("{}:{}", target_debug.display(), path_var))
-        .output()
-        .expect("run testaruda exec");
+        .env("PATH", format!("{}:{}", target_debug.display(), path_var));
+    git_env_clean(&mut exec_cmd);
+    let output = exec_cmd.output().expect("run testaruda exec");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
