@@ -14,6 +14,7 @@
 //! - Registry resolution: `.cs` / `.fs` / `.vb` / `.csproj` / `.sln` / `.slnx`
 //!   resolve to `titi testaruda-adapter`.
 //! - `spawn_adapter` returns a helpful error when `titi` is not on PATH.
+mod common;
 
 /// Check if `titi` is available on PATH.
 fn titi_available() -> bool {

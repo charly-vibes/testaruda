@@ -5,6 +5,7 @@
 //!
 //! Rationale: Pin exclusion behavior without relying on installed binaries
 //! (testaruda-vpnf); existing fixture tests also cover PATH-installed adapters.
+mod common;
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};

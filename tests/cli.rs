@@ -2,6 +2,7 @@
 //!
 //! Verifies:
 //! - `--help` on subcommands shows clean output, not garbled genesis suggestions
+mod common;
 
 /// Test that clap errors carrying a quoted VALUE (invalid value for an
 /// option) never trigger the genesis subcommand-suggestion path — the
