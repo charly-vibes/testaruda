@@ -76,7 +76,7 @@ version = "0.1.0"
     project
 }
 
-fn readiness_execution_case(failure: &str, expected: i32, diagnostic: &str) {
+fn readiness_execution_case(failure: &str, expected: i32, diagnostic: &str) -> serde_json::Value {
     let project = setup_project();
     let adapter = project.path().join("adapter.py");
     std::fs::write(&adapter, r#"import json, sys
@@ -142,43 +142,45 @@ for line in sys.stdin:
         .unwrap();
     assert!(ingested > 0, "healthy group's results must be ingested");
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    if failure == "adapter" {
-        // testaruda-0bwk: a select-time adapter deficit on the changed file
-        // (spawn failure — TIA-ADAPT-012) now raises a conservative component
-        // fallback, so all three component tests are selected. The
-        // execution-readiness contract (exit code, healthy group still runs
-        // and ingests) is unchanged and asserted above.
-        assert_eq!(plan["data"]["selected_count"], 3);
-    } else if failure != "ok" {
-        // Execution-time failures don't affect selection evidence: the
-        // always-run pair (faulty, healthy — spare has history) is selected.
-        assert_eq!(plan["data"]["selected_count"], 2);
-    }
+    plan
 }
 
 #[test]
 fn readiness_execution_missing_adapter() {
-    readiness_execution_case("adapter", 1, "no adapter binary");
+    let plan = readiness_execution_case("adapter", 1, "no adapter binary");
+    // Select-time spawn deficit on the changed file: the conservative
+    // component fallback (testaruda-0bwk, TIA-ADAPT-012) selects all three
+    // component tests; the execution-readiness contract (exit code, healthy
+    // group still runs and ingests) is asserted inside the helper.
+    assert_eq!(plan["data"]["selected_count"], 3);
 }
 #[test]
 fn readiness_execution_run_args_error() {
-    readiness_execution_case("error", 1, "run args");
+    let plan = readiness_execution_case("error", 1, "run args");
+    // Execution-time failure: selection evidence is untouched — the
+    // always-run pair (faulty, healthy; spare has history).
+    assert_eq!(plan["data"]["selected_count"], 2);
 }
 #[test]
 fn readiness_execution_empty_argv() {
-    readiness_execution_case("empty", 1, "empty runner");
+    let plan = readiness_execution_case("empty", 1, "empty runner");
+    assert_eq!(plan["data"]["selected_count"], 2);
 }
 #[test]
 fn readiness_execution_missing_runner() {
-    readiness_execution_case("runner", 1, "failed to run tests");
+    let plan = readiness_execution_case("runner", 1, "failed to run tests");
+    assert_eq!(plan["data"]["selected_count"], 2);
 }
 #[test]
 fn readiness_execution_success() {
-    readiness_execution_case("ok", 0, "ingesting results");
+    let plan = readiness_execution_case("ok", 0, "ingesting results");
+    // Shadow mode reports the full-run outcome code in the plan.
+    assert_eq!(plan["data"]["exit_code"], 10);
 }
 #[test]
 fn readiness_execution_runner_failure() {
-    readiness_execution_case("failed", 7, "test runner failed with exit code 7");
+    let plan = readiness_execution_case("failed", 7, "test runner failed with exit code 7");
+    assert_eq!(plan["data"]["selected_count"], 2);
 }
 
 /// Test that `testaruda select --json` exits with the outcome-derived code
@@ -404,7 +406,12 @@ fn json_mode_exits_with_low_confidence_code() {
 /// is covered by the `faulty` adapter; the `healthy` adapter covers `.bar`.
 /// Plain `select --json` (no --safe/--ci) — no runner execution, so the
 /// outcome code is the process exit code.
-fn readiness_incomplete_case(mode: &str, changed: &str, expected: i32, diagnostic: &str) {
+fn readiness_incomplete_case(
+    mode: &str,
+    changed: &str,
+    expected: i32,
+    diagnostic: &str,
+) -> (serde_json::Value, String) {
     let project = setup_project();
     let adapter = project.path().join("adapter.py");
     std::fs::write(&adapter, r#"import json, sys
@@ -468,44 +475,68 @@ for line in sys.stdin:
         plan["data"]["selected_count"], 3,
         "component fallback must select all component tests\n{stderr}"
     );
+    (plan, stderr.to_string())
 }
 
 /// Unknown file kind (no adapter registered for `.xyz`) with no known edges:
 /// TIA-CHG-007 requires a fallback signal for the affected component.
 #[test]
 fn readiness_incomplete_unknown_kind() {
-    readiness_incomplete_case("ok", "source.xyz", 10, "unknown file kind");
+    let (plan, _) = readiness_incomplete_case("ok", "source.xyz", 10, "unknown file kind");
+    assert!(plan["data"]["reason"]
+        .as_str()
+        .unwrap_or("")
+        .contains("unknown file kind"));
 }
 
 /// Adapter reports the changed file unresolved (TIA-SAFE-004): dependents
 /// must be conservatively force-included via a component fallback.
 #[test]
 fn readiness_incomplete_unresolved_report() {
-    readiness_incomplete_case(
+    let (plan, _) = readiness_incomplete_case(
         "unresolved",
         "source.foo",
         10,
         "reported the file unresolved",
     );
+    assert!(plan["data"]["reason"]
+        .as_str()
+        .unwrap_or("")
+        .contains("reported the file unresolved"));
 }
 
 /// Adapter binary missing: TIA-ADAPT-012 requires the fallback mechanism,
 /// not a log-only warning with an empty selection.
 #[test]
 fn readiness_incomplete_missing_binary() {
-    readiness_incomplete_case("missing", "source.foo", 10, "Incomplete adapter evidence");
+    let (plan, _) =
+        readiness_incomplete_case("missing", "source.foo", 10, "Incomplete adapter evidence");
+    assert!(plan["data"]["reason"]
+        .as_str()
+        .unwrap_or("")
+        .contains("unavailable or failed"));
 }
 
 /// Adapter dies at startup (handshake never completes): same fallback contract.
 #[test]
 fn readiness_incomplete_startup_failure() {
-    readiness_incomplete_case("startup", "source.foo", 10, "Incomplete adapter evidence");
+    let (plan, _) =
+        readiness_incomplete_case("startup", "source.foo", 10, "Incomplete adapter evidence");
+    assert!(plan["data"]["reason"]
+        .as_str()
+        .unwrap_or("")
+        .contains("unavailable or failed"));
 }
 
 /// Adapter emits a malformed static-deps response: same fallback contract.
 #[test]
 fn readiness_incomplete_malformed_response() {
-    readiness_incomplete_case("malformed", "source.foo", 10, "Incomplete adapter evidence");
+    let (plan, _) =
+        readiness_incomplete_case("malformed", "source.foo", 10, "Incomplete adapter evidence");
+    assert!(plan["data"]["reason"]
+        .as_str()
+        .unwrap_or("")
+        .contains("unavailable or failed"));
 }
 
 // ===== Selection idempotence — baseline advancement (testaruda-yvyb) =====
@@ -597,9 +628,22 @@ fn readiness_baseline_known_change() {
     let project = readiness_baseline_setup("ok", "source.xyz", true);
     let (code, plan, stderr) = run_select(&project, &["--files", "source.xyz"]);
     assert_fallback_selected(code, &plan, 1);
-    let (code2, plan2, stderr2) = run_select(&project, &["--files", "source.xyz"]);
+    let (code2, plan2, _) = run_select(&project, &["--files", "source.xyz"]);
     assert_fallback_selected(code2, &plan2, 2);
-    drop((stderr, stderr2));
+    // The preseeded stale baseline must survive both select-only requests.
+    let conn = rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap();
+    let fp: String = conn
+        .query_row(
+            "SELECT fingerprint FROM content_units WHERE path = 'source.xyz'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        fp, "stale-fingerprint",
+        "select-only must not advance the baseline"
+    );
+    drop(stderr);
 }
 
 /// Cold start: a file unknown to the store stays classified (unresolved)
@@ -611,6 +655,16 @@ fn readiness_baseline_cold_start() {
     assert_fallback_selected(code, &plan, 1);
     let (code2, plan2, _) = run_select(&project, &["--files", "source.xyz"]);
     assert_fallback_selected(code2, &plan2, 2);
+    // Cold-start baseline: still "unknown" after both select-only requests.
+    let conn = rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap();
+    let fp: String = conn
+        .query_row(
+            "SELECT fingerprint FROM content_units WHERE path = 'source.xyz'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(fp, "unknown", "cold-start baseline must stay unknown");
 }
 
 /// Failed execution: after a CI run whose faulty group fails, a repeat select
@@ -631,7 +685,19 @@ fn readiness_baseline_failed_execution() {
         "healthy group must execute"
     );
     // Repeat select-only request: classification preserved.
-    let (code2, plan2, stderr2) = run_select(&project, &["--files", "source.xyz"]);
+    let (code2, plan2, _) = run_select(&project, &["--files", "source.xyz"]);
     assert_fallback_selected(code2, &plan2, 2);
-    drop(stderr2);
+    // The failed run must not have advanced the baseline either.
+    let conn = rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap();
+    let fp: String = conn
+        .query_row(
+            "SELECT fingerprint FROM content_units WHERE path = 'source.xyz'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        fp, "stale-fingerprint",
+        "failed execution must not advance the baseline"
+    );
 }

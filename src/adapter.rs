@@ -101,16 +101,28 @@ pub struct TestItem {
 // ===== Protocol IO =====
 
 /// Sends a command and receives a typed response over a piped subprocess.
+///
+/// IO is bounded (testaruda-v9ey): a background thread turns the child's
+/// stdout into complete lines on a channel so `read_response` can enforce the
+/// deadline with `recv_timeout` — a silent or partial-line adapter can no
+/// longer block forever on a live pipe. A second thread continuously drains
+/// the child's stderr into a capped buffer so a chatty adapter cannot fill
+/// the pipe and wedge itself.
 pub struct AdapterIO {
     child: Child,
     stdin: Box<dyn Write + Send>,
-    reader: BufReader<Box<dyn std::io::Read + Send>>,
+    lines: std::sync::mpsc::Receiver<std::io::Result<String>>,
+    stderr_buf: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
     timeout: Duration,
     /// Adapter name from handshake.
     pub name: String,
     /// Adapter capabilities from handshake.
     pub capabilities: AdapterCapabilities,
 }
+
+/// Cap on the drained stderr snapshot kept for failure diagnostics — the
+/// tail is retained, earlier bytes are dropped (testaruda-v9ey).
+const STDERR_DRAIN_CAP: usize = 256 * 1024;
 
 impl AdapterIO {
     /// Spawn an adapter binary, perform the handshake, and return a connected IO handle.
@@ -167,10 +179,69 @@ impl AdapterIO {
                 ))
             })?);
 
+        // stderr drain thread (testaruda-v9ey): continuously reads the child's
+        // stderr into a capped shared buffer. Without this, a chatty adapter
+        // can fill the 64KB pipe buffer and wedge itself mid-response.
+        let mut stderr_pipe = child.stderr.take().ok_or_else(|| {
+            AdapterError::Io(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "stderr not available",
+            ))
+        })?;
+        let stderr_buf: std::sync::Arc<std::sync::Mutex<Vec<u8>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        {
+            let buf = std::sync::Arc::clone(&stderr_buf);
+            std::thread::spawn(move || {
+                let mut chunk = [0u8; 8192];
+                loop {
+                    match std::io::Read::read(&mut stderr_pipe, &mut chunk) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            if let Ok(mut b) = buf.lock() {
+                                b.extend_from_slice(&chunk[..n]);
+                                let len = b.len();
+                                if len > STDERR_DRAIN_CAP {
+                                    b.drain(..len - STDERR_DRAIN_CAP);
+                                }
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
+
+        // stdout reader thread (testaruda-v9ey): turns the child's stdout
+        // into complete lines on a channel. `read_response` then enforces the
+        // deadline with `recv_timeout` instead of blocking inside `read_line`
+        // on a live pipe.
+        let (line_tx, line_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut reader = BufReader::new(stdout);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line) {
+                    Ok(0) => break, // EOF
+                    Ok(_) => {
+                        if line_tx.send(Ok(line.clone())).is_err() {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        let _ = line_tx.send(Err(e));
+                        break;
+                    }
+                }
+            }
+        });
+
         let mut io = Self {
             child,
             stdin,
-            reader: BufReader::new(stdout),
+            lines: line_rx,
+            stderr_buf,
             timeout,
             name: String::new(),
             capabilities: AdapterCapabilities::default(),
@@ -289,10 +360,19 @@ impl AdapterIO {
         })
     }
 
-    /// Read a single JSON response line from the adapter.
+    /// Snapshot of the drained stderr tail, for failure diagnostics.
+    fn stderr_snapshot(&self) -> String {
+        self.stderr_buf
+            .lock()
+            .map(|b| String::from_utf8_lossy(&b).to_string())
+            .unwrap_or_default()
+    }
+
+    /// Read a single JSON response line from the adapter, bounded by the
+    /// deadline (testaruda-v9ey). Silence, a never-terminated line, or a wedged
+    /// stderr all resolve to a killed child and `AdapterError::Timeout`.
     fn read_response<T: serde::de::DeserializeOwned>(&mut self) -> Result<T, AdapterError> {
         let start = Instant::now();
-        let mut line = String::new();
 
         loop {
             // Check timeout
@@ -305,10 +385,7 @@ impl AdapterIO {
             // Check if adapter exited
             match self.child.try_wait() {
                 Ok(Some(status)) => {
-                    let stderr = match self.child.stderr.take() {
-                        Some(mut s) => std::io::read_to_string(&mut s).unwrap_or_default(),
-                        None => String::new(),
-                    };
+                    let stderr = self.stderr_snapshot();
                     return Err(AdapterError::ProcessExit(
                         status.code().unwrap_or(-1),
                         stderr,
@@ -318,42 +395,35 @@ impl AdapterIO {
                 Err(e) => return Err(AdapterError::Io(e)),
             }
 
-            // Set a short read timeout on the underlying reader so read_line
-            // blocks at most 100ms — no busy-wait needed.
+            // Bounded wait on the stdout line channel: at most 100ms per
+            // recv, so the deadline and child-exit checks above stay live.
             let remaining = self.timeout.saturating_sub(elapsed);
-            let poll_ms = std::cmp::min(remaining.as_millis() as u64, 100);
-
-            // Use a select-like approach: we can't set_read_timeout on BufReader
-            // wrapping a generic Read, but we can use std::thread::sleep with
-            // a check loop that reads only when data is available.
-            // For the reference implementation, a shorter poll interval is fine.
-            line.clear();
-            match self.reader.read_line(&mut line) {
-                Ok(0) => {
-                    // EOF — adapter closed stdout
-                    std::thread::sleep(Duration::from_millis(poll_ms));
+            let poll = std::cmp::min(remaining, Duration::from_millis(100));
+            match self.lines.recv_timeout(poll) {
+                Ok(Ok(line)) => {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() {
+                        continue; // blank line — keep waiting
+                    }
+                    // Parse response envelope to check ok/error
+                    let value: serde_json::Value = serde_json::from_str(trimmed)?;
+                    if let Some(false) = value.get("ok").and_then(|v| v.as_bool()) {
+                        let err = value
+                            .get("error")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("adapter error");
+                        return Err(AdapterError::MalformedResponse(err.to_string()));
+                    }
+                    // Parse the full response as T using the same Value
+                    return serde_json::from_value(value).map_err(AdapterError::Json);
+                }
+                Ok(Err(e)) => return Err(AdapterError::Io(e)),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    // EOF — adapter closed stdout; it may still be exiting.
+                    std::thread::sleep(Duration::from_millis(100));
                     continue;
                 }
-                Ok(_) => {
-                    let trimmed = line.trim();
-                    if !trimmed.is_empty() {
-                        // Parse response envelope to check ok/error
-                        let value: serde_json::Value = serde_json::from_str(trimmed)?;
-                        if let Some(false) = value.get("ok").and_then(|v| v.as_bool()) {
-                            let err = value
-                                .get("error")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("adapter error");
-                            return Err(AdapterError::MalformedResponse(err.to_string()));
-                        }
-                        // Parse the full response as T using the same Value
-                        return serde_json::from_value(value).map_err(AdapterError::Json);
-                    }
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(poll_ms));
-                }
-                Err(e) => return Err(AdapterError::Io(e)),
             }
         }
     }
@@ -722,6 +792,102 @@ pub fn spawn_adapter_in(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
+
+    // ===== Bounded adapter IO (testaruda-v9ey) =====
+    // A silent or partial-line adapter must hit the deadline instead of
+    // blocking forever on a live pipe, and a stderr-flooding adapter must
+    // not wedge on an undrained pipe.
+
+    /// Write a fake adapter script and return its spawn command string.
+    fn io_script(dir: &Path, body: &str) -> String {
+        let path = dir.join("io_adapter.py");
+        std::fs::write(&path, format!("import json, sys, time\n{body}\n")).unwrap();
+        format!("python3 {}", path.display())
+    }
+
+    const HANDSHAKE_BODY: &str = r#"HS = json.dumps(dict(ok=True, result=dict(name='io', version='1', protocol=1, languages=['fake'], granularity='file', capabilities={})))
+for line in sys.stdin:
+    cmd = json.loads(line)['command']
+    if cmd == 'handshake':
+        print(HS, flush=True)
+    elif cmd == 'static-deps':
+        print(json.dumps(dict(ok=True, result=dict(candidates=[], edges=[], unresolved=[]))), flush=True)
+    else:
+        print(json.dumps(dict(ok=True, result={})), flush=True)
+"#;
+
+    #[test]
+    fn readiness_io_success() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut io = spawn_adapter(&io_script(dir.path(), HANDSHAKE_BODY), Some(5_000)).unwrap();
+        let result = io.static_deps(&["src/lib.rs".to_string()]);
+        assert!(result.is_ok(), "healthy adapter must respond");
+    }
+
+    #[test]
+    fn readiness_io_silence_times_out() {
+        let dir = tempfile::tempdir().unwrap();
+        // Never reads stdin, never writes: the deadline must fire.
+        let script = io_script(dir.path(), "time.sleep(30)");
+        let result = spawn_adapter(&script, Some(300));
+        match result {
+            Err(AdapterError::Timeout(ms)) => assert_eq!(ms, 300),
+            Err(other) => panic!("expected Timeout, got: {other}"),
+            Ok(_) => panic!("expected Timeout, but adapter responded"),
+        }
+    }
+
+    #[test]
+    fn readiness_io_partial_line_times_out() {
+        let dir = tempfile::tempdir().unwrap();
+        // Handshake fine, then writes a partial JSON line with no newline and
+        // stalls: the deadline must fire instead of blocking on the pipe.
+        let script = io_script(
+            dir.path(),
+            r#"HS = json.dumps(dict(ok=True, result=dict(name='io', version='1', protocol=1, languages=['fake'], granularity='file', capabilities={})))
+for line in sys.stdin:
+    cmd = json.loads(line)['command']
+    if cmd == 'handshake':
+        print(HS, flush=True)
+    elif cmd == 'static-deps':
+        sys.stdout.write('{"ok":true,"resu')
+        sys.stdout.flush()
+        time.sleep(30)
+"#,
+        );
+        let mut io = spawn_adapter(&script, Some(5_000)).unwrap();
+        let result = io.static_deps(&["src/lib.rs".to_string()]);
+        match result {
+            Err(AdapterError::Timeout(_)) => {}
+            Err(other) => panic!("expected Timeout, got: {other}"),
+            Ok(_) => panic!("expected Timeout, but adapter responded"),
+        }
+    }
+
+    #[test]
+    fn readiness_io_stderr_flood_succeeds() {
+        let dir = tempfile::tempdir().unwrap();
+        // Floods stderr (far beyond the 64KB pipe buffer) BEFORE answering:
+        // the core must keep draining stderr so the adapter can proceed.
+        let script = io_script(
+            dir.path(),
+            r#"HS = json.dumps(dict(ok=True, result=dict(name='io', version='1', protocol=1, languages=['fake'], granularity='file', capabilities={})))
+for line in sys.stdin:
+    cmd = json.loads(line)['command']
+    if cmd == 'handshake':
+        for _ in range(20):
+            sys.stderr.write('x' * (1024 * 1024))
+        sys.stderr.flush()
+        print(HS, flush=True)
+    elif cmd == 'static-deps':
+        print(json.dumps(dict(ok=True, result=dict(candidates=[], edges=[], unresolved=[]))), flush=True)
+"#,
+        );
+        let mut io = spawn_adapter(&script, Some(10_000)).unwrap();
+        let result = io.static_deps(&["src/lib.rs".to_string()]);
+        assert!(result.is_ok(), "stderr flood must not wedge the adapter");
+    }
 
     #[test]
     fn test_parse_command_string_bare_binary() {
