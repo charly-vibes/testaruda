@@ -54,3 +54,14 @@
   - Session hazard hit: a parallel session had checked out fix/cpd-vacuous-calibration and left it after merging #85 — my commit rode along; recovered via cherry-pick onto fix/8trl-excluded-path-skip (struct + call-site hunks dropped by the pick, reapplied manually). Check git branch --show-current BEFORE committing.
   - Deeper fix (prune stale items at discover time) stays with testaruda-y3iv. srqu's python half is now fixed; its julia/MbedTLS half remains environmental.
   - **Next:** y3iv (stale-item pruning — the general fix), or P1 h7bv.1/pevk.
+- 2026-10-14T22:44:23Z [id:4652f7cb2bce84c4398e269da0ccab182a7acc6574d3a2fa7b2bf368618837a0] ### 2026-10-14 19:44 — snap
+  - 8trl arc fully closed out: PR #86 squash-merged (ca24cd0), bd ticket closed with evidence, JSONL chore + whisper notes committed and pushed (main @ 15892fe). Pre-push gate green in its own hook — pushes unblocked, no more --no-verify needed.
+  - Nothing in_progress, working tree clean (only whisper usage jsonl churn).
+  - **Next:** y3iv (stale-item pruning at discover time — the general fix; the 3 fixture items still sit in the store, just never run now), or P1 h7bv.1 (release adapter gate) / pevk (julia discovery scope).
+
+### 2026-10-15 — snap
+- testaruda-y3iv CLOSED via PR #87 (squash 8f46ca0, CI green): store now prunes stale test items at discover time — per-adapter replacement semantics (prune_stale_test_items), applied only after COMPLETED full discovery walks, never partial changed-file discovery. Cascades edges/reverse_index/run_history/provenance/incidents in one transaction; keeps still-present tests' history; invalidates selection_cache (cached selections may reference pruned ids). Temp-table keep-set sidesteps SQLite bind-param limits on big repos.
+- Interplay with 8trl: discover-time prune handles gitignored/deleted/excluded-dir items; the run-time excluded-path guard stays as defense-in-depth because real adapters still collect excluded-path items (discover results are NOT exclude-filtered). 8trl fixtures updated to advertise items via discover.
+- Adapter-side gitignore skipping in stress-test synthetic mode left out of scope (engine choke point already drops gitignored items per gh-64).
+- Gotcha: fake test adapters that return discover result=[] now nuke seeded stores (exit 20 empty selection) — any test seeding test_items must make its adapter discover them.
+- **Next:** P1 h7bv.1 (release adapter gate) or pevk (julia discovery scope); 4 open P2/P3s remain.
