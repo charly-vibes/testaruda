@@ -10,6 +10,14 @@
 pre-commit:
   parallel: true
   commands:
+    # ddl:managed:start (pre-commit)
+    ddl-ah-check:
+      run: ah check
+    ddl-pretender-gate:
+      run: pretender check --mode gate
+    ddl-spk-lint:
+      run: spk lint openspec
+    # ddl:managed:end (pre-commit)
     beads:
       run: bd hooks run pre-commit
       skip: no_beads
@@ -32,6 +40,10 @@ pre-commit:
 pre-push:
   parallel: true
   commands:
+    # ddl:managed:start (pre-push)
+    ddl-ah-check:
+      run: ah check
+    # ddl:managed:end (pre-push)
     beads:
       run: bd hooks run pre-push
       skip: no_beads
