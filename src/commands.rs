@@ -10,8 +10,9 @@ use genesis::guide::{CliFormat, OutputFormat};
 use miette::miette;
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
+use std::path::Path;
 
-use testaruda::adapter::{spawn_adapter, AdapterRegistry};
+use testaruda::adapter::{spawn_adapter, AdapterRegistry, TestItem};
 use testaruda::agent::{ChangedUnit, PreEditOutput, SummaryStats};
 use testaruda::{ChangeSet, Engine, SelectedTest, Selection, Store, TestOrdering};
 
@@ -190,90 +191,121 @@ pub fn run_adapter_pipeline(
 
     // Step 2: For each adapter, run discover + static-deps on all files
     for (binary, files) in &adapter_files {
-        let mut adapter = match spawn_adapter(binary, None) {
-            Ok(a) => a,
-            Err(e) => {
-                // Extract just the resolved binary name for the diagnostic (TIA-ADAPT-024)
-                let binary_name = testaruda::adapter::parse_command_string(binary)
-                    .map(|(b, _)| b)
-                    .unwrap_or_else(|_| binary.to_string());
-                eprintln!("  ⚠️  Failed to spawn adapter {}: {}", binary_name, e);
-                continue;
-            }
-        };
-
-        // Run discover (TIA-ADAPT-004)
-        match adapter.discover() {
-            Ok(items) => {
-                eprintln!(
-                    "  📋 {} discovered {} test items",
-                    adapter.name,
-                    items.len()
-                );
-                store
-                    .store_test_items(&adapter.name, &items)
-                    .map_err(|e| format!("store error: {}", e))?;
-            }
-            Err(e) => {
-                eprintln!("  ⚠️  Discover failed for {}: {}", binary, e);
-            }
-        }
-
-        // Run static-deps on ALL files for this adapter (not just changed files)
-        // This builds the full import graph so the store has complete dependency
-        // data for any file that might be changed in future selections.
-        match adapter.static_deps(files) {
-            Ok(result) => {
-                eprintln!(
-                    "  🔗 {} computed {} edges from {} files",
-                    adapter.name,
-                    result.edges.len(),
-                    files.len()
-                );
-                store
-                    .store_static_deps(&adapter.name, &result.edges)
-                    .map_err(|e| format!("store error: {}", e))?;
-            }
-            Err(e) => {
-                eprintln!("  ⚠️  Static-deps failed for {}: {}", binary, e);
-            }
-        }
+        discover_and_link_adapter(store, binary, files)?;
     }
 
     // Step 3: Also process any changed files that aren't already covered
     // (e.g., files with no registered adapter, or files in directories
     // that were excluded from the full walk)
-    for path in &delta.files {
-        if let Some(binary) = registry.resolve(path) {
-            if adapter_files.contains_key(binary) {
-                continue; // already processed in the full walk
-            }
-            // Edge case: a changed file for an adapter not seen in the full walk
-            let mut adapter = match spawn_adapter(binary, None) {
-                Ok(a) => a,
-                Err(e) => {
-                    // Extract just the resolved binary name for the diagnostic (TIA-ADAPT-024)
-                    let binary_name = testaruda::adapter::parse_command_string(binary)
-                        .map(|(b, _)| b)
-                        .unwrap_or_else(|_| binary.to_string());
-                    eprintln!("  ⚠️  Failed to spawn adapter {}: {}", binary_name, e);
-                    continue;
-                }
-            };
-            if let Ok(items) = adapter.discover() {
-                store
-                    .store_test_items(&adapter.name, &items)
-                    .map_err(|e| format!("store error: {}", e))?;
-            }
-            if let Ok(result) = adapter.static_deps(std::slice::from_ref(path)) {
-                store
-                    .store_static_deps(&adapter.name, &result.edges)
-                    .map_err(|e| format!("store error: {}", e))?;
-            }
+    run_uncovered_changed_files(store, registry, delta, &adapter_files);
+
+    Ok(())
+}
+
+/// Spawn `binary` with a diagnostic on failure naming the resolved binary
+/// (TIA-ADAPT-024). Returns None (after warning) instead of an error so one
+/// broken adapter never blocks the others.
+fn spawn_adapter_or_warn(binary: &str) -> Option<testaruda::adapter::AdapterIO> {
+    match spawn_adapter(binary, None) {
+        Ok(a) => Some(a),
+        Err(e) => {
+            let binary_name = testaruda::adapter::parse_command_string(binary)
+                .map(|(b, _)| b)
+                .unwrap_or_else(|_| binary.to_string());
+            eprintln!("  ⚠️  Failed to spawn adapter {}: {}", binary_name, e);
+            None
+        }
+    }
+}
+
+/// Discover + static-deps for one adapter against its full file list, storing
+/// both. Gitignored files/items are dropped before storing (testaruda-onj6 /
+/// gh-64): generated artifacts (compiled proptest modules, build outputs)
+/// must not become test items or content units — they over-select and redden
+/// pre-push gates.
+fn discover_and_link_adapter(
+    store: &Store,
+    binary: &str,
+    files: &[String],
+) -> std::result::Result<(), String> {
+    let mut adapter = spawn_adapter_or_warn(binary).ok_or_else(|| "spawn failed".to_string())?;
+
+    // Run discover (TIA-ADAPT-004)
+    match adapter.discover() {
+        Ok(items) => {
+            let items = drop_gitignored_items(Path::new("."), items);
+            eprintln!(
+                "  📋 {} discovered {} test items",
+                adapter.name,
+                items.len()
+            );
+            store
+                .store_test_items(&adapter.name, &items)
+                .map_err(|e| format!("store error: {}", e))?;
+        }
+        Err(e) => {
+            eprintln!("  ⚠️  Discover failed for {}: {}", binary, e);
         }
     }
 
+    // Run static-deps on ALL files for this adapter (not just changed files)
+    // This builds the full import graph so the store has complete dependency
+    // data for any file that might be changed in future selections.
+    let mut filtered_files = files.to_vec();
+    drop_gitignored_files(Path::new("."), &mut filtered_files);
+    match adapter.static_deps(&filtered_files) {
+        Ok(result) => {
+            eprintln!(
+                "  🔗 {} computed {} edges from {} files",
+                adapter.name,
+                result.edges.len(),
+                filtered_files.len()
+            );
+            store
+                .store_static_deps(&adapter.name, &result.edges)
+                .map_err(|e| format!("store error: {}", e))?;
+        }
+        Err(e) => {
+            eprintln!("  ⚠️  Static-deps failed for {}: {}", binary, e);
+        }
+    }
     Ok(())
+}
+
+/// Edge case of the pipeline: changed files for an adapter not seen in the
+/// full walk (e.g. no registered adapter covered the directory, or it was
+/// excluded). Gitignored changed files are skipped — not indexed (gh-64).
+fn run_uncovered_changed_files(
+    store: &Store,
+    registry: &AdapterRegistry,
+    delta: &ChangeSet,
+    adapter_files: &std::collections::HashMap<String, Vec<String>>,
+) {
+    let ignored_changed = testaruda::config::git_ignored_paths(Path::new("."), &delta.files);
+    for path in &delta.files {
+        let Some(binary) = registry.resolve(path) else {
+            continue;
+        };
+        if adapter_files.contains_key(binary) {
+            continue; // already processed in the full walk
+        }
+        let mut adapter = match spawn_adapter_or_warn(binary) {
+            Some(a) => a,
+            None => continue,
+        };
+        if let Ok(items) = adapter.discover() {
+            let items = drop_gitignored_items(Path::new("."), items);
+            if store.store_test_items(&adapter.name, &items).is_err() {
+                continue;
+            }
+        }
+        if ignored_changed.contains(path) {
+            continue; // gitignored changed file — do not index (gh-64)
+        }
+        if let Ok(result) = adapter.static_deps(std::slice::from_ref(path)) {
+            let _ = store.store_static_deps(&adapter.name, &result.edges);
+        }
+    }
 }
 
 /// Discover-only: run adapter discovery on a broader set of files.
@@ -309,6 +341,7 @@ pub fn run_discover_pipeline(
 
             match adapter.discover() {
                 Ok(items) => {
+                    let items = drop_gitignored_items(Path::new("."), items);
                     eprintln!("  📋 {} found {} tests", adapter.name, items.len());
                     store
                         .store_test_items(&adapter.name, &items)
@@ -968,6 +1001,38 @@ fn collect_selected_by_adapter(
         }
     }
     groups
+}
+
+/// Drop discovered test items whose file is gitignored (testaruda-onj6 /
+/// gh-64): generated artifacts (compiled proptest modules, build outputs)
+/// must not become test items — they over-select and redden pre-push gates.
+/// One batched `git check-ignore` per discovery result set.
+fn drop_gitignored_items(root: &Path, items: Vec<TestItem>) -> Vec<TestItem> {
+    if items.is_empty() {
+        return items;
+    }
+    let files: Vec<String> = items.iter().map(|i| i.file.clone()).collect();
+    let ignored = testaruda::config::git_ignored_paths(root, &files);
+    if ignored.is_empty() {
+        return items;
+    }
+    let dropped = items.iter().filter(|i| ignored.contains(&i.file)).count();
+    eprintln!("  🧹 dropped {dropped} gitignored file(s) from discovery");
+    items
+        .into_iter()
+        .filter(|i| !ignored.contains(&i.file))
+        .collect()
+}
+
+/// Remove gitignored files from a static-deps file list in place (gh-64).
+fn drop_gitignored_files(root: &Path, files: &mut Vec<String>) {
+    if files.is_empty() {
+        return;
+    }
+    let ignored = testaruda::config::git_ignored_paths(root, files);
+    if !ignored.is_empty() {
+        files.retain(|f| !ignored.contains(f));
+    }
 }
 
 /// Prune in CI mode, warn on drops; passthrough otherwise (non-CI select is
@@ -1742,6 +1807,45 @@ line two",
         let later = stale_mtime + std::time::Duration::from_secs(1);
         let out = run_output_for_ingest(path.to_str().unwrap(), Some(later), "console output");
         assert_eq!(out, "console output");
+    }
+
+    /// Discovered items under a gitignored path must be dropped before
+    /// storing (testaruda-onj6 / gh-64): spk orchestrate's generated proptest
+    /// files were indexed as 9 phantom rust tests and every pre-push gate
+    /// failed until the artifacts were hand-deleted and the dir gitignored.
+    #[test]
+    fn drop_gitignored_items_filters_generated_artifacts() {
+        let dir = tempfile::tempdir().unwrap();
+        let run_git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir.path())
+                .args(args)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .output()
+                .unwrap();
+        };
+        run_git(&["init", "-q"]);
+        std::fs::write(dir.path().join(".gitignore"), "generated/\n").unwrap();
+        std::fs::create_dir_all(dir.path().join("generated")).unwrap();
+
+        let items: Vec<TestItem> = vec![
+            TestItem {
+                node_id: "generated::spec_props::test_a(Test)".into(),
+                suite_kind: "unit".into(),
+                file: "generated/spec_props.rs".into(),
+            },
+            TestItem {
+                node_id: "src::lib::test_b(Test)".into(),
+                suite_kind: "unit".into(),
+                file: "src/lib.rs".into(),
+            },
+        ];
+        let kept = drop_gitignored_items(dir.path(), items);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].file, "src/lib.rs");
+        // Empty input short-circuits without spawning git.
+        assert!(drop_gitignored_items(dir.path(), vec![]).is_empty());
     }
 
     /// exec/select --ci must not invoke runners on test paths absent at HEAD
