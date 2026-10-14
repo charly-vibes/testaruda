@@ -1060,7 +1060,7 @@ mod tests {
         let has_core = results.iter().any(|p| {
             p.file_name()
                 .and_then(|n| n.to_str())
-                .map_or(false, |n| n == "core.ts" || n == "core.tsx")
+                .is_some_and(|n| n == "core.ts" || n == "core.tsx")
         });
         assert!(
             has_core,

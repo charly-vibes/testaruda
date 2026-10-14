@@ -8,24 +8,27 @@ default:
 build:
     cargo build
 
-# Build (release)
+# Build (release), whole workspace — shipped adapter binaries are release
+# artifacts (testaruda-h7bv.1)
 build-release:
-    cargo build --release
+    cargo build --workspace --release
 
 # Alias for backward compatibility
 release: build-release
 
-# Run all tests (parallel-safe — adapter children get explicit cwd, testaruda-pzh6)
+# Run all tests, whole workspace — shipped adapters gate like the engine
+# (testaruda-h7bv.1); parallel-safe, adapter children get explicit cwd
+# (testaruda-pzh6)
 test:
-    cargo test
+    cargo test --workspace
 
 # Run tests with output
 test-v:
-    cargo test -- --nocapture
+    cargo test --workspace -- --nocapture
 
-# Lint (clippy with warnings denied)
+# Lint (clippy with warnings denied), whole workspace
 clippy:
-    cargo clippy --all-targets -- -D warnings
+    cargo clippy --workspace --all-targets -- -D warnings
 
 # Alias for lefthook
 lint: clippy

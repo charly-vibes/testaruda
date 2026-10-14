@@ -1,5 +1,4 @@
 use assert_cmd::Command;
-use tempfile;
 
 /// Helper: send a JSON command to the adapter binary and return the parsed response.
 fn send_command(cmd: &str) -> serde_json::Value {

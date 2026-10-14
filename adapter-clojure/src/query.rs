@@ -340,7 +340,7 @@ mod tests {
 
         let deps: Vec<&Capture> = deps_caps.iter().filter(|c| c.name == "dep_entry").collect();
         assert!(
-            deps.len() >= 1,
+            !deps.is_empty(),
             "expected at least 1 dep_entry, got: {deps_caps:?}"
         );
     }
