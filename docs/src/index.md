@@ -46,3 +46,7 @@ testaruda ingest results.json
 - Look up commands in the [CLI Reference](cli.md).
 - Configure language adapters and safety rules in [Configuration](configuration.md).
 - Integrate structured output using [Agent Mode](agent-mode.md).
+
+## Ecosystem
+
+testaruda is part of the [charly-vibes Tool Ecosystem](https://charly-vibes.github.io/dulce-de-leche/ecosystem-map.html) — the map shows how it relates to its sibling tools.
