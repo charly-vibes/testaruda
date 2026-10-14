@@ -1221,6 +1221,92 @@ impl Store {
         Ok(())
     }
 
+    /// Prune test items for `adapter` absent from a completed full
+    /// discovery walk (testaruda-y3iv).
+    ///
+    /// Implements per-adapter replacement semantics: the store previously
+    /// only ever INSERT OR IGNOREd items, so stale entries (gitignored or
+    /// deleted files, pre-existing phantom items) stayed forever and kept
+    /// over-selecting. Only prune when the caller holds a COMPLETED full
+    /// walk — partial (changed-file) discovery must not prune.
+    ///
+    /// Dependent rows (dependency_edges, reverse_index, run_history,
+    /// provenance, missed_selection_incidents) cascade away with their
+    /// item; run history for still-present tests is untouched. Returns
+    /// the number of items pruned.
+    pub fn prune_stale_test_items(
+        &self,
+        adapter: &str,
+        keep: &[crate::adapter::TestItem],
+    ) -> miette::Result<usize> {
+        self.conn
+            .execute_batch(
+                "CREATE TEMP TABLE IF NOT EXISTS keep_node_ids (node_id TEXT PRIMARY KEY)",
+            )
+            .map_err(|e| miette::miette!("Failed to create keep-set table: {}", e))?;
+        self.conn
+            .execute_batch("DELETE FROM keep_node_ids")
+            .map_err(|e| miette::miette!("Failed to clear keep-set table: {}", e))?;
+        {
+            let mut stmt = self
+                .conn
+                .prepare("INSERT INTO keep_node_ids (node_id) VALUES (?1)")
+                .map_err(|e| miette::miette!("Failed to prepare keep-set insert: {}", e))?;
+            for item in keep {
+                stmt.execute([item.node_id.as_str()])
+                    .map_err(|e| miette::miette!("Failed to insert keep-set row: {}", e))?;
+            }
+        }
+
+        self.conn
+            .execute_batch("BEGIN")
+            .map_err(|e| miette::miette!("Failed to begin prune transaction: {}", e))?;
+        let stale_ids = "SELECT id FROM test_items WHERE adapter = ?1 \
+             AND node_id NOT IN (SELECT node_id FROM keep_node_ids)";
+        let result = (|| {
+            for table in [
+                "dependency_edges",
+                "reverse_index",
+                "run_history",
+                "provenance",
+                "missed_selection_incidents",
+            ] {
+                self.conn
+                    .execute(
+                        &format!("DELETE FROM {table} WHERE test_item_id IN ({stale_ids})",),
+                        rusqlite::params![adapter],
+                    )
+                    .map_err(|e| miette::miette!("Failed to cascade-prune {table}: {}", e))?;
+            }
+            let pruned = self
+                .conn
+                .execute(
+                    &format!("DELETE FROM test_items WHERE id IN ({stale_ids})"),
+                    rusqlite::params![adapter],
+                )
+                .map_err(|e| miette::miette!("Failed to prune stale test items: {}", e))?;
+            if pruned > 0 {
+                // Cached selections may reference pruned node_ids.
+                self.conn
+                    .execute("DELETE FROM selection_cache", [])
+                    .map_err(|e| miette::miette!("Failed to invalidate selection cache: {}", e))?;
+            }
+            Ok(pruned)
+        })();
+        match result {
+            Ok(pruned) => {
+                self.conn
+                    .execute_batch("COMMIT")
+                    .map_err(|e| miette::miette!("Failed to commit prune: {}", e))?;
+                Ok(pruned)
+            }
+            Err(e) => {
+                let _ = self.conn.execute_batch("ROLLBACK");
+                Err(e)
+            }
+        }
+    }
+
     /// Count all test items in the store.
     pub fn test_items_count(&self) -> rusqlite::Result<usize> {
         self.conn
