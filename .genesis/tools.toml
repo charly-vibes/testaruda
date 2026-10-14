@@ -1,0 +1,13 @@
+[tools.specodelic]
+description = "Specodelic spec format linter + pipeline (spk)"
+
+[tools.specodelic.detector]
+type = "file"
+path = "AGENTS.md"
+
+[tools.wai]
+description = "Workflow manager for AI-assisted development"
+
+[tools.wai.detector]
+type = "directory"
+path = ".wai"

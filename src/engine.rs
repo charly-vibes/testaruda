@@ -213,7 +213,10 @@ fn compute_confidence_floor(
         if !prog.test_pred.iter().any(|&(tid, _, _)| tid == t) {
             continue;
         }
-        if let Some(&(k, _)) = prog.test_comp.iter().find(|&&(tid, _)| tid == t) {
+        // Bind the component key (second element) — the tuple is
+        // (test_id, component_key); binding (k, _) wrongly keyed the floor
+        // map by test id, so membership never resolved (testaruda-2bxl).
+        if let Some(&(_, k)) = prog.test_comp.iter().find(|&&(tid, _)| tid == t) {
             let conf = c as f64 / ONE as f64;
             comp_confs.entry(k).or_default().push(conf);
         }

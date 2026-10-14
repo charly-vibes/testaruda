@@ -1,0 +1,20 @@
+- 2026-10-09T20:11:16Z [id:5dfb2f55e6147c76eaf109c5a4653f38723532de016e2a7782e8ae5858210743] ### 2026-10-09 17:09 — snap
+  - Closed testaruda-1fwk: tagged and shipped v0.5.3 — release run 37984162912 green (ingest 4a51638 + discovery ancestry 73ca44f + all 5 adapters in tarballs). Release PR #68 initially missed cargo build --workspace in .github/workflows/release.yml; fixed in 6997713, tag re-pushed 8c92406.
+  - Verified Linux amd64 tarball contains all 5 binaries; crates.io, homebrew tap, and scoop bucket all updated to 0.5.3.
+  - **Next:** verify tambor CI can pin v0.5.3 and that a consumer repo's init → exec → select cycle works end-to-end (the original pain from the ticket).
+- 2026-10-09T20:12:48Z [id:baee37c7d14eb2995a0002f29d80d8b6137020436d58adbda546d6e354f9f723] ### 2026-10-09 17:12 — snap
+  - On main (clean apart from untracked .genesis/.pretender/.whisper artifacts): first /next snap captured shipped v0.5.3 (testaruda-1fwk closed, 5 adapters in tarballs).
+  - **Next:** consumer verification — tambor CI pins v0.5.3, run a real init → exec → select cycle in a TS repo (the 59/325 match-rate pain). No code or branch state changed since last snap.
+- 2026-10-14T13:53:53Z [id:128996ea1292bf6a99b06ea41b76fa6f4d7c67dfcca93469af93ac7b4667da54] ### 2026-10-14 15:30 — snap
+  - GH issues arc complete (4 PRs merged): #73 gh-71 (exec prunes selected tests absent on disk — stale calibration from branch switch exits 0 cleanly; maybe_prune_stale_paths, recall-safe path-shaped-id heuristic), #74 gh-64 (adapter pipeline drops gitignored files/items at the engine choke point — batched git check-ignore --stdin -z per run; all adapters benefit; run_adapter_pipeline held under pretender gates via discover_and_link_adapter/run_uncovered_changed_files/spawn_adapter_or_warn extraction), #75/#76 JSONL bookkeeping.
+  - Gates unblocked: DDL init sweep's ddl-spk-lint (wrong path, exit 2 on plain-openspec corpus) + repo-wide pretender gate were blocking EVERY commit — fixed in #73, upstream template bug filed DDL-3fd (dulce-de-leche), local blocker nezm closed.
+  - Genesis-c9x filed upstream: ErrorRecord has no message field — auto-reported GH issues (#66/#67) have structurally empty ## Error bodies. Both GH issues triaged needs-info + closed; mirrors closed (ubij, onj6, s1rf, nezm).
+  - Follow-ups filed: testaruda-y3iv (P3, store never prunes stale test items — INSERT OR IGNORE; needs run_history FK review), testaruda-r9ce (P3, genesis 0.8.x → 0.13.1 upgrade backlog).
+  - Gotcha: git commit | tail masks lefthook failures (bit twice); pretender staged-gate counts branches added to select() — extract helpers before committing.
+  - **Next:** P1 wave ready: 0bwk/yvyb/v9ey/2bxl (selection confidence semantics), h7bv epic (release quality), pevk (julia discovery scope); gh-64-style y3iv then genesis-c9x adoption.
+- 2026-10-14T13:55:06Z [id:88b58888555aa80a9579022aece5d3c8cf09efcbe2149b86a07deb54ffa7fbab] ### 2026-10-14 10:55 — snap
+  - Post-snap wrap: nezm closed (gates fix merged in #73, upstream DDL-3fd), all session work pushed (main @ 4506cba), nothing in_progress.
+  - **Next:** P1 wave — 0bwk/yvyb/v9ey/2bxl (selection confidence semantics) or h7bv epic (release quality); then y3iv → genesis-c9x adoption. Context is saturated — recommend wai close + /clear before picking up.
+- 2026-10-14T15:06:56Z [id:ce7fbd5a55e309642319409e68fe4f16abd55576ca750b1b377fd70a87d315dd] ### 2026-10-14 15:10 — snap
+  - P1 wave MERGED: PR #77 squash-merged to main (06034fc), branch deleted locally+remotely. CI caught one test-only gap: dotnet select_falls_back_when_titi_not_installed self-skips when titi IS installed (local), so the 0bwk conservative-fallback reason string was unasserted in CI — fixed by adding 'conservative component fallback' to the accepted FULL_RUN causes (7640339, included in #77). Pretender full-repo baseline refreshed pre-merge: 0 fixed / 66 still open / 0 new.
+  - **Next:** h7bv epic (release quality: .1 PR adapter gate, .2 binary completeness) or pevk (julia discovery scope); context was heavy — recommend wai close + /clear before picking up.

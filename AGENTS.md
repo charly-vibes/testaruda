@@ -104,16 +104,7 @@ See openspec/ for spec-driven development.
 See .dont/ for grounded-claim workflow.
 <!-- DONT:END -->
 
-<!-- WAI:START -->
-## PRIMARY OBJECTIVE
-
-Build and maintain **testaruda** — the language-agnostic test selection engine
-that computes the minimal set of tests to run from a code change, under a
-recall-first soundness invariant. Every action should trace back to: does
-this make testaruda more accurate at selecting the right tests, faster in
-incremental evaluation, or easier to integrate into new language ecosystems?
-
-# Workflow Tools
+<!-- WAI:START --># Workflow Tools
 
 This project uses **wai** to track the *why* behind decisions — research,
 reasoning, and design choices that shaped the code. Run `wai status` first
@@ -141,7 +132,18 @@ When context reaches ~40%: stop and tell the user — responses degrade past
 this point. Recommend `wai close` then `/clear` to resume cleanly.
 Do NOT skip `wai close` — it enables resume detection.
 
+## Autonomous Work Policy
 
+Proceed without routine confirmation when the next step is clear.
+Do not ask to continue, fix, or commit — just do it.
+
+**Stop and ask** only when:
+- Conflicting requirements or ambiguous intent
+- Destructive actions (data loss, force-push, drop table)
+- Credentials, secrets, or external services not yet authorized
+- Unresolved test failures after two attempts
+- Push, deploy, or release — always get explicit authorization
+- Context approaching 40% — recommend `wai close` then `/clear`
 
 ## Detailed Instructions
 
@@ -149,16 +151,10 @@ Full workflow reference — session lifecycle, capturing work, command cheat
 sheets, cross-tool sync, and PARA structure — lives in **`.wai/AGENTS.md`**.
 Read it at the start of your first session or when you need detailed guidance.
 
-## PRIMARY OBJECTIVE (echo)
-
-Build and maintain **testaruda** — the language-agnostic test selection engine
-that computes the minimal set of tests to run from a code change, under a
-recall-first soundness invariant. Every action should trace back to: does
-this make testaruda more accurate at selecting the right tests, faster in
-incremental evaluation, or easier to integrate into new language ecosystems?
-
 Keep this managed block so `wai init` can refresh the instructions.
 
+
+<!-- provenance: generator=wai version=0.12.3 source=WAI sha=3e02f7c4 -->
 <!-- WAI:END -->
 
 ## Behavioral Constraints
@@ -219,6 +215,8 @@ context before starting research or creating tickets.
 > **Before research or ticket creation**: always run `wai search "<topic>"` to
 > check for known patterns. Do not rediscover what is already documented.
 
+
+<!-- provenance: generator=wai version=0.12.3 source=WAI:REFLECT:REF sha=73879972 -->
 <!-- WAI:REFLECT:REF:END -->
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
@@ -285,3 +283,21 @@ Run `ah check` to verify spec-test correspondence before committing.
 
 - **Never use `git add -A`** — always stage specific files with explicit paths
 - **Per-ticket pipeline**: always follow `TDD → ro5u → fix → commit → next ticket`
+<!-- DDL:START -->
+
+## dulce-de-leche (ddl v0.8.0)
+
+Orchestrator for the charly-vibes tool ecosystem. Run `ddl init` to
+install and configure all tools. Run `ddl status` for a health overview.
+
+Commands:
+- init     Bootstrap the toolset
+- install  Install a single tool
+- status   Show health overview
+- doctor   Run diagnostics
+- version  Show versions
+- upgrade  Update tools
+- migrate  Migrate configs
+- scope    Show active .ddl/
+
+<!-- DDL:END -->

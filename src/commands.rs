@@ -10,10 +10,14 @@ use genesis::guide::{CliFormat, OutputFormat};
 use miette::miette;
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
+use std::path::Path;
 
-use testaruda::adapter::{spawn_adapter, AdapterRegistry};
+use testaruda::adapter::{spawn_adapter, AdapterRegistry, TestItem};
 use testaruda::agent::{ChangedUnit, PreEditOutput, SummaryStats};
-use testaruda::{ChangeSet, Engine, SelectedTest, Selection, Store, TestOrdering};
+use testaruda::{
+    component_key, ChangeSet, Engine, SelectedTest, Selection, SelectionContext, Store,
+    TestOrdering,
+};
 
 use crate::build_block_registry;
 
@@ -155,17 +159,61 @@ pub fn run_cargo_test_fallback() -> ! {
     std::process::exit(code);
 }
 
+/// Evidence-completeness signals harvested while running the adapter pipeline
+/// (TIA-CHG-007, TIA-SAFE-004, TIA-ADAPT-012). Deficits on adapters covering
+/// changed files drive a conservative component fallback in `select` instead
+/// of a log-only warning with an empty selection (testaruda-0bwk).
+#[derive(Default)]
+pub struct AdapterEvidence {
+    /// Adapter binaries that could not be spawned/handshook (missing binary,
+    /// startup failure) or whose discover/static-deps query failed
+    /// (including malformed responses).
+    pub failed_binaries: Vec<String>,
+    /// Files adapters explicitly reported as unresolved (files they cannot
+    /// statically analyze).
+    pub unresolved_files: Vec<String>,
+}
+
+impl AdapterEvidence {
+    /// Was `binary` observed in a failed state during the pipeline?
+    fn failed_binary(&self, binary: &str) -> bool {
+        self.failed_binaries.iter().any(|b| b == binary)
+    }
+
+    /// Did any adapter explicitly report `path` as unresolved?
+    fn unresolved_reported(&self, path: &str) -> bool {
+        self.unresolved_files
+            .iter()
+            .any(|p| p.strip_prefix("./").unwrap_or(p) == path)
+    }
+
+    fn merge(&mut self, other: AdapterEvidence) {
+        for b in other.failed_binaries {
+            if !self.failed_binaries.contains(&b) {
+                self.failed_binaries.push(b);
+            }
+        }
+        for p in other.unresolved_files {
+            if !self.unresolved_files.contains(&p) {
+                self.unresolved_files.push(p);
+            }
+        }
+    }
+}
+
 /// Populate store from adapters: run discover + static-deps on the full project
 /// tree, then process any changed files from the delta.
 ///
 /// Previously, only changed files were processed, leaving the store's dependency
 /// graph incomplete on first invocation (TIA-ADAPT-004, TIA-ADAPT-005).
+/// Returns the evidence-completeness report for the run — adapter deficits are
+/// recorded, never fatal, so one broken adapter cannot block the others.
 pub fn run_adapter_pipeline(
     store: &Store,
     registry: &AdapterRegistry,
     delta: &ChangeSet,
     exclude: &[String],
-) -> std::result::Result<(), String> {
+) -> AdapterEvidence {
     // Step 1: Walk the project tree to find all files matching registered adapters
     let mut adapter_files: std::collections::HashMap<String, Vec<String>> =
         std::collections::HashMap::new();
@@ -188,54 +236,16 @@ pub fn run_adapter_pipeline(
         }
     }
 
+    let mut evidence = AdapterEvidence::default();
+
     // Step 2: For each adapter, run discover + static-deps on all files
     for (binary, files) in &adapter_files {
-        let mut adapter = match spawn_adapter(binary, None) {
-            Ok(a) => a,
-            Err(e) => {
-                // Extract just the resolved binary name for the diagnostic (TIA-ADAPT-024)
-                let binary_name = testaruda::adapter::parse_command_string(binary)
-                    .map(|(b, _)| b)
-                    .unwrap_or_else(|_| binary.to_string());
-                eprintln!("  ⚠️  Failed to spawn adapter {}: {}", binary_name, e);
-                continue;
-            }
-        };
-
-        // Run discover (TIA-ADAPT-004)
-        match adapter.discover() {
-            Ok(items) => {
-                eprintln!(
-                    "  📋 {} discovered {} test items",
-                    adapter.name,
-                    items.len()
-                );
-                store
-                    .store_test_items(&adapter.name, &items)
-                    .map_err(|e| format!("store error: {}", e))?;
-            }
-            Err(e) => {
-                eprintln!("  ⚠️  Discover failed for {}: {}", binary, e);
-            }
-        }
-
-        // Run static-deps on ALL files for this adapter (not just changed files)
-        // This builds the full import graph so the store has complete dependency
-        // data for any file that might be changed in future selections.
-        match adapter.static_deps(files) {
-            Ok(result) => {
-                eprintln!(
-                    "  🔗 {} computed {} edges from {} files",
-                    adapter.name,
-                    result.edges.len(),
-                    files.len()
-                );
-                store
-                    .store_static_deps(&adapter.name, &result.edges)
-                    .map_err(|e| format!("store error: {}", e))?;
-            }
-            Err(e) => {
-                eprintln!("  ⚠️  Static-deps failed for {}: {}", binary, e);
+        match discover_and_link_adapter(store, binary, files) {
+            Ok(unresolved) => evidence.unresolved_files.extend(unresolved),
+            Err(_) => {
+                if !evidence.failed_binaries.contains(binary) {
+                    evidence.failed_binaries.push(binary.clone());
+                }
             }
         }
     }
@@ -243,37 +253,136 @@ pub fn run_adapter_pipeline(
     // Step 3: Also process any changed files that aren't already covered
     // (e.g., files with no registered adapter, or files in directories
     // that were excluded from the full walk)
-    for path in &delta.files {
-        if let Some(binary) = registry.resolve(path) {
-            if adapter_files.contains_key(binary) {
-                continue; // already processed in the full walk
-            }
-            // Edge case: a changed file for an adapter not seen in the full walk
-            let mut adapter = match spawn_adapter(binary, None) {
-                Ok(a) => a,
-                Err(e) => {
-                    // Extract just the resolved binary name for the diagnostic (TIA-ADAPT-024)
-                    let binary_name = testaruda::adapter::parse_command_string(binary)
-                        .map(|(b, _)| b)
-                        .unwrap_or_else(|_| binary.to_string());
-                    eprintln!("  ⚠️  Failed to spawn adapter {}: {}", binary_name, e);
-                    continue;
-                }
-            };
-            if let Ok(items) = adapter.discover() {
-                store
-                    .store_test_items(&adapter.name, &items)
-                    .map_err(|e| format!("store error: {}", e))?;
-            }
-            if let Ok(result) = adapter.static_deps(std::slice::from_ref(path)) {
-                store
-                    .store_static_deps(&adapter.name, &result.edges)
-                    .map_err(|e| format!("store error: {}", e))?;
-            }
+    evidence.merge(run_uncovered_changed_files(
+        store,
+        registry,
+        delta,
+        &adapter_files,
+    ));
+
+    evidence
+}
+
+/// Spawn `binary` with a diagnostic on failure naming the resolved binary
+/// (TIA-ADAPT-024). Returns None (after warning) instead of an error so one
+/// broken adapter never blocks the others.
+fn spawn_adapter_or_warn(binary: &str) -> Option<testaruda::adapter::AdapterIO> {
+    match spawn_adapter(binary, None) {
+        Ok(a) => Some(a),
+        Err(e) => {
+            let binary_name = testaruda::adapter::parse_command_string(binary)
+                .map(|(b, _)| b)
+                .unwrap_or_else(|_| binary.to_string());
+            eprintln!("  ⚠️  Failed to spawn adapter {}: {}", binary_name, e);
+            None
+        }
+    }
+}
+
+/// Discover + static-deps for one adapter against its full file list, storing
+/// both. Gitignored files/items are dropped before storing (testaruda-onj6 /
+/// gh-64): generated artifacts (compiled proptest modules, build outputs)
+/// must not become test items or content units — they over-select and redden
+/// pre-push gates.
+fn discover_and_link_adapter(
+    store: &Store,
+    binary: &str,
+    files: &[String],
+) -> std::result::Result<Vec<String>, String> {
+    let mut adapter = spawn_adapter_or_warn(binary).ok_or_else(|| "spawn failed".to_string())?;
+
+    // Run discover (TIA-ADAPT-004)
+    match adapter.discover() {
+        Ok(items) => {
+            let items = drop_gitignored_items(Path::new("."), items);
+            eprintln!(
+                "  📋 {} discovered {} test items",
+                adapter.name,
+                items.len()
+            );
+            store
+                .store_test_items(&adapter.name, &items)
+                .map_err(|e| format!("store error: {}", e))?;
+        }
+        Err(e) => {
+            eprintln!("  ⚠️  Discover failed for {}: {}", binary, e);
         }
     }
 
-    Ok(())
+    // Run static-deps on ALL files for this adapter (not just changed files)
+    // This builds the full import graph so the store has complete dependency
+    // data for any file that might be changed in future selections.
+    let mut filtered_files = files.to_vec();
+    drop_gitignored_files(Path::new("."), &mut filtered_files);
+    match adapter.static_deps(&filtered_files) {
+        Ok(result) => {
+            eprintln!(
+                "  🔗 {} computed {} edges from {} files",
+                adapter.name,
+                result.edges.len(),
+                filtered_files.len()
+            );
+            store
+                .store_static_deps(&adapter.name, &result.edges)
+                .map_err(|e| format!("store error: {}", e))?;
+            Ok(result.unresolved)
+        }
+        Err(e) => {
+            eprintln!("  ⚠️  Static-deps failed for {}: {}", binary, e);
+            Err(format!("static-deps failed: {}", e))
+        }
+    }
+}
+
+/// Edge case of the pipeline: changed files for an adapter not seen in the
+/// full walk (e.g. no registered adapter covered the directory, or it was
+/// excluded). Gitignored changed files are skipped — not indexed (gh-64).
+fn run_uncovered_changed_files(
+    store: &Store,
+    registry: &AdapterRegistry,
+    delta: &ChangeSet,
+    adapter_files: &std::collections::HashMap<String, Vec<String>>,
+) -> AdapterEvidence {
+    let mut evidence = AdapterEvidence::default();
+    let ignored_changed = testaruda::config::git_ignored_paths(Path::new("."), &delta.files);
+    for path in &delta.files {
+        let Some(binary) = registry.resolve(path) else {
+            continue;
+        };
+        if adapter_files.contains_key(binary) {
+            continue; // already processed in the full walk
+        }
+        let mut adapter = match spawn_adapter_or_warn(binary) {
+            Some(a) => a,
+            None => {
+                if !evidence.failed_binaries.iter().any(|b| b == binary) {
+                    evidence.failed_binaries.push(binary.to_string());
+                }
+                continue;
+            }
+        };
+        if let Ok(items) = adapter.discover() {
+            let items = drop_gitignored_items(Path::new("."), items);
+            if store.store_test_items(&adapter.name, &items).is_err() {
+                continue;
+            }
+        }
+        if ignored_changed.contains(path) {
+            continue; // gitignored changed file — do not index (gh-64)
+        }
+        match adapter.static_deps(std::slice::from_ref(path)) {
+            Ok(result) => {
+                let _ = store.store_static_deps(&adapter.name, &result.edges);
+                evidence.unresolved_files.extend(result.unresolved);
+            }
+            Err(_) => {
+                if !evidence.failed_binaries.iter().any(|b| b == binary) {
+                    evidence.failed_binaries.push(binary.to_string());
+                }
+            }
+        }
+    }
+    evidence
 }
 
 /// Discover-only: run adapter discovery on a broader set of files.
@@ -309,6 +418,7 @@ pub fn run_discover_pipeline(
 
             match adapter.discover() {
                 Ok(items) => {
+                    let items = drop_gitignored_items(Path::new("."), items);
                     eprintln!("  📋 {} found {} tests", adapter.name, items.len());
                     store
                         .store_test_items(&adapter.name, &items)
@@ -513,6 +623,126 @@ pub struct SelectArgs {
     pub ordering: TestOrdering,
 }
 
+/// Raise conservative component-fallback signals for changed/unresolved units
+/// whose adapter evidence is incomplete or absent (testaruda-0bwk):
+///
+/// - TIA-CHG-007 — a changed unit of an unknown file kind (no registered
+///   adapter covers it) with no known dependency edges;
+/// - TIA-SAFE-004 — a changed unit an adapter explicitly reported unresolved;
+/// - TIA-ADAPT-012 — a changed unit whose covering adapter failed to spawn or
+///   errored during discovery/analysis.
+///
+/// The fallback is component-scoped (TIA-SAFE-003): only components holding a
+/// deficit unit fall back. Populates `ctx.comp_fallback` and — for those
+/// components only — `ctx.test_comp`, so the engine's fallback rule selects
+/// all of the component's tests without touching the confidence-floor
+/// semantics for other components (testaruda-2bxl's slice).
+///
+/// Returns a human-readable reason describing the deficits, or `None` when
+/// all evidence was complete.
+fn apply_evidence_fallback(
+    store: &Store,
+    ctx: &mut SelectionContext,
+    evidence: &AdapterEvidence,
+    registry: &AdapterRegistry,
+) -> Option<String> {
+    // Units touched by any known edge: their selection can proceed on real
+    // evidence, so they only fall back on an explicit deficit.
+    let mut edged: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    for &(_, c, _, _) in &ctx.test_deps {
+        edged.insert(c);
+    }
+    for &(a, b, _, _) in &ctx.cu_deps {
+        edged.insert(a);
+        edged.insert(b);
+    }
+
+    let mut causes: Vec<String> = Vec::new();
+    let mut affected_components: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
+
+    for &cu in ctx.changed.iter().chain(ctx.unresolved.iter()) {
+        if let Some((path, cause)) =
+            evidence_deficit_for_unit(store, &edged, cu, evidence, registry)
+        {
+            let Ok(component) = store.get_content_unit_component(cu) else {
+                continue;
+            };
+            causes.push(format!("{}: {}", path, cause));
+            affected_components.entry(component).or_insert(cause);
+        }
+    }
+
+    if affected_components.is_empty() {
+        return None;
+    }
+
+    for (component, cause) in &affected_components {
+        mark_component_fallback(store, ctx, component, cause);
+    }
+
+    Some(format!(
+        "incomplete adapter evidence: {} — conservative component fallback for recall",
+        causes.join(", ")
+    ))
+}
+
+/// Classify one changed/unresolved unit's evidence deficit: the unit's path
+/// and the cause for fallback, or `None` when the unit's evidence is complete.
+fn evidence_deficit_for_unit(
+    store: &Store,
+    edged: &std::collections::HashSet<u32>,
+    cu: u32,
+    evidence: &AdapterEvidence,
+    registry: &AdapterRegistry,
+) -> Option<(String, String)> {
+    let path = store.get_content_unit_path(cu).ok()?;
+    let path = path.strip_prefix("./").unwrap_or(&path).to_string();
+    let cause = match registry.resolve(&path) {
+        None => {
+            if edged.contains(&cu) {
+                return None; // unknown kind but edges exist — selection proceeds
+            }
+            "unknown file kind".to_string()
+        }
+        Some(binary) if evidence.failed_binary(binary) => {
+            "adapter unavailable or failed".to_string()
+        }
+        Some(_) if evidence.unresolved_reported(&path) => {
+            "adapter reported the file unresolved".to_string()
+        }
+        Some(_) => return None,
+    };
+    Some((path, cause))
+}
+
+/// Mark one component for conservative fallback (engine `comp_fallback` key).
+/// Membership comes from the store's globally loaded `test_comp`
+/// (testaruda-2bxl), so the engine's `comp_fallback × test_comp` rule can
+/// select all of the component's tests.
+fn mark_component_fallback(
+    store: &Store,
+    ctx: &mut SelectionContext,
+    component: &str,
+    cause: &str,
+) {
+    let key = component_key(component);
+    if !ctx.comp_fallback.contains(&key) {
+        ctx.comp_fallback.push(key);
+    }
+    let test_count = store
+        .get_test_ids_for_component(component)
+        .unwrap_or_default()
+        .len();
+    eprintln!(
+        "  ⚠️  Incomplete adapter evidence for component '{}' — conservative component fallback ({}; {} {})",
+        component,
+        cause,
+        test_count,
+        if test_count == 1 { "test" } else { "tests" }
+    );
+}
+
 /// `testaruda select` — select affected tests from a code change.
 pub fn select(args: SelectArgs) -> miette::Result<()> {
     // Safe mode: pre-flight checks with fallback to cargo test
@@ -532,9 +762,7 @@ pub fn select(args: SelectArgs) -> miette::Result<()> {
     let project_root = find_project_root()?;
     let config = testaruda::config::Config::load_or_default(&project_root);
     let registry = config.adapters.to_registry();
-    if let Err(e) = run_adapter_pipeline(&store, &registry, &delta, &config.discover.exclude) {
-        eprintln!("⚠️  Adapter warning: {} (using existing store data)", e);
-    }
+    let evidence = run_adapter_pipeline(&store, &registry, &delta, &config.discover.exclude);
 
     // Agent mode implies deterministic ordering (TIA-AGENT-007)
     // and overrides any explicit --ordering flag
@@ -545,11 +773,20 @@ pub fn select(args: SelectArgs) -> miette::Result<()> {
     };
 
     // Load selection context once, reuse for both engine and agent output
-    let ctx = store.load_selection_context(&delta)?;
+    let mut ctx = store.load_selection_context(&delta)?;
+    // Conservative fallback for incomplete adapter evidence (testaruda-0bwk):
+    // adapter failures, unresolved reports and unknown file kinds must not
+    // degrade to an empty selection (TIA-CHG-007, TIA-SAFE-004, ADAPT-012).
+    let evidence_fallback = apply_evidence_fallback(&store, &mut ctx, &evidence, &registry);
     let changed_ids = ctx.changed.clone();
     let unresolved_ids = ctx.unresolved.clone();
     let engine = Engine::new(&store);
     let selection = engine.select_with_context(ctx, ordering)?;
+
+    // CI runs must not invoke runners on test paths absent at HEAD
+    // (testaruda-ubij / gh-71) — prune stale-calibration picks first.
+    let effective_ci = args.ci || args.safe;
+    let selection = maybe_prune_stale_paths(&store, selection, &project_root, effective_ci);
 
     // Persist provenance for this selection run (TIA-PROV-005)
     let run_id = store.generate_run_id()?;
@@ -567,6 +804,13 @@ pub fn select(args: SelectArgs) -> miette::Result<()> {
     let edges_resolved = !all_affected_ids.is_empty();
     let mut outcome =
         CiOutcome::from_selection(&selection, total_tests, changed_units, edges_resolved);
+    // Name the deficit when the fallback drove the full run — the generic
+    // over-selection reason would hide the cause (testaruda-0bwk).
+    if outcome.code == ci_exit::FULL_RUN {
+        if let Some(reason) = &evidence_fallback {
+            outcome.reason = reason.clone();
+        }
+    }
 
     // Shadow mode (TIA-CI-007): report all tests should run
     if args.shadow {
@@ -599,7 +843,6 @@ pub fn select(args: SelectArgs) -> miette::Result<()> {
     // failure run_ci_tests exits with the runner's code after ingesting; on
     // success we fall through and preserve the selection outcome code (10/20)
     // for the CI contract (testaruda-ls4t) — the run has already happened.
-    let effective_ci = args.ci || args.safe;
     let state = SelectState {
         store: &store,
         selection: &selection,
@@ -616,19 +859,47 @@ pub fn select(args: SelectArgs) -> miette::Result<()> {
     emit_select_output(&state)?;
 
     if effective_ci && !selection.tests.is_empty() {
-        run_ci_tests(&CiRunCtx {
-            store: &store,
-            registry: &registry,
-            selection: &selection,
-        })?;
-        if !args.safe {
-            let code = outcome.exit_code();
-            if code != 0 {
-                std::process::exit(code);
-            }
-        }
+        run_selected_ci_tests(
+            &store,
+            &registry,
+            &selection,
+            &delta.files,
+            outcome.exit_code(),
+            args.safe,
+        )?;
     }
 
+    Ok(())
+}
+
+/// CI-mode tail of `select` (TIA-CI-008): run the selected tests and ingest
+/// their results. On runner failure run_ci_tests exits with the runner's code
+/// after ingesting — BEFORE baseline advancement, so a failed execution keeps
+/// the change classification (testaruda-yvyb). On success the executed tests
+/// validated the working tree and the fingerprint baseline advances. Then the
+/// selection outcome code is preserved for the CI contract (testaruda-ls4t).
+fn run_selected_ci_tests(
+    store: &Store,
+    registry: &AdapterRegistry,
+    selection: &Selection,
+    delta_files: &[String],
+    outcome_code: i32,
+    safe: bool,
+) -> miette::Result<()> {
+    run_ci_tests(&CiRunCtx {
+        store,
+        registry,
+        selection,
+    })?;
+    if let Err(e) = store.advance_fingerprints(delta_files) {
+        eprintln!(
+            "⚠️  Fingerprint advance warning: {} (baseline unchanged)",
+            e
+        );
+    }
+    if !safe && outcome_code != 0 {
+        std::process::exit(outcome_code);
+    }
     Ok(())
 }
 
@@ -964,6 +1235,98 @@ fn collect_selected_by_adapter(
         }
     }
     groups
+}
+
+/// Drop discovered test items whose file is gitignored (testaruda-onj6 /
+/// gh-64): generated artifacts (compiled proptest modules, build outputs)
+/// must not become test items — they over-select and redden pre-push gates.
+/// One batched `git check-ignore` per discovery result set.
+fn drop_gitignored_items(root: &Path, items: Vec<TestItem>) -> Vec<TestItem> {
+    if items.is_empty() {
+        return items;
+    }
+    let files: Vec<String> = items.iter().map(|i| i.file.clone()).collect();
+    let ignored = testaruda::config::git_ignored_paths(root, &files);
+    if ignored.is_empty() {
+        return items;
+    }
+    let dropped = items.iter().filter(|i| ignored.contains(&i.file)).count();
+    eprintln!("  🧹 dropped {dropped} gitignored file(s) from discovery");
+    items
+        .into_iter()
+        .filter(|i| !ignored.contains(&i.file))
+        .collect()
+}
+
+/// Remove gitignored files from a static-deps file list in place (gh-64).
+fn drop_gitignored_files(root: &Path, files: &mut Vec<String>) {
+    if files.is_empty() {
+        return;
+    }
+    let ignored = testaruda::config::git_ignored_paths(root, files);
+    if !ignored.is_empty() {
+        files.retain(|f| !ignored.contains(f));
+    }
+}
+
+/// Prune in CI mode, warn on drops; passthrough otherwise (non-CI select is
+/// informational and keeps reporting stale items). Keeping this out of
+/// `select` holds the function under the cyclomatic gate.
+fn maybe_prune_stale_paths(
+    store: &Store,
+    selection: Selection,
+    project_root: &std::path::Path,
+    effective_ci: bool,
+) -> Selection {
+    if !effective_ci {
+        return selection;
+    }
+    let pruned = prune_selected_tests_without_files(store, &selection, project_root);
+    let dropped = selection.tests.len() - pruned.tests.len();
+    if dropped > 0 {
+        eprintln!(
+            "⚠️  Pruned {dropped} selected test(s) whose file(s) are absent at HEAD (stale calibration); switch back or re-discover to refresh."
+        );
+    }
+    pruned
+}
+
+/// Prune selected tests whose node_id file prefix no longer exists on disk
+/// (testaruda-ubij / gh-71). Only ids whose first `::` component is a real
+/// relative path are eligible (contains `/` or a file extension); module-path
+/// ids (rust `src::session::test_login(Test)`) and opaque ids are kept —
+/// recall-safe pruning, never drops a test we cannot prove is absent.
+fn prune_selected_tests_without_files(
+    store: &Store,
+    selection: &Selection,
+    project_root: &std::path::Path,
+) -> Selection {
+    let tests: Vec<SelectedTest> = selection
+        .tests
+        .iter()
+        .filter(|t| {
+            let Ok((node_id, _adapter)) = store.get_test_identity(t.id) else {
+                // Identity no longer in the store; run grouping skips it too.
+                return true;
+            };
+            let Some(file_part) = node_id.split("::").next() else {
+                return true;
+            };
+            let path_shaped =
+                file_part.contains('/') || std::path::Path::new(file_part).extension().is_some();
+            if !path_shaped {
+                return true;
+            }
+            project_root.join(file_part).exists()
+        })
+        .cloned()
+        .collect();
+    let selected_count = tests.len();
+    Selection {
+        changed_count: selection.changed_count,
+        selected_count,
+        tests,
+    }
 }
 
 /// How many stderr tail lines to print when a runner fails (testaruda-ylyl).
@@ -1678,6 +2041,116 @@ line two",
         let later = stale_mtime + std::time::Duration::from_secs(1);
         let out = run_output_for_ingest(path.to_str().unwrap(), Some(later), "console output");
         assert_eq!(out, "console output");
+    }
+
+    /// Discovered items under a gitignored path must be dropped before
+    /// storing (testaruda-onj6 / gh-64): spk orchestrate's generated proptest
+    /// files were indexed as 9 phantom rust tests and every pre-push gate
+    /// failed until the artifacts were hand-deleted and the dir gitignored.
+    #[test]
+    fn drop_gitignored_items_filters_generated_artifacts() {
+        let dir = tempfile::tempdir().unwrap();
+        let run_git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir.path())
+                .args(args)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .output()
+                .unwrap();
+        };
+        run_git(&["init", "-q"]);
+        std::fs::write(dir.path().join(".gitignore"), "generated/\n").unwrap();
+        std::fs::create_dir_all(dir.path().join("generated")).unwrap();
+
+        let items: Vec<TestItem> = vec![
+            TestItem {
+                node_id: "generated::spec_props::test_a(Test)".into(),
+                suite_kind: "unit".into(),
+                file: "generated/spec_props.rs".into(),
+            },
+            TestItem {
+                node_id: "src::lib::test_b(Test)".into(),
+                suite_kind: "unit".into(),
+                file: "src/lib.rs".into(),
+            },
+        ];
+        let kept = drop_gitignored_items(dir.path(), items);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].file, "src/lib.rs");
+        // Empty input short-circuits without spawning git.
+        assert!(drop_gitignored_items(dir.path(), vec![]).is_empty());
+    }
+
+    /// exec/select --ci must not invoke runners on test paths absent at HEAD
+    /// (testaruda-ubij, gh-71): calibration ingested on branch A still selects
+    /// tests/test_X.py after switching to branch B where it is gone, the runner
+    /// exits 4 (file not found), and the pre-push gate goes red on stale LOCAL
+    /// state. Prune selected tests whose node_id file prefix no longer exists
+    /// on disk before the run; unknown-format ids and missing identities are
+    /// kept (recall-safe — collect_selected_by_adapter already skips those).
+    #[test]
+    fn prune_selected_tests_without_files_drops_absent_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+        let conn = store.conn();
+        let insert = |node: &str| {
+            conn.execute(
+                "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'python-adapter', ?1)",
+                rusqlite::params![node],
+            )
+            .unwrap();
+            conn.query_row(
+                "SELECT id FROM test_items WHERE node_id=?1",
+                rusqlite::params![node],
+                |row| row.get::<_, u32>(0),
+            )
+            .unwrap()
+        };
+        let kept = insert("tests/kept.py::test_a");
+        let gone = insert("tests/gone.py::test_b");
+        let opaque = insert("weird-id-no-file-part");
+        std::fs::create_dir(dir.path().join("tests")).unwrap();
+        std::fs::write(dir.path().join("tests/kept.py"), "def test_a(): pass").unwrap();
+
+        let selection = Selection {
+            changed_count: 1,
+            selected_count: 3,
+            tests: vec![
+                SelectedTest {
+                    id: kept,
+                    confidence: 1.0,
+                    distance: Some(0),
+                    witness: None,
+                    quarantined: false,
+                },
+                SelectedTest {
+                    id: gone,
+                    confidence: 1.0,
+                    distance: Some(0),
+                    witness: None,
+                    quarantined: false,
+                },
+                SelectedTest {
+                    id: opaque,
+                    confidence: 1.0,
+                    distance: Some(0),
+                    witness: None,
+                    quarantined: false,
+                },
+            ],
+        };
+
+        let pruned = prune_selected_tests_without_files(&store, &selection, dir.path());
+        let ids: Vec<u32> = pruned.tests.iter().map(|t| t.id).collect();
+        assert_eq!(
+            ids,
+            vec![kept, opaque],
+            "absent file::fn id must be pruned, present + opaque kept"
+        );
+        assert_eq!(pruned.selected_count, 2);
+        assert_eq!(pruned.changed_count, selection.changed_count);
     }
 
     #[test]

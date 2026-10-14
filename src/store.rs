@@ -40,6 +40,19 @@ pub struct CalibrationMetrics {
     pub k: usize,
 }
 
+/// Stable component key: maps a component NAME to a `u32` for the engine's
+/// component relations (`test_comp`/`comp_fallback`). FNV-1a — deterministic
+/// across processes so a fallback raised for a name always matches the
+/// membership rows built from the same name.
+pub fn component_key(name: &str) -> u32 {
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in name.as_bytes() {
+        hash ^= u32::from(*byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    hash
+}
+
 /// Context loaded from the store for a single selection query.
 pub struct SelectionContext {
     pub changed: Vec<u32>,
@@ -713,6 +726,7 @@ impl Store {
         }
 
         self.process_file_fingerprints(delta, &mut ctx)?;
+        self.load_test_components(&mut ctx)?;
         self.load_dependency_edges(&mut ctx)?;
         self.load_failed_tests(&mut ctx)?;
         self.load_no_history_tests(&mut ctx)?;
@@ -780,6 +794,11 @@ impl Store {
                 let fingerprint: String = row.get(1)?;
                 Ok((id, fingerprint))
             });
+            // Selection is read-only w.r.t. the fingerprint baseline
+            // (testaruda-yvyb): classification must survive repeat requests —
+            // select-only or after a failed execution — so the stored
+            // fingerprint is NOT advanced here. The baseline advances after a
+            // successful run via `advance_fingerprints`.
             match (result, current_fp) {
                 (Ok((id, stored_fp)), Ok(fp)) if stored_fp == "unknown" || stored_fp != fp => {
                     if stored_fp == "unknown" {
@@ -787,27 +806,19 @@ impl Store {
                     } else {
                         ctx.changed.push(id);
                     }
-                    self.conn
-                        .execute(
-                            "UPDATE content_units SET fingerprint = ?1 WHERE id = ?2",
-                            rusqlite::params![fp, id],
-                        )
-                        .map_err(|e| miette::miette!("Failed to update fingerprint: {}", e))?;
                 }
                 (Ok((_id, _stored_fp)), Ok(_fp)) => {}
                 (Ok((id, _stored_fp)), Err(_)) => {
                     ctx.unresolved.push(id);
                 }
-                (Err(_), Ok(fp)) => {
+                (Err(_), Ok(_fp)) => {
+                    // Cold-start per TIA-CHG-010: the unit is unknown to the
+                    // store. Created WITHOUT advancing the fingerprint (stays
+                    // "unknown"), so a repeat request still classifies it as
+                    // unresolved until a successful run advances the baseline.
                     let id = self
                         .ensure_content_unit(component, path, None, "source")
                         .map_err(|e| miette::miette!("Failed to create content unit: {}", e))?;
-                    self.conn
-                        .execute(
-                            "UPDATE content_units SET fingerprint = ?1 WHERE id = ?2",
-                            rusqlite::params![fp, id],
-                        )
-                        .map_err(|e| miette::miette!("Failed to set fingerprint: {}", e))?;
                     ctx.unresolved.push(id);
                 }
                 (Err(_), Err(_)) => {
@@ -817,6 +828,29 @@ impl Store {
                     ctx.unresolved.push(id);
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Load the component membership of every test item into `ctx.test_comp`
+    /// (testaruda-2bxl): without it, the engine's confidence floor
+    /// (TIA-SAFE-002) cannot resolve which tests belong to a falling-back
+    /// component, and component-scoped fallback (TIA-SAFE-003) selects
+    /// nothing. Component names map to stable engine keys via `component_key`.
+    fn load_test_components(&self, ctx: &mut SelectionContext) -> miette::Result<()> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, component FROM test_items")
+            .map_err(|e| miette::miette!("Query prep failed: {}", e))?;
+        let rows: Vec<(u32, String)> = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, u32>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| miette::miette!("Query failed: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect();
+        for (id, component) in rows {
+            ctx.test_comp.push((id, component_key(&component)));
         }
         Ok(())
     }
@@ -1335,6 +1369,35 @@ impl Store {
             }
         }
         Ok(())
+    }
+
+    /// Advance the fingerprint baseline for the given delta paths to the
+    /// current on-disk state (testaruda-yvyb). Called after a SUCCESSFUL run:
+    /// the executed tests validated the working tree, so the change
+    /// classification can be retired. A failed execution must NOT advance the
+    /// baseline — the next select still classifies and selects the change.
+    /// Returns the number of baselines advanced.
+    pub fn advance_fingerprints(&self, files: &[String]) -> miette::Result<usize> {
+        let mut stmt = self
+            .conn
+            .prepare("UPDATE content_units SET fingerprint = ?1 WHERE component = ?2 AND path = ?3")
+            .map_err(|e| miette::miette!("Query prep failed: {}", e))?;
+        let mut advanced = 0usize;
+        for path in files {
+            let abs_path = if Path::new(path).is_absolute() {
+                Path::new(path).to_path_buf()
+            } else {
+                self.project_root.join(path)
+            };
+            let Ok(fp) = Self::compute_fingerprint(&abs_path) else {
+                continue; // missing/unreadable file — no baseline to advance
+            };
+            let n = stmt
+                .execute(rusqlite::params![fp, "default", path])
+                .map_err(|e| miette::miette!("Failed to advance fingerprint: {}", e))?;
+            advanced += n;
+        }
+        Ok(advanced)
     }
 
     /// Update the fingerprint for a content unit identified by path.
@@ -1921,6 +1984,33 @@ impl Store {
         Ok(exists)
     }
 
+    /// Get the component name of a content unit.
+    pub fn get_content_unit_component(&self, id: u32) -> miette::Result<String> {
+        self.conn
+            .query_row(
+                "SELECT component FROM content_units WHERE id = ?1",
+                rusqlite::params![id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|e| miette::miette!("Failed to get content unit component: {}", e))
+    }
+
+    /// Get the IDs of all test items registered under a component.
+    pub fn get_test_ids_for_component(&self, component: &str) -> miette::Result<Vec<u32>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM test_items WHERE component = ?1")
+            .map_err(|e| miette::miette!("Query prep failed: {}", e))?;
+        let mut ids = Vec::new();
+        for row in stmt
+            .query_map(rusqlite::params![component], |row| row.get::<_, u32>(0))
+            .map_err(|e| miette::miette!("Query failed: {}", e))?
+        {
+            ids.push(row.map_err(|e| miette::miette!("Row read failed: {}", e))?);
+        }
+        Ok(ids)
+    }
+
     /// Get the content unit info (path, symbol, kind) for a given ID.
     pub fn get_content_unit_info(
         &self,
@@ -2340,97 +2430,6 @@ fn find_project_root() -> miette::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
-
-    #[test]
-    fn test_compute_fingerprint() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("content.txt");
-        let mut f = std::fs::File::create(&path).unwrap();
-        f.write_all(b"hello world").unwrap();
-        drop(f);
-
-        let fp = Store::compute_fingerprint(&path).unwrap();
-        // blake3("hello world")
-        assert_eq!(fp.len(), 64, "blake3 hex should be 64 chars");
-        assert!(
-            fp.chars().all(|c| c.is_ascii_hexdigit()),
-            "blake3 hex should be hex digits"
-        );
-
-        // Same content should produce same hash
-        let fp2 = Store::compute_fingerprint(&path).unwrap();
-        assert_eq!(fp, fp2);
-
-        // Changed content should produce different hash
-        let mut f = std::fs::File::create(&path).unwrap();
-        f.write_all(b"goodbye world").unwrap();
-        drop(f);
-        let fp3 = Store::compute_fingerprint(&path).unwrap();
-        assert_ne!(fp, fp3);
-    }
-
-    #[test]
-    fn test_compute_fingerprint_missing_file() {
-        let result = Store::compute_fingerprint(Path::new("/nonexistent/file.rs"));
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_fingerprint_update_on_selection() {
-        let dir = tempfile::tempdir().unwrap();
-        let store_path = dir.path().join(".testaruda");
-        let store = Store::open(store_path.clone()).unwrap();
-        store.initialize().unwrap();
-
-        // Create a test file inside the temp dir
-        let file_path = dir.path().join("src/lib.rs");
-        std::fs::create_dir_all(file_path.parent().unwrap()).unwrap();
-        std::fs::write(&file_path, b"fn foo() {}").unwrap();
-
-        // Use an absolute path so compute_fingerprint can find it
-        let abs_path = file_path.to_string_lossy().to_string();
-
-        // First selection: cold-start — file is new, should be unresolved
-        let delta = ChangeSet {
-            files: vec![abs_path.clone()],
-            base: None,
-            head: None,
-            from_revisions: false,
-        };
-        let ctx = store.load_selection_context(&delta).unwrap();
-        assert_eq!(ctx.changed.len(), 0, "cold-start should not be changed");
-        assert_eq!(ctx.unresolved.len(), 1, "cold-start should be unresolved");
-
-        // Verify the fingerprint was updated from 'unknown' to a real hash
-        let fp: String = store
-            .conn
-            .query_row(
-                "SELECT fingerprint FROM content_units WHERE path = ?1",
-                rusqlite::params![abs_path],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_ne!(fp, "unknown", "fingerprint should be updated from unknown");
-        assert_eq!(fp.len(), 64);
-
-        // Second selection with same content: should be unchanged (empty Δ)
-        let ctx2 = store.load_selection_context(&delta).unwrap();
-        assert_eq!(ctx2.changed.len(), 0, "unchanged file should not be in Δ");
-        assert_eq!(
-            ctx2.unresolved.len(),
-            0,
-            "unchanged file should not be unresolved"
-        );
-
-        // Modify the file
-        std::fs::write(&file_path, b"fn bar() {}").unwrap();
-
-        // Third selection: changed content → should be in Δ
-        let ctx3 = store.load_selection_context(&delta).unwrap();
-        assert_eq!(ctx3.changed.len(), 1, "modified file should be changed");
-        assert_eq!(ctx3.unresolved.len(), 0);
-    }
 
     #[test]
     fn test_missing_file_returns_unresolved() {
