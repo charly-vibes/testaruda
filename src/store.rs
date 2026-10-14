@@ -34,8 +34,14 @@ pub struct CalibrationMetrics {
     pub total_failures: usize,
     /// Number of failures captured in the top-k of the ranked prediction.
     pub captured_failures: usize,
-    /// recall@k = captured_failures / total_failures (0.0 if no failures).
+    /// recall@k = captured_failures / total_failures.
+    /// Vacuous 1.0 when the hold-out has 0 failures (empty positives set:
+    /// a clean run provides no ranking evidence either way, tambor-cpd).
     pub recall_at_k: f64,
+    /// True when recall was vacuous (0 actual failures with real history)
+    /// rather than measured. Distinguishes a vacuous pass from a measured
+    /// one at the calibration gate printer (TIA-VER-005).
+    pub vacuous: bool,
     /// k value: number of tests in the hold-out set.
     pub k: usize,
 }
@@ -2266,6 +2272,7 @@ impl Store {
                 total_failures: 0,
                 captured_failures: 0,
                 recall_at_k: 0.0,
+                vacuous: false,
                 k: 0,
             });
         }
@@ -2327,11 +2334,17 @@ impl Store {
             .count();
 
         if total_test_items == 0 || total_failures == 0 {
+            // Vacuous pass: with a real hold-out but 0 failures there is
+            // nothing to rank - recall over an empty positives set is 1.0
+            // by convention, not 0.0 (tambor-cpd). Insufficient history
+            // (0 items) stays measured 0.0 with vacuous: false.
+            let vacuous = total_test_items > 0;
             return Ok(CalibrationMetrics {
                 total_test_items,
                 total_failures,
                 captured_failures: 0,
-                recall_at_k: 0.0,
+                recall_at_k: if vacuous { 1.0 } else { 0.0 },
+                vacuous,
                 k: total_test_items,
             });
         }
@@ -2367,6 +2380,7 @@ impl Store {
             total_failures,
             captured_failures,
             recall_at_k,
+            vacuous: false,
             k,
         })
     }
@@ -4833,110 +4847,6 @@ name = "env-a"
             fact_lines
         );
     }
-
-    // ── Predictive ranking calibration gate (TIA-VER-005) ──
-
-    #[test]
-    fn test_ranking_calibration_recall_computed() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
-
-        let conn = store.conn();
-
-        // Insert 3 test items
-        let mut tids = Vec::new();
-        for name in ["test_a", "test_b", "test_c"] {
-            conn.execute(
-                "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', ?1)",
-                rusqlite::params![name],
-            ).unwrap();
-            let tid: u32 = conn
-                .query_row(
-                    "SELECT id FROM test_items WHERE node_id = ?1",
-                    rusqlite::params![name],
-                    |row| row.get(0),
-                )
-                .unwrap();
-            tids.push(tid);
-        }
-
-        // Training runs: test_a failed 3/3, test_b failed 0/3, test_c failed 2/3
-        // So predicted order: test_a (100%) > test_c (67%) > test_b (0%)
-        for i in 0..3 {
-            for &tid in &tids {
-                let is_failed = tid == tids[0] || (tid == tids[2] && i < 2);
-                let outcome = if is_failed { "failed" } else { "passed" };
-                let run_id = format!("train-{}", i);
-                conn.execute(
-                    "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
-                     VALUES (?1, ?2, ?3, 10, 'default')",
-                    rusqlite::params![tid, run_id, outcome],
-                ).unwrap();
-            }
-        }
-
-        // Test runs (hold-out): test_a fails again, test_b passes, test_c fails
-        // top-k should capture test_a and test_c (the failures)
-        for &tid in &tids {
-            let outcome = if tid == tids[1] { "passed" } else { "failed" };
-            conn.execute(
-                "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
-                 VALUES (?1, 'test-run', ?2, 10, 'default')",
-                rusqlite::params![tid, outcome],
-            )
-            .unwrap();
-        }
-
-        let metrics = store.evaluate_ranking_calibration().unwrap();
-
-        assert_eq!(metrics.total_test_items, 3);
-        assert_eq!(metrics.total_failures, 2);
-        assert_eq!(metrics.captured_failures, 2);
-        assert_eq!(metrics.recall_at_k, 1.0);
-        assert_eq!(metrics.k, 3);
-    }
-
-    #[test]
-    fn test_ranking_calibration_empty_history() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
-
-        let metrics = store.evaluate_ranking_calibration().unwrap();
-        assert_eq!(metrics.total_test_items, 0);
-        assert_eq!(metrics.total_failures, 0);
-        assert_eq!(metrics.recall_at_k, 0.0);
-    }
-
-    #[test]
-    fn test_ranking_calibration_no_hold_out() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
-
-        let conn = store.conn();
-        conn.execute(
-            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'only_test')",
-            [],
-        ).unwrap();
-        let tid: u32 = conn
-            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
-
-        // Only one run — no separate hold-out possible
-        conn.execute(
-            "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
-             VALUES (?1, 'only-run', 'passed', 10, 'default')",
-            rusqlite::params![tid],
-        )
-        .unwrap();
-
-        let metrics = store.evaluate_ranking_calibration().unwrap();
-        assert_eq!(metrics.total_test_items, 0, "no hold-out set available");
-        assert_eq!(metrics.total_failures, 0);
-        assert_eq!(metrics.recall_at_k, 0.0);
-    }
 }
 
 // ── exec: uncalibrated-store warning (gh-26 / testaruda-n5b4) ──
@@ -4976,3 +4886,10 @@ mod exec_warning_tests {
         assert!(!store.run_history_is_empty().unwrap());
     }
 }
+
+// ── Predictive ranking calibration gate tests (TIA-VER-005) ──
+// Extracted to their own file: the inline module pushed store.rs past
+// the pretender 5000-file-lines gate (tambor-cpd arc).
+#[cfg(test)]
+#[path = "store_calibration_tests.rs"]
+mod calibration_tests;

@@ -603,6 +603,14 @@ pub fn calibrate(threshold: f64) -> miette::Result<()> {
     println!("Threshold: {:.3}", threshold);
     if metrics.total_test_items == 0 {
         println!("⚠️  Insufficient run history for calibration — need at least 2 distinct runs");
+    } else if metrics.vacuous {
+        // Vacuous pass: 0 actual failures in the hold-out means there is
+        // nothing to rank (recall over an empty positives set is 1.0,
+        // tambor-cpd). Printed explicitly so a clean run never reads as a
+        // silent NOT CALIBRATED pass.
+        println!(
+            "✓ CALIBRATED (vacuous — 0 actual failures; recall@k degenerate 0/0, nothing to rank)"
+        );
     } else if metrics.recall_at_k >= threshold {
         println!("✓ CALIBRATED — ranking model meets recall threshold");
     } else {
