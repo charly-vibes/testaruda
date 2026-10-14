@@ -1,7 +1,7 @@
 {
   "top_hotspots": [
     {
-      "fingerprint": "src/main.rs::main::function_lines_max",
+      "fingerprint": "src/main.rs::main::cognitive_max",
       "count": 20,
       "distinct_days": 2
     },
@@ -11,7 +11,7 @@
       "distinct_days": 2
     },
     {
-      "fingerprint": "src/main.rs::main::cognitive_max",
+      "fingerprint": "src/main.rs::main::function_lines_max",
       "count": 20,
       "distinct_days": 2
     },
@@ -21,34 +21,34 @@
       "distinct_days": 2
     },
     {
-      "fingerprint": "tests/seeded_fault.rs::test_seeded_fault_soundness_and_precision::min_assertions",
-      "count": 7,
-      "distinct_days": 4
+      "fingerprint": "tests/cli_exit_codes.rs::readiness_execution_missing_adapter::min_assertions",
+      "count": 19,
+      "distinct_days": 2
     },
     {
-      "fingerprint": "tests/ordering.rs::run_test::min_assertions",
-      "count": 7,
-      "distinct_days": 4
+      "fingerprint": "tests/cli_exit_codes.rs::readiness_execution_success::min_assertions",
+      "count": 19,
+      "distinct_days": 2
     },
     {
-      "fingerprint": "tests/ordering.rs::test_ordering_scenarios::min_assertions",
-      "count": 7,
-      "distinct_days": 4
+      "fingerprint": "tests/cli_exit_codes.rs::readiness_execution_run_args_error::min_assertions",
+      "count": 19,
+      "distinct_days": 2
     },
     {
-      "fingerprint": "tests/adapter_julia.rs::julia_adapter_monorepo_discover_per_package_a::min_assertions",
-      "count": 7,
-      "distinct_days": 4
+      "fingerprint": "tests/cli_exit_codes.rs::readiness_execution_runner_failure::min_assertions",
+      "count": 19,
+      "distinct_days": 2
     },
     {
-      "fingerprint": "tests/seeded_fault.rs::run_test::min_assertions",
-      "count": 7,
-      "distinct_days": 4
+      "fingerprint": "tests/cli_exit_codes.rs::readiness_execution_empty_argv::min_assertions",
+      "count": 19,
+      "distinct_days": 2
     },
     {
-      "fingerprint": "tests/adapter_julia.rs::julia_adapter_monorepo_discover_per_package_b::min_assertions",
-      "count": 7,
-      "distinct_days": 4
+      "fingerprint": "tests/cli_exit_codes.rs::readiness_execution_missing_runner::min_assertions",
+      "count": 19,
+      "distinct_days": 2
     }
   ],
   "top_patterns": [
@@ -69,6 +69,14 @@
       "distinct_days": 1
     },
     {
+      "rule_key": "min_assertions",
+      "role": "test",
+      "area": "tests",
+      "count": 804,
+      "distinct_files": 14,
+      "distinct_days": 4
+    },
+    {
       "rule_key": "params_max",
       "role": "test",
       "area": "target/scratch",
@@ -83,14 +91,6 @@
       "count": 543,
       "distinct_files": 306,
       "distinct_days": 1
-    },
-    {
-      "rule_key": "min_assertions",
-      "role": "test",
-      "area": "tests",
-      "count": 508,
-      "distinct_files": 14,
-      "distinct_days": 4
     },
     {
       "rule_key": "abc_max",
@@ -135,7 +135,7 @@
   ],
   "resolution": {
     "fixed": 0,
-    "still_open": 73,
+    "still_open": 66,
     "new": 0,
     "rate": 0.0
   }
