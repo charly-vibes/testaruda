@@ -8,6 +8,7 @@
 //! hidden directories (`.claude/worktrees/agent-*/` from agent sessions, dot
 //! configs, etc.). Real-world impact before the fix: a single-crate repo with
 //! an agent worktree discovered 9x its real test count (dont: 9127 vs 1001).
+mod common;
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};

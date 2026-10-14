@@ -5,6 +5,7 @@
 //!
 //! Rationale: Isolated adapters distinguish unavailable execution from success
 //! without depending on installed language tools (testaruda-oeft).
+mod common;
 
 /// Set up a minimal git project with a testaruda store.
 /// Spawned children get `current_dir` explicitly — no process-cwd mutation

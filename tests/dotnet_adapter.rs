@@ -14,6 +14,7 @@
 //! - Registry resolution: `.cs` / `.fs` / `.vb` / `.csproj` / `.sln` / `.slnx`
 //!   resolve to `titi testaruda-adapter`.
 //! - `spawn_adapter` returns a helpful error when `titi` is not on PATH.
+mod common;
 
 /// Check if `titi` is available on PATH.
 fn titi_available() -> bool {
@@ -377,6 +378,98 @@ default = "testaruda-adapter-rust"
     );
 }
 
+/// Run git with `args` in `dir`, failing the test binary on spawn error.
+fn run_git(dir: &std::path::Path, args: &[&str]) -> std::process::Output {
+    std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("failed to run git")
+}
+
+/// Initialize a real git repository and stage everything, so testaruda's git
+/// operations succeed against the fixture.
+fn git_init_and_stage(dir: &std::path::Path) {
+    run_git(dir, &["init"]);
+    run_git(dir, &["add", "."]);
+}
+
+/// Deterministically provide the built Rust adapter on a CHILD PATH while titi
+/// stays absent (TIA-ADAPT-012 fallback precondition): link/copy
+/// `testaruda-adapter-rust` into a fresh tempdir prepended to PATH.
+/// Returns the tempdir guard (must outlive the child run) and the child PATH.
+fn child_path_with_rust_adapter() -> (tempfile::TempDir, std::ffi::OsString) {
+    let adapter_dir = tempfile::tempdir().unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(
+        env!("CARGO_BIN_EXE_testaruda-adapter-rust"),
+        adapter_dir.path().join("testaruda-adapter-rust"),
+    )
+    .expect("failed to symlink adapter binary");
+    #[cfg(not(unix))]
+    std::fs::copy(
+        env!("CARGO_BIN_EXE_testaruda-adapter-rust"),
+        adapter_dir.path().join("testaruda-adapter-rust"),
+    )
+    .expect("failed to copy adapter binary");
+    let child_path = std::env::join_paths(std::iter::once(adapter_dir.path().to_path_buf()).chain(
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
+    ))
+    .expect("failed to build child PATH");
+    (adapter_dir, child_path)
+}
+
+/// Write a minimal Cargo.toml + src/lib.rs (with an inline #[cfg(test)] test)
+/// so the default Rust adapter has something to discover.
+fn write_rust_fixture(dir: &std::path::Path) {
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        r#"[package]
+name = "test-project"
+version = "0.1.0"
+edition = "2021"
+"#,
+    )
+    .unwrap();
+    let src = dir.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(
+        src.join("lib.rs"),
+        r#"pub fn greet() -> &'static str { "hello" }
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_greet() { assert_eq!(super::greet(), "hello"); }
+}
+"#,
+    )
+    .unwrap();
+}
+
+/// Run the testaruda binary with `args` from `dir` with `child_path` as PATH.
+fn run_testaruda(
+    dir: &std::path::Path,
+    child_path: impl AsRef<std::ffi::OsStr>,
+    args: &[&str],
+) -> std::process::Output {
+    std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
+        .args(args)
+        .current_dir(dir)
+        .env("PATH", child_path)
+        .output()
+        .expect("failed to run testaruda")
+}
+
+/// Any documented FULL_RUN cause is valid in the JSON plan reason
+/// (testaruda-ls4t provenance contract): coverage/confidence floor,
+/// over-selected, or — since testaruda-0bwk — the conservative component
+/// fallback for incomplete adapter evidence (missing/unresolved adapter).
+fn full_run_reason_accepted(reason: &str) -> bool {
+    reason.contains("coverage/confidence floor")
+        || reason.contains("over-selected")
+        || reason.contains("conservative component fallback")
+}
+
 // ===== CLI integration tests (task 4.3) =====
 
 /// Test that `testaruda select` with a titi mapping does NOT crash
@@ -403,73 +496,20 @@ fn select_falls_back_when_titi_not_installed() {
     write_dotnet_config(project.path());
 
     // Initialize a real git repository so testaruda's git operations succeed
-    std::process::Command::new("git")
-        .args(["init"])
-        .current_dir(project.path())
-        .output()
-        .expect("failed to run git init");
-    std::process::Command::new("git")
-        .args(["add", "."])
-        .current_dir(project.path())
-        .output()
-        .expect("failed to run git add .");
+    git_init_and_stage(project.path());
 
     // Put the built Rust adapter on the CHILD's PATH (testaruda-adapter-rust is a
     // bin target of this crate). In a clean CI environment neither titi nor the
     // adapter is installed; TIA-ADAPT-012 requires select to fall back to the
     // default adapter, so we provide it deterministically while titi stays absent.
-    let adapter_dir = tempfile::tempdir().unwrap();
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(
-        env!("CARGO_BIN_EXE_testaruda-adapter-rust"),
-        adapter_dir.path().join("testaruda-adapter-rust"),
-    )
-    .expect("failed to symlink adapter binary");
-    #[cfg(not(unix))]
-    std::fs::copy(
-        env!("CARGO_BIN_EXE_testaruda-adapter-rust"),
-        adapter_dir.path().join("testaruda-adapter-rust"),
-    )
-    .expect("failed to copy adapter binary");
-    let child_path = std::env::join_paths(std::iter::once(adapter_dir.path().to_path_buf()).chain(
-        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
-    ))
-    .expect("failed to build child PATH");
+    // The tempdir guard must stay bound (dropping it deletes the adapter from PATH).
+    let (_adapter_dir, child_path) = child_path_with_rust_adapter();
 
-    // Create a Cargo.toml so the language detector picks Rust (for the default adapter)
-    std::fs::write(
-        project.path().join("Cargo.toml"),
-        r#"[package]
-name = "test-project"
-version = "0.1.0"
-edition = "2021"
-"#,
-    )
-    .unwrap();
-
-    // Create a .rs file so the Rust adapter has something to discover
-    let src = project.path().join("src");
-    std::fs::create_dir_all(&src).unwrap();
-    std::fs::write(
-        src.join("lib.rs"),
-        r#"pub fn greet() -> &'static str { "hello" }
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_greet() { assert_eq!(super::greet(), "hello"); }
-}
-"#,
-    )
-    .unwrap();
+    // Create a Cargo.toml + src/lib.rs so the default Rust adapter discovers an item
+    write_rust_fixture(project.path());
 
     // Run `testaruda init` first
-    let init_output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
-        .arg("init")
-        .current_dir(project.path())
-        .env("PATH", &child_path)
-        .output()
-        .expect("failed to run testaruda init");
-
+    let init_output = run_testaruda(project.path(), &child_path, &["init"]);
     assert!(
         init_output.status.success(),
         "testaruda init should succeed: stdout={}, stderr={}",
@@ -478,14 +518,7 @@ mod tests {
     );
 
     // Run `testaruda select` — this should not crash even though titi is not installed
-    let select_output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
-        .arg("select")
-        .arg("--json")
-        .current_dir(project.path())
-        .env("PATH", &child_path)
-        .output()
-        .expect("failed to run testaruda select");
-
+    let select_output = run_testaruda(project.path(), &child_path, &["select", "--json"]);
     let stderr = String::from_utf8_lossy(&select_output.stderr);
 
     // The select command must not crash when titi is not installed
@@ -536,15 +569,10 @@ mod tests {
         "JSON plan should report FULL_RUN exit code.\nstdout: {}",
         stdout,
     );
-    // Any documented FULL_RUN cause is valid: with the fixture's static Rust
-    // edge, "coverage/confidence floor"; with zero edges, "over-selected"; and
-    // since testaruda-0bwk, the conservative component fallback for incomplete
-    // adapter evidence (titi missing/unresolved .cs here).
+    // Any documented FULL_RUN cause is valid (see `full_run_reason_accepted`).
     let reason = parsed["data"]["reason"].as_str().unwrap_or_default();
     assert!(
-        reason.contains("coverage/confidence floor")
-            || reason.contains("over-selected")
-            || reason.contains("conservative component fallback"),
+        full_run_reason_accepted(reason),
         "JSON plan reason should expose the FULL_RUN cause.\nstdout: {}",
         stdout,
     );
