@@ -536,11 +536,15 @@ mod tests {
         "JSON plan should report FULL_RUN exit code.\nstdout: {}",
         stdout,
     );
-    // Either documented FULL_RUN cause is valid: with the fixture's static
-    // Rust edge, "coverage/confidence floor"; with zero edges, "over-selected".
+    // Any documented FULL_RUN cause is valid: with the fixture's static Rust
+    // edge, "coverage/confidence floor"; with zero edges, "over-selected"; and
+    // since testaruda-0bwk, the conservative component fallback for incomplete
+    // adapter evidence (titi missing/unresolved .cs here).
     let reason = parsed["data"]["reason"].as_str().unwrap_or_default();
     assert!(
-        reason.contains("coverage/confidence floor") || reason.contains("over-selected"),
+        reason.contains("coverage/confidence floor")
+            || reason.contains("over-selected")
+            || reason.contains("conservative component fallback"),
         "JSON plan reason should expose the FULL_RUN cause.\nstdout: {}",
         stdout,
     );

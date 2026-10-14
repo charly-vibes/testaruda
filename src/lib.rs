@@ -41,4 +41,4 @@ pub use provenance::{
     BooleanSemiring, ProvenanceSemiring, SemiringValue, TropicalSemiring, ViterbiSemiring,
 };
 pub use selector::Selector;
-pub use store::{CalibrationMetrics, Store};
+pub use store::{component_key, CalibrationMetrics, SelectionContext, Store};

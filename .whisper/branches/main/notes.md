@@ -5,3 +5,13 @@
 - 2026-10-09T20:12:48Z [id:baee37c7d14eb2995a0002f29d80d8b6137020436d58adbda546d6e354f9f723] ### 2026-10-09 17:12 — snap
   - On main (clean apart from untracked .genesis/.pretender/.whisper artifacts): first /next snap captured shipped v0.5.3 (testaruda-1fwk closed, 5 adapters in tarballs).
   - **Next:** consumer verification — tambor CI pins v0.5.3, run a real init → exec → select cycle in a TS repo (the 59/325 match-rate pain). No code or branch state changed since last snap.
+- 2026-10-14T13:53:53Z [id:128996ea1292bf6a99b06ea41b76fa6f4d7c67dfcca93469af93ac7b4667da54] ### 2026-10-14 15:30 — snap
+  - GH issues arc complete (4 PRs merged): #73 gh-71 (exec prunes selected tests absent on disk — stale calibration from branch switch exits 0 cleanly; maybe_prune_stale_paths, recall-safe path-shaped-id heuristic), #74 gh-64 (adapter pipeline drops gitignored files/items at the engine choke point — batched git check-ignore --stdin -z per run; all adapters benefit; run_adapter_pipeline held under pretender gates via discover_and_link_adapter/run_uncovered_changed_files/spawn_adapter_or_warn extraction), #75/#76 JSONL bookkeeping.
+  - Gates unblocked: DDL init sweep's ddl-spk-lint (wrong path, exit 2 on plain-openspec corpus) + repo-wide pretender gate were blocking EVERY commit — fixed in #73, upstream template bug filed DDL-3fd (dulce-de-leche), local blocker nezm closed.
+  - Genesis-c9x filed upstream: ErrorRecord has no message field — auto-reported GH issues (#66/#67) have structurally empty ## Error bodies. Both GH issues triaged needs-info + closed; mirrors closed (ubij, onj6, s1rf, nezm).
+  - Follow-ups filed: testaruda-y3iv (P3, store never prunes stale test items — INSERT OR IGNORE; needs run_history FK review), testaruda-r9ce (P3, genesis 0.8.x → 0.13.1 upgrade backlog).
+  - Gotcha: git commit | tail masks lefthook failures (bit twice); pretender staged-gate counts branches added to select() — extract helpers before committing.
+  - **Next:** P1 wave ready: 0bwk/yvyb/v9ey/2bxl (selection confidence semantics), h7bv epic (release quality), pevk (julia discovery scope); gh-64-style y3iv then genesis-c9x adoption.
+- 2026-10-14T13:55:06Z [id:88b58888555aa80a9579022aece5d3c8cf09efcbe2149b86a07deb54ffa7fbab] ### 2026-10-14 10:55 — snap
+  - Post-snap wrap: nezm closed (gates fix merged in #73, upstream DDL-3fd), all session work pushed (main @ 4506cba), nothing in_progress.
+  - **Next:** P1 wave — 0bwk/yvyb/v9ey/2bxl (selection confidence semantics) or h7bv epic (release quality); then y3iv → genesis-c9x adoption. Context is saturated — recommend wai close + /clear before picking up.
