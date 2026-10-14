@@ -65,3 +65,8 @@
 - Adapter-side gitignore skipping in stress-test synthetic mode left out of scope (engine choke point already drops gitignored items per gh-64).
 - Gotcha: fake test adapters that return discover result=[] now nuke seeded stores (exit 20 empty selection) — any test seeding test_items must make its adapter discover them.
 - **Next:** P1 h7bv.1 (release adapter gate) or pevk (julia discovery scope); 4 open P2/P3s remain.
+
+### 2026-10-15 (later) — snap
+- testaruda-h7bv.1 CLOSED via PR #88 (squash b14637c, CI green): justfile clippy/test/test-v/build-release now carry --workspace — CI's `just ci` + lefthook gates cover all shipped crates. Contract pinned by tests/test_release_contract.py (unittest TestCase class; zero-test safeguard verified). Workspace clippy was genuinely RED (18 errors across adapter-clojure/-typescript) — fixed with lint repairs only, no test removals: dead deps_ignores_comment was a real test missing #[test] (never collected!), map_or→is_none_or/is_some_and, writeln fixes, is_empty fixes.
+- Gotchas: unittest does NOT collect plain test_* functions (pytest-only) — needs a TestCase class; `python3 -m unittest discover -s tests` works from repo root; justfile alias recipes (`lint: clippy`) need dep-resolution when parsing recipe bodies.
+- Epic h7bv progress: .1 done. Remaining: h7bv.2 (ship+smoke all advertised binaries in release archives), h7bv.3 (publication gate: ≥4 publication-specific contract cases).
