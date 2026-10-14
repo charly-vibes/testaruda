@@ -551,6 +551,11 @@ pub fn select(args: SelectArgs) -> miette::Result<()> {
     let engine = Engine::new(&store);
     let selection = engine.select_with_context(ctx, ordering)?;
 
+    // CI runs must not invoke runners on test paths absent at HEAD
+    // (testaruda-ubij / gh-71) — prune stale-calibration picks first.
+    let effective_ci = args.ci || args.safe;
+    let selection = maybe_prune_stale_paths(&store, selection, &project_root, effective_ci);
+
     // Persist provenance for this selection run (TIA-PROV-005)
     let run_id = store.generate_run_id()?;
     let all_affected_ids = store.get_test_ids_for_content_units(&changed_ids, &unresolved_ids)?;
@@ -599,7 +604,6 @@ pub fn select(args: SelectArgs) -> miette::Result<()> {
     // failure run_ci_tests exits with the runner's code after ingesting; on
     // success we fall through and preserve the selection outcome code (10/20)
     // for the CI contract (testaruda-ls4t) — the run has already happened.
-    let effective_ci = args.ci || args.safe;
     let state = SelectState {
         store: &store,
         selection: &selection,
@@ -964,6 +968,66 @@ fn collect_selected_by_adapter(
         }
     }
     groups
+}
+
+/// Prune in CI mode, warn on drops; passthrough otherwise (non-CI select is
+/// informational and keeps reporting stale items). Keeping this out of
+/// `select` holds the function under the cyclomatic gate.
+fn maybe_prune_stale_paths(
+    store: &Store,
+    selection: Selection,
+    project_root: &std::path::Path,
+    effective_ci: bool,
+) -> Selection {
+    if !effective_ci {
+        return selection;
+    }
+    let pruned = prune_selected_tests_without_files(store, &selection, project_root);
+    let dropped = selection.tests.len() - pruned.tests.len();
+    if dropped > 0 {
+        eprintln!(
+            "⚠️  Pruned {dropped} selected test(s) whose file(s) are absent at HEAD (stale calibration); switch back or re-discover to refresh."
+        );
+    }
+    pruned
+}
+
+/// Prune selected tests whose node_id file prefix no longer exists on disk
+/// (testaruda-ubij / gh-71). Only ids whose first `::` component is a real
+/// relative path are eligible (contains `/` or a file extension); module-path
+/// ids (rust `src::session::test_login(Test)`) and opaque ids are kept —
+/// recall-safe pruning, never drops a test we cannot prove is absent.
+fn prune_selected_tests_without_files(
+    store: &Store,
+    selection: &Selection,
+    project_root: &std::path::Path,
+) -> Selection {
+    let tests: Vec<SelectedTest> = selection
+        .tests
+        .iter()
+        .filter(|t| {
+            let Ok((node_id, _adapter)) = store.get_test_identity(t.id) else {
+                // Identity no longer in the store; run grouping skips it too.
+                return true;
+            };
+            let Some(file_part) = node_id.split("::").next() else {
+                return true;
+            };
+            let path_shaped =
+                file_part.contains('/') || std::path::Path::new(file_part).extension().is_some();
+            if !path_shaped {
+                return true;
+            }
+            project_root.join(file_part).exists()
+        })
+        .cloned()
+        .collect();
+    let selected_count = tests.len();
+    Selection {
+        changed_count: selection.changed_count,
+        selected_count,
+        tests,
+    }
 }
 
 /// How many stderr tail lines to print when a runner fails (testaruda-ylyl).
@@ -1678,6 +1742,77 @@ line two",
         let later = stale_mtime + std::time::Duration::from_secs(1);
         let out = run_output_for_ingest(path.to_str().unwrap(), Some(later), "console output");
         assert_eq!(out, "console output");
+    }
+
+    /// exec/select --ci must not invoke runners on test paths absent at HEAD
+    /// (testaruda-ubij, gh-71): calibration ingested on branch A still selects
+    /// tests/test_X.py after switching to branch B where it is gone, the runner
+    /// exits 4 (file not found), and the pre-push gate goes red on stale LOCAL
+    /// state. Prune selected tests whose node_id file prefix no longer exists
+    /// on disk before the run; unknown-format ids and missing identities are
+    /// kept (recall-safe — collect_selected_by_adapter already skips those).
+    #[test]
+    fn prune_selected_tests_without_files_drops_absent_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap();
+        store.initialize().unwrap();
+        let conn = store.conn();
+        let insert = |node: &str| {
+            conn.execute(
+                "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'python-adapter', ?1)",
+                rusqlite::params![node],
+            )
+            .unwrap();
+            conn.query_row(
+                "SELECT id FROM test_items WHERE node_id=?1",
+                rusqlite::params![node],
+                |row| row.get::<_, u32>(0),
+            )
+            .unwrap()
+        };
+        let kept = insert("tests/kept.py::test_a");
+        let gone = insert("tests/gone.py::test_b");
+        let opaque = insert("weird-id-no-file-part");
+        std::fs::create_dir(dir.path().join("tests")).unwrap();
+        std::fs::write(dir.path().join("tests/kept.py"), "def test_a(): pass").unwrap();
+
+        let selection = Selection {
+            changed_count: 1,
+            selected_count: 3,
+            tests: vec![
+                SelectedTest {
+                    id: kept,
+                    confidence: 1.0,
+                    distance: Some(0),
+                    witness: None,
+                    quarantined: false,
+                },
+                SelectedTest {
+                    id: gone,
+                    confidence: 1.0,
+                    distance: Some(0),
+                    witness: None,
+                    quarantined: false,
+                },
+                SelectedTest {
+                    id: opaque,
+                    confidence: 1.0,
+                    distance: Some(0),
+                    witness: None,
+                    quarantined: false,
+                },
+            ],
+        };
+
+        let pruned = prune_selected_tests_without_files(&store, &selection, dir.path());
+        let ids: Vec<u32> = pruned.tests.iter().map(|t| t.id).collect();
+        assert_eq!(
+            ids,
+            vec![kept, opaque],
+            "absent file::fn id must be pruned, present + opaque kept"
+        );
+        assert_eq!(pruned.selected_count, 2);
+        assert_eq!(pruned.changed_count, selection.changed_count);
     }
 
     #[test]
