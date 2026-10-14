@@ -308,6 +308,16 @@ fn discover_and_link_adapter(
             store
                 .store_test_items(&adapter.name, &items)
                 .map_err(|e| format!("store error: {}", e))?;
+            // Completed full discovery walk: replace semantics — drop
+            // stale items no longer present (testaruda-y3iv).
+            match store.prune_stale_test_items(&adapter.name, &items) {
+                Ok(0) => {}
+                Ok(n) => eprintln!("  🧹 {} pruned {} stale test items", adapter.name, n),
+                Err(e) => eprintln!(
+                    "  ⚠️  Stale-item pruning failed for {}: {}",
+                    adapter.name, e
+                ),
+            }
         }
         Err(e) => {
             eprintln!("  ⚠️  Discover failed for {}: {}", binary, e);
@@ -428,6 +438,16 @@ pub fn run_discover_pipeline(
                     store
                         .store_test_items(&adapter.name, &items)
                         .map_err(|e| format!("store error: {}", e))?;
+                    // Completed full discovery walk: replace semantics
+                    // (testaruda-y3iv).
+                    match store.prune_stale_test_items(&adapter.name, &items) {
+                        Ok(0) => {}
+                        Ok(n) => eprintln!("  🧹 {} pruned {} stale test items", adapter.name, n),
+                        Err(e) => eprintln!(
+                            "  ⚠️  Stale-item pruning failed for {}: {}",
+                            adapter.name, e
+                        ),
+                    }
                 }
                 Err(e) => {
                     eprintln!("  ⚠️  Discover failed for {}: {}", binary, e);

@@ -578,7 +578,7 @@ fn cmd_run_args(cmd: &serde_json::Value) -> serde_json::Value {
     // Substring filters over-run on prefix collisions (foo → also foo_bar):
     // recall-safe over-selection, never a missed test. A stale name (deleted
     // test) runs 0 tests and exits 0 — nothing recorded, the item stays
-    // always-run (SAFE-007) until pruned by the next discover.
+    // always-run (SAFE-007) until the next discover prunes it (testaruda-y3iv).
     let mut runner_args = vec!["cargo", "test", "--"];
     runner_args.extend(test_names.iter().map(|s| s.as_str()));
 

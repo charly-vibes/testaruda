@@ -104,6 +104,10 @@ for line in sys.stdin:
         result = dict(runner_args=argv, collection_path='unused')
     elif cmd == 'ingest':
         result = dict(per_test_results=[dict(test_id=name, outcome='passed')])
+    elif cmd == 'discover':
+        # Advertise this adapter's items so y3iv pruning keeps them.
+        ids = ['faulty'] if name == 'faulty' else ['healthy', 'spare']
+        result = [dict(node_id=i, suite_kind='test', file=i) for i in ids]
     print(json.dumps(dict(ok=True, result=result)), flush=True)
 "#).unwrap();
     let good = format!("python3 {} healthy ok", adapter.display());
@@ -213,6 +217,11 @@ for line in sys.stdin:
         result = dict(runner_args=argv, collection_path='unused')
     elif cmd == 'ingest':
         result = dict(per_test_results=[dict(test_id='normal.py', outcome='passed')])
+    elif cmd == 'discover':
+        # Real adapters still collect excluded-path items (that's the 8trl
+        # premise); they must survive y3iv pruning for the run-time guard
+        # to have something to drop.
+        result = [dict(node_id='tests/fixtures/python-src-layout/tests/test_model.py', suite_kind='test', file='tests/fixtures/python-src-layout/tests/test_model.py'), dict(node_id='normal.py', suite_kind='test', file='normal.py')]
     print(json.dumps(dict(ok=True, result=result)), flush=True)
 "#).unwrap();
     let good = format!("python3 {} healthy", adapter.display());
@@ -269,6 +278,71 @@ for line in sys.stdin:
     );
 }
 
+/// testaruda-y3iv: items in the store absent from a completed full
+/// discovery walk are pruned at discover time (replacement semantics),
+/// not just skipped at run time. Pinning the pipeline wiring end-to-end.
+#[test]
+fn select_prunes_store_items_absent_from_discovery() {
+    let project = setup_project();
+    let adapter = project.path().join("adapter.py");
+    std::fs::write(&adapter, r#"import json, sys
+for line in sys.stdin:
+    cmd = json.loads(line)['command']
+    result = []
+    if cmd == 'handshake':
+        result = dict(name='healthy', version='1', protocol=1, languages=['fake'], granularity='file', capabilities={})
+    elif cmd == 'discover':
+        result = [dict(node_id='normal.py', suite_kind='test', file='normal.py')]
+    elif cmd == 'static-deps':
+        print(json.dumps(dict(candidates=[], edges=[], unresolved=[])), flush=True)
+        continue
+    elif cmd == 'fingerprint':
+        print(json.dumps(dict(fingerprints=[])), flush=True)
+        continue
+    print(json.dumps(dict(ok=True, result=result)), flush=True)
+"#).unwrap();
+    let good = format!("python3 {} healthy", adapter.display());
+    std::fs::write(
+        project.path().join("testaruda.toml"),
+        format!("confidence_threshold = 0.0\n[adapters.extensions]\n\".bar\" = {good:?}\n"),
+    )
+    .unwrap();
+    std::fs::write(project.path().join("source.bar"), "change").unwrap();
+    let conn = rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap();
+    conn.execute_batch(
+        "INSERT INTO test_items(component, adapter, node_id) VALUES
+        ('default','healthy','normal.py'), ('default','healthy','stale.py');",
+    )
+    .unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
+        .args(["select", "--safe", "--json", "--files", "source.bar"])
+        .current_dir(project.path())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let pruned: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM test_items WHERE node_id = 'stale.py'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(pruned, 0, "stale item must be pruned. stderr: {}", stderr);
+    let kept: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM test_items WHERE node_id = 'normal.py'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        kept, 1,
+        "still-present item must survive. stderr: {}",
+        stderr
+    );
+    assert!(stderr.contains("pruned 1 stale test items"), "{}", stderr);
+}
+
 /// testaruda-8trl (all-excluded case): when every selected item sits under
 /// [discover].exclude paths, the group empties and must be skipped entirely —
 /// never an adapter run with zero ids (run-args error → "incomplete
@@ -294,6 +368,9 @@ for line in sys.stdin:
         result = dict(runner_args=['python3', '-c', "open('executed','w').write('yes')"], collection_path='unused')
     elif cmd == 'ingest':
         result = dict(per_test_results=[])
+    elif cmd == 'discover':
+        # Real adapters still collect excluded-path items (8trl premise).
+        result = [dict(node_id='tests/fixtures/python-src-layout/tests/test_model.py', suite_kind='test', file='tests/fixtures/python-src-layout/tests/test_model.py')]
     print(json.dumps(dict(ok=True, result=result)), flush=True)
 "#).unwrap();
     let good = format!("python3 {} healthy", adapter.display());
@@ -676,7 +753,9 @@ for line in sys.stdin:
         print(json.dumps(dict(candidates=[], edges=[], unresolved=unresolved)), flush=True)
         continue
     elif cmd == 'discover':
-        print(json.dumps(dict(result=[])), flush=True)
+        # Advertise this adapter's items so y3iv pruning keeps them.
+        ids = ['faulty'] if name == 'faulty' else ['healthy', 'spare']
+        print(json.dumps(dict(result=[dict(node_id=i, suite_kind='test', file=i) for i in ids])), flush=True)
         continue
     elif cmd == 'fingerprint':
         print(json.dumps(dict(fingerprints=[])), flush=True)
