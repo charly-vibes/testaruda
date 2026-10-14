@@ -14,7 +14,10 @@ use std::path::Path;
 
 use testaruda::adapter::{spawn_adapter, AdapterRegistry, TestItem};
 use testaruda::agent::{ChangedUnit, PreEditOutput, SummaryStats};
-use testaruda::{ChangeSet, Engine, SelectedTest, Selection, Store, TestOrdering};
+use testaruda::{
+    component_key, ChangeSet, Engine, SelectedTest, Selection, SelectionContext, Store,
+    TestOrdering,
+};
 
 use crate::build_block_registry;
 
@@ -156,17 +159,61 @@ pub fn run_cargo_test_fallback() -> ! {
     std::process::exit(code);
 }
 
+/// Evidence-completeness signals harvested while running the adapter pipeline
+/// (TIA-CHG-007, TIA-SAFE-004, TIA-ADAPT-012). Deficits on adapters covering
+/// changed files drive a conservative component fallback in `select` instead
+/// of a log-only warning with an empty selection (testaruda-0bwk).
+#[derive(Default)]
+pub struct AdapterEvidence {
+    /// Adapter binaries that could not be spawned/handshook (missing binary,
+    /// startup failure) or whose discover/static-deps query failed
+    /// (including malformed responses).
+    pub failed_binaries: Vec<String>,
+    /// Files adapters explicitly reported as unresolved (files they cannot
+    /// statically analyze).
+    pub unresolved_files: Vec<String>,
+}
+
+impl AdapterEvidence {
+    /// Was `binary` observed in a failed state during the pipeline?
+    fn failed_binary(&self, binary: &str) -> bool {
+        self.failed_binaries.iter().any(|b| b == binary)
+    }
+
+    /// Did any adapter explicitly report `path` as unresolved?
+    fn unresolved_reported(&self, path: &str) -> bool {
+        self.unresolved_files
+            .iter()
+            .any(|p| p.strip_prefix("./").unwrap_or(p) == path)
+    }
+
+    fn merge(&mut self, other: AdapterEvidence) {
+        for b in other.failed_binaries {
+            if !self.failed_binaries.contains(&b) {
+                self.failed_binaries.push(b);
+            }
+        }
+        for p in other.unresolved_files {
+            if !self.unresolved_files.contains(&p) {
+                self.unresolved_files.push(p);
+            }
+        }
+    }
+}
+
 /// Populate store from adapters: run discover + static-deps on the full project
 /// tree, then process any changed files from the delta.
 ///
 /// Previously, only changed files were processed, leaving the store's dependency
 /// graph incomplete on first invocation (TIA-ADAPT-004, TIA-ADAPT-005).
+/// Returns the evidence-completeness report for the run — adapter deficits are
+/// recorded, never fatal, so one broken adapter cannot block the others.
 pub fn run_adapter_pipeline(
     store: &Store,
     registry: &AdapterRegistry,
     delta: &ChangeSet,
     exclude: &[String],
-) -> std::result::Result<(), String> {
+) -> AdapterEvidence {
     // Step 1: Walk the project tree to find all files matching registered adapters
     let mut adapter_files: std::collections::HashMap<String, Vec<String>> =
         std::collections::HashMap::new();
@@ -189,17 +236,31 @@ pub fn run_adapter_pipeline(
         }
     }
 
+    let mut evidence = AdapterEvidence::default();
+
     // Step 2: For each adapter, run discover + static-deps on all files
     for (binary, files) in &adapter_files {
-        discover_and_link_adapter(store, binary, files)?;
+        match discover_and_link_adapter(store, binary, files) {
+            Ok(unresolved) => evidence.unresolved_files.extend(unresolved),
+            Err(_) => {
+                if !evidence.failed_binaries.contains(binary) {
+                    evidence.failed_binaries.push(binary.clone());
+                }
+            }
+        }
     }
 
     // Step 3: Also process any changed files that aren't already covered
     // (e.g., files with no registered adapter, or files in directories
     // that were excluded from the full walk)
-    run_uncovered_changed_files(store, registry, delta, &adapter_files);
+    evidence.merge(run_uncovered_changed_files(
+        store,
+        registry,
+        delta,
+        &adapter_files,
+    ));
 
-    Ok(())
+    evidence
 }
 
 /// Spawn `binary` with a diagnostic on failure naming the resolved binary
@@ -227,7 +288,7 @@ fn discover_and_link_adapter(
     store: &Store,
     binary: &str,
     files: &[String],
-) -> std::result::Result<(), String> {
+) -> std::result::Result<Vec<String>, String> {
     let mut adapter = spawn_adapter_or_warn(binary).ok_or_else(|| "spawn failed".to_string())?;
 
     // Run discover (TIA-ADAPT-004)
@@ -264,12 +325,13 @@ fn discover_and_link_adapter(
             store
                 .store_static_deps(&adapter.name, &result.edges)
                 .map_err(|e| format!("store error: {}", e))?;
+            Ok(result.unresolved)
         }
         Err(e) => {
             eprintln!("  ⚠️  Static-deps failed for {}: {}", binary, e);
+            Err(format!("static-deps failed: {}", e))
         }
     }
-    Ok(())
 }
 
 /// Edge case of the pipeline: changed files for an adapter not seen in the
@@ -280,7 +342,8 @@ fn run_uncovered_changed_files(
     registry: &AdapterRegistry,
     delta: &ChangeSet,
     adapter_files: &std::collections::HashMap<String, Vec<String>>,
-) {
+) -> AdapterEvidence {
+    let mut evidence = AdapterEvidence::default();
     let ignored_changed = testaruda::config::git_ignored_paths(Path::new("."), &delta.files);
     for path in &delta.files {
         let Some(binary) = registry.resolve(path) else {
@@ -291,7 +354,12 @@ fn run_uncovered_changed_files(
         }
         let mut adapter = match spawn_adapter_or_warn(binary) {
             Some(a) => a,
-            None => continue,
+            None => {
+                if !evidence.failed_binaries.iter().any(|b| b == binary) {
+                    evidence.failed_binaries.push(binary.to_string());
+                }
+                continue;
+            }
         };
         if let Ok(items) = adapter.discover() {
             let items = drop_gitignored_items(Path::new("."), items);
@@ -302,10 +370,19 @@ fn run_uncovered_changed_files(
         if ignored_changed.contains(path) {
             continue; // gitignored changed file — do not index (gh-64)
         }
-        if let Ok(result) = adapter.static_deps(std::slice::from_ref(path)) {
-            let _ = store.store_static_deps(&adapter.name, &result.edges);
+        match adapter.static_deps(std::slice::from_ref(path)) {
+            Ok(result) => {
+                let _ = store.store_static_deps(&adapter.name, &result.edges);
+                evidence.unresolved_files.extend(result.unresolved);
+            }
+            Err(_) => {
+                if !evidence.failed_binaries.iter().any(|b| b == binary) {
+                    evidence.failed_binaries.push(binary.to_string());
+                }
+            }
         }
     }
+    evidence
 }
 
 /// Discover-only: run adapter discovery on a broader set of files.
@@ -546,6 +623,132 @@ pub struct SelectArgs {
     pub ordering: TestOrdering,
 }
 
+/// Raise conservative component-fallback signals for changed/unresolved units
+/// whose adapter evidence is incomplete or absent (testaruda-0bwk):
+///
+/// - TIA-CHG-007 — a changed unit of an unknown file kind (no registered
+///   adapter covers it) with no known dependency edges;
+/// - TIA-SAFE-004 — a changed unit an adapter explicitly reported unresolved;
+/// - TIA-ADAPT-012 — a changed unit whose covering adapter failed to spawn or
+///   errored during discovery/analysis.
+///
+/// The fallback is component-scoped (TIA-SAFE-003): only components holding a
+/// deficit unit fall back. Populates `ctx.comp_fallback` and — for those
+/// components only — `ctx.test_comp`, so the engine's fallback rule selects
+/// all of the component's tests without touching the confidence-floor
+/// semantics for other components (testaruda-2bxl's slice).
+///
+/// Returns a human-readable reason describing the deficits, or `None` when
+/// all evidence was complete.
+fn apply_evidence_fallback(
+    store: &Store,
+    ctx: &mut SelectionContext,
+    evidence: &AdapterEvidence,
+    registry: &AdapterRegistry,
+) -> Option<String> {
+    // Units touched by any known edge: their selection can proceed on real
+    // evidence, so they only fall back on an explicit deficit.
+    let mut edged: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    for &(_, c, _, _) in &ctx.test_deps {
+        edged.insert(c);
+    }
+    for &(a, b, _, _) in &ctx.cu_deps {
+        edged.insert(a);
+        edged.insert(b);
+    }
+
+    let mut causes: Vec<String> = Vec::new();
+    let mut affected_components: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
+
+    for &cu in ctx.changed.iter().chain(ctx.unresolved.iter()) {
+        if let Some((path, cause)) =
+            evidence_deficit_for_unit(store, &edged, cu, evidence, registry)
+        {
+            let Ok(component) = store.get_content_unit_component(cu) else {
+                continue;
+            };
+            causes.push(format!("{}: {}", path, cause));
+            affected_components.entry(component).or_insert(cause);
+        }
+    }
+
+    if affected_components.is_empty() {
+        return None;
+    }
+
+    for (component, cause) in &affected_components {
+        mark_component_fallback(store, ctx, component, cause);
+    }
+
+    Some(format!(
+        "incomplete adapter evidence: {} — conservative component fallback for recall",
+        causes.join(", ")
+    ))
+}
+
+/// Classify one changed/unresolved unit's evidence deficit: the unit's path
+/// and the cause for fallback, or `None` when the unit's evidence is complete.
+fn evidence_deficit_for_unit(
+    store: &Store,
+    edged: &std::collections::HashSet<u32>,
+    cu: u32,
+    evidence: &AdapterEvidence,
+    registry: &AdapterRegistry,
+) -> Option<(String, String)> {
+    let path = store.get_content_unit_path(cu).ok()?;
+    let path = path.strip_prefix("./").unwrap_or(&path).to_string();
+    let cause = match registry.resolve(&path) {
+        None => {
+            if edged.contains(&cu) {
+                return None; // unknown kind but edges exist — selection proceeds
+            }
+            "unknown file kind".to_string()
+        }
+        Some(binary) if evidence.failed_binary(binary) => {
+            "adapter unavailable or failed".to_string()
+        }
+        Some(_) if evidence.unresolved_reported(&path) => {
+            "adapter reported the file unresolved".to_string()
+        }
+        Some(_) => return None,
+    };
+    Some((path, cause))
+}
+
+/// Mark one component for conservative fallback: engine `comp_fallback` key
+/// plus — for this component only — `test_comp` membership, so the engine's
+/// `comp_fallback × test_comp` rule selects all of the component's tests.
+/// Confidence-floor evaluation stays confined to components already falling
+/// back (testaruda-2bxl's slice owns the general semantics).
+fn mark_component_fallback(
+    store: &Store,
+    ctx: &mut SelectionContext,
+    component: &str,
+    cause: &str,
+) {
+    let key = component_key(component);
+    if !ctx.comp_fallback.contains(&key) {
+        ctx.comp_fallback.push(key);
+    }
+    let mut test_count = 0usize;
+    if let Ok(test_ids) = store.get_test_ids_for_component(component) {
+        test_count = test_ids.len();
+        for tid in test_ids {
+            if !ctx.test_comp.iter().any(|&(t, k)| t == tid && k == key) {
+                ctx.test_comp.push((tid, key));
+            }
+        }
+    }
+    eprintln!(
+        "  ⚠️  Incomplete adapter evidence for component '{}' — conservative component fallback ({}; {} {})",
+        component,
+        cause,
+        test_count,
+        if test_count == 1 { "test" } else { "tests" }
+    );
+}
+
 /// `testaruda select` — select affected tests from a code change.
 pub fn select(args: SelectArgs) -> miette::Result<()> {
     // Safe mode: pre-flight checks with fallback to cargo test
@@ -565,9 +768,7 @@ pub fn select(args: SelectArgs) -> miette::Result<()> {
     let project_root = find_project_root()?;
     let config = testaruda::config::Config::load_or_default(&project_root);
     let registry = config.adapters.to_registry();
-    if let Err(e) = run_adapter_pipeline(&store, &registry, &delta, &config.discover.exclude) {
-        eprintln!("⚠️  Adapter warning: {} (using existing store data)", e);
-    }
+    let evidence = run_adapter_pipeline(&store, &registry, &delta, &config.discover.exclude);
 
     // Agent mode implies deterministic ordering (TIA-AGENT-007)
     // and overrides any explicit --ordering flag
@@ -578,7 +779,11 @@ pub fn select(args: SelectArgs) -> miette::Result<()> {
     };
 
     // Load selection context once, reuse for both engine and agent output
-    let ctx = store.load_selection_context(&delta)?;
+    let mut ctx = store.load_selection_context(&delta)?;
+    // Conservative fallback for incomplete adapter evidence (testaruda-0bwk):
+    // adapter failures, unresolved reports and unknown file kinds must not
+    // degrade to an empty selection (TIA-CHG-007, TIA-SAFE-004, ADAPT-012).
+    let evidence_fallback = apply_evidence_fallback(&store, &mut ctx, &evidence, &registry);
     let changed_ids = ctx.changed.clone();
     let unresolved_ids = ctx.unresolved.clone();
     let engine = Engine::new(&store);
@@ -605,6 +810,13 @@ pub fn select(args: SelectArgs) -> miette::Result<()> {
     let edges_resolved = !all_affected_ids.is_empty();
     let mut outcome =
         CiOutcome::from_selection(&selection, total_tests, changed_units, edges_resolved);
+    // Name the deficit when the fallback drove the full run — the generic
+    // over-selection reason would hide the cause (testaruda-0bwk).
+    if outcome.code == ci_exit::FULL_RUN {
+        if let Some(reason) = &evidence_fallback {
+            outcome.reason = reason.clone();
+        }
+    }
 
     // Shadow mode (TIA-CI-007): report all tests should run
     if args.shadow {
@@ -653,19 +865,47 @@ pub fn select(args: SelectArgs) -> miette::Result<()> {
     emit_select_output(&state)?;
 
     if effective_ci && !selection.tests.is_empty() {
-        run_ci_tests(&CiRunCtx {
-            store: &store,
-            registry: &registry,
-            selection: &selection,
-        })?;
-        if !args.safe {
-            let code = outcome.exit_code();
-            if code != 0 {
-                std::process::exit(code);
-            }
-        }
+        run_selected_ci_tests(
+            &store,
+            &registry,
+            &selection,
+            &delta.files,
+            outcome.exit_code(),
+            args.safe,
+        )?;
     }
 
+    Ok(())
+}
+
+/// CI-mode tail of `select` (TIA-CI-008): run the selected tests and ingest
+/// their results. On runner failure run_ci_tests exits with the runner's code
+/// after ingesting — BEFORE baseline advancement, so a failed execution keeps
+/// the change classification (testaruda-yvyb). On success the executed tests
+/// validated the working tree and the fingerprint baseline advances. Then the
+/// selection outcome code is preserved for the CI contract (testaruda-ls4t).
+fn run_selected_ci_tests(
+    store: &Store,
+    registry: &AdapterRegistry,
+    selection: &Selection,
+    delta_files: &[String],
+    outcome_code: i32,
+    safe: bool,
+) -> miette::Result<()> {
+    run_ci_tests(&CiRunCtx {
+        store,
+        registry,
+        selection,
+    })?;
+    if let Err(e) = store.advance_fingerprints(delta_files) {
+        eprintln!(
+            "⚠️  Fingerprint advance warning: {} (baseline unchanged)",
+            e
+        );
+    }
+    if !safe && outcome_code != 0 {
+        std::process::exit(outcome_code);
+    }
     Ok(())
 }
 

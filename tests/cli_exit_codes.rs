@@ -142,7 +142,16 @@ for line in sys.stdin:
         .unwrap();
     assert!(ingested > 0, "healthy group's results must be ingested");
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    if failure != "ok" {
+    if failure == "adapter" {
+        // testaruda-0bwk: a select-time adapter deficit on the changed file
+        // (spawn failure — TIA-ADAPT-012) now raises a conservative component
+        // fallback, so all three component tests are selected. The
+        // execution-readiness contract (exit code, healthy group still runs
+        // and ingests) is unchanged and asserted above.
+        assert_eq!(plan["data"]["selected_count"], 3);
+    } else if failure != "ok" {
+        // Execution-time failures don't affect selection evidence: the
+        // always-run pair (faulty, healthy — spare has history) is selected.
         assert_eq!(plan["data"]["selected_count"], 2);
     }
 }
@@ -379,4 +388,250 @@ fn json_mode_exits_with_low_confidence_code() {
         "JSON output should contain exit_code\nstdout: {}",
         stdout
     );
+}
+
+// ===== Incomplete adapter evidence — conservative fallback (testaruda-0bwk) =====
+//
+// TIA-CHG-007 (unknown file kind fallback), TIA-SAFE-004 (unresolved file
+// treatment), TIA-ADAPT-012 (adapter failure fallback): when the evidence
+// behind a changed unit is incomplete, selection must not silently return an
+// empty set — the core SHALL raise a fallback signal for the affected
+// component (conservatively selecting that component's tests, FULL_RUN = 10).
+
+/// Shared harness for incomplete-evidence cases. Warm store (every test item
+/// has run history) so nothing is always-run: the selection can only come
+/// from real adapter evidence or the conservative fallback. The changed file
+/// is covered by the `faulty` adapter; the `healthy` adapter covers `.bar`.
+/// Plain `select --json` (no --safe/--ci) — no runner execution, so the
+/// outcome code is the process exit code.
+fn readiness_incomplete_case(mode: &str, changed: &str, expected: i32, diagnostic: &str) {
+    let project = setup_project();
+    let adapter = project.path().join("adapter.py");
+    std::fs::write(&adapter, r#"import json, sys
+name, mode = sys.argv[1:]
+if mode == 'startup' and name == 'faulty':
+    sys.exit(1)
+for line in sys.stdin:
+    cmd = json.loads(line)['command']
+    result = []
+    if cmd == 'handshake':
+        result = dict(name=name, version='1', protocol=1, languages=['fake'], granularity='file', capabilities={})
+    elif cmd == 'static-deps':
+        if mode == 'malformed' and name == 'faulty':
+            print('this is not json', flush=True)
+            continue
+        unresolved = ['source.foo'] if (mode == 'unresolved' and name == 'faulty') else []
+        print(json.dumps(dict(candidates=[], edges=[], unresolved=unresolved)), flush=True)
+        continue
+    elif cmd == 'discover':
+        print(json.dumps(dict(result=[])), flush=True)
+        continue
+    elif cmd == 'fingerprint':
+        print(json.dumps(dict(fingerprints=[])), flush=True)
+        continue
+    print(json.dumps(dict(ok=True, result=result)), flush=True)
+"#).unwrap();
+    // Both extension slots use the same script; mode picks the failure.
+    // "missing" points the `.foo` slot at a binary that does not exist.
+    let faulty = if mode == "missing" {
+        "./absent-adapter".to_string()
+    } else {
+        format!("python3 {} faulty {}", adapter.display(), mode)
+    };
+    let healthy = format!("python3 {} healthy {}", adapter.display(), mode);
+    std::fs::write(project.path().join("testaruda.toml"), format!(
+        "confidence_threshold = 0.0\n[adapters.extensions]\n\".foo\" = {faulty:?}\n\".bar\" = {healthy:?}\n"
+    )).unwrap();
+    std::fs::write(project.path().join("source.foo"), "change").unwrap();
+    std::fs::write(project.path().join("source.bar"), "original").unwrap();
+    if changed == "source.xyz" {
+        std::fs::write(project.path().join("source.xyz"), "change").unwrap();
+    }
+    // Warm store: all three items have run history (no always-run members).
+    let conn = rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap();
+    conn.execute_batch("INSERT INTO test_items(component, adapter, node_id) VALUES
+        ('default','faulty','faulty'), ('default','healthy','healthy'), ('default','healthy','spare');
+        INSERT INTO run_history(test_item_id,run_id,outcome,environment) VALUES
+        (1,'prev','passed','default'), (2,'prev','passed','default'), (3,'prev','passed','default');")
+        .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
+        .args(["select", "--json", "--files", changed])
+        .current_dir(project.path())
+        .output()
+        .expect("testaruda select --json failed");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(expected), "{stderr}");
+    assert!(stderr.contains(diagnostic), "{stderr}");
+    let plan: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        plan["data"]["selected_count"], 3,
+        "component fallback must select all component tests\n{stderr}"
+    );
+}
+
+/// Unknown file kind (no adapter registered for `.xyz`) with no known edges:
+/// TIA-CHG-007 requires a fallback signal for the affected component.
+#[test]
+fn readiness_incomplete_unknown_kind() {
+    readiness_incomplete_case("ok", "source.xyz", 10, "unknown file kind");
+}
+
+/// Adapter reports the changed file unresolved (TIA-SAFE-004): dependents
+/// must be conservatively force-included via a component fallback.
+#[test]
+fn readiness_incomplete_unresolved_report() {
+    readiness_incomplete_case(
+        "unresolved",
+        "source.foo",
+        10,
+        "reported the file unresolved",
+    );
+}
+
+/// Adapter binary missing: TIA-ADAPT-012 requires the fallback mechanism,
+/// not a log-only warning with an empty selection.
+#[test]
+fn readiness_incomplete_missing_binary() {
+    readiness_incomplete_case("missing", "source.foo", 10, "Incomplete adapter evidence");
+}
+
+/// Adapter dies at startup (handshake never completes): same fallback contract.
+#[test]
+fn readiness_incomplete_startup_failure() {
+    readiness_incomplete_case("startup", "source.foo", 10, "Incomplete adapter evidence");
+}
+
+/// Adapter emits a malformed static-deps response: same fallback contract.
+#[test]
+fn readiness_incomplete_malformed_response() {
+    readiness_incomplete_case("malformed", "source.foo", 10, "Incomplete adapter evidence");
+}
+
+// ===== Selection idempotence — baseline advancement (testaruda-yvyb) =====
+//
+// TIA-CHG-002/003/010, TIA-SAFE-001: selection must not consume the change
+// classification. Repeating an identical request — select-only or after a
+// FAILED execution — must preserve the classification and select the same
+// tests again; the fingerprint baseline advances only after a successful run.
+
+/// Shared harness for baseline-preservation cases: warm store (no always-run
+/// members), a healthy adapter pair, and an unknown-kind changed file whose
+/// only selection route is the conservative component fallback. Both selects
+/// in each test must select all three component tests.
+fn readiness_baseline_setup(mode: &str, changed: &str, preseed_old_fp: bool) -> tempfile::TempDir {
+    let project = setup_project();
+    let adapter = project.path().join("adapter.py");
+    std::fs::write(&adapter, r#"import json, sys
+name, mode = sys.argv[1:]
+for line in sys.stdin:
+    cmd = json.loads(line)['command']
+    result = []
+    if cmd == 'handshake':
+        result = dict(name=name, version='1', protocol=1, languages=['fake'], granularity='file', capabilities={})
+    elif cmd == 'static-deps':
+        print(json.dumps(dict(candidates=[], edges=[], unresolved=[])), flush=True)
+        continue
+    elif cmd == 'run-args':
+        if mode == 'run-fails' and name == 'faulty':
+            print(json.dumps(dict(ok=False, error='controlled run-args error')), flush=True)
+            continue
+        result = dict(runner_args=['python3', '-c', "open('executed', 'a').write('yes')"], collection_path='unused')
+    elif cmd == 'ingest':
+        result = dict(per_test_results=[dict(test_id=name, outcome='passed' if mode != 'runner-fails' else 'failed')])
+    print(json.dumps(dict(ok=True, result=result)), flush=True)
+"#).unwrap();
+    let faulty = format!("python3 {} faulty {}", adapter.display(), mode);
+    let healthy = format!("python3 {} healthy {}", adapter.display(), mode);
+    std::fs::write(project.path().join("testaruda.toml"), format!(
+        "confidence_threshold = 0.0\n[adapters.extensions]\n\".foo\" = {faulty:?}\n\".bar\" = {healthy:?}\n"
+    )).unwrap();
+    std::fs::write(project.path().join(changed), "changed-content").unwrap();
+    let conn = rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap();
+    if preseed_old_fp {
+        // The file is KNOWN to the store with a stale fingerprint: the next
+        // select must classify it as changed, and a repeat must too.
+        conn.execute(
+            "INSERT INTO content_units(component, path, symbol, kind, fingerprint) VALUES
+             ('default', ?1, NULL, 'source', 'stale-fingerprint')",
+            rusqlite::params![changed],
+        )
+        .unwrap();
+    }
+    conn.execute_batch("INSERT INTO test_items(component, adapter, node_id) VALUES
+        ('default','faulty','faulty'), ('default','healthy','healthy'), ('default','healthy','spare');
+        INSERT INTO run_history(test_item_id,run_id,outcome,environment) VALUES
+        (1,'prev','passed','default'), (2,'prev','passed','default'), (3,'prev','passed','default');")
+        .unwrap();
+    project
+}
+
+fn run_select(project: &tempfile::TempDir, args: &[&str]) -> (i32, serde_json::Value, String) {
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"));
+    command
+        .args(["select", "--json"])
+        .args(args)
+        .current_dir(project.path());
+    let output = command.output().unwrap();
+    let plan: serde_json::Value =
+        serde_json::from_slice(&output.stdout).unwrap_or(serde_json::Value::Null);
+    (
+        output.status.code().unwrap_or(-1),
+        plan,
+        String::from_utf8_lossy(&output.stderr).to_string(),
+    )
+}
+
+fn assert_fallback_selected(code: i32, plan: &serde_json::Value, select: usize) {
+    assert_eq!(code, 10, "fallback must yield FULL_RUN");
+    assert_eq!(
+        plan["data"]["selected_count"], 3,
+        "select #{select}: classification must be preserved"
+    );
+}
+
+/// Known change: a repeat select-only request must not lose the affected
+/// tests (the fingerprint baseline must not advance during selection).
+#[test]
+fn readiness_baseline_known_change() {
+    let project = readiness_baseline_setup("ok", "source.xyz", true);
+    let (code, plan, stderr) = run_select(&project, &["--files", "source.xyz"]);
+    assert_fallback_selected(code, &plan, 1);
+    let (code2, plan2, stderr2) = run_select(&project, &["--files", "source.xyz"]);
+    assert_fallback_selected(code2, &plan2, 2);
+    drop((stderr, stderr2));
+}
+
+/// Cold start: a file unknown to the store stays classified (unresolved)
+/// across repeat select-only requests.
+#[test]
+fn readiness_baseline_cold_start() {
+    let project = readiness_baseline_setup("ok", "source.xyz", false);
+    let (code, plan, _) = run_select(&project, &["--files", "source.xyz"]);
+    assert_fallback_selected(code, &plan, 1);
+    let (code2, plan2, _) = run_select(&project, &["--files", "source.xyz"]);
+    assert_fallback_selected(code2, &plan2, 2);
+}
+
+/// Failed execution: after a CI run whose faulty group fails, a repeat select
+/// must still classify and select the change (no baseline advancement on
+/// failed execution).
+#[test]
+fn readiness_baseline_failed_execution() {
+    let project = readiness_baseline_setup("run-fails", "source.xyz", true);
+    let (code, plan, _) = run_select(&project, &["--ci", "--files", "source.xyz"]);
+    assert_eq!(
+        code, 1,
+        "the faulty group's run-args error must fail the run"
+    );
+    assert_eq!(plan["data"]["selected_count"], 3);
+    // All groups process before exit (kkno): the healthy group still ran.
+    assert!(
+        project.path().join("executed").exists(),
+        "healthy group must execute"
+    );
+    // Repeat select-only request: classification preserved.
+    let (code2, plan2, stderr2) = run_select(&project, &["--files", "source.xyz"]);
+    assert_fallback_selected(code2, &plan2, 2);
+    drop(stderr2);
 }
