@@ -14,9 +14,15 @@ pre-commit:
     ddl-ah-check:
       run: ah check
     ddl-pretender-gate:
-      run: pretender check --mode gate
+      # Diff-scoped like the pre-push pretender hook: a repo-wide gate fails
+      # on pre-existing violations in untouched files and blocks every commit
+      # (upstream DDL-3fd).
+      run: pretender check --diff-only --mode gate
     ddl-spk-lint:
-      run: spk lint openspec
+      # Plain-openspec corpora have nothing for spk to lint (exit 2) until
+      # dual-format adoption — tolerate nothing-to-lint (testaruda-7tip,
+      # upstream DDL-3fd). Real findings still fail (exit 1).
+      run: spk lint openspec/specs || test $? -eq 2
     # ddl:managed:end (pre-commit)
     beads:
       run: bd hooks run pre-commit
