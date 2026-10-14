@@ -229,6 +229,12 @@ pub struct AdapterConfig {
     /// Default adapter binary.
     #[serde(default)]
     pub default: Option<String>,
+    /// Per-response adapter deadline in milliseconds (testaruda-cd4u).
+    /// When absent, adapters use the engine default (30s). A deadline miss
+    /// kills the adapter's whole process group and surfaces as a typed
+    /// timeout error — exec must never wedge on a hung adapter child.
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
 }
 
 impl Default for AdapterConfig {
@@ -256,6 +262,7 @@ impl Default for AdapterConfig {
         Self {
             extensions,
             default: Some("testaruda-adapter-rust".to_string()),
+            timeout_ms: None,
         }
     }
 }
@@ -374,6 +381,7 @@ impl AdapterConfig {
         if let Some(ref default) = self.default {
             reg.set_default(default);
         }
+        reg.set_timeout_ms(self.timeout_ms);
         reg
     }
 
@@ -723,6 +731,37 @@ default = "testaruda-adapter-rust"
             AdapterConfig::detect_shape(""),
             AdaptersConfigShape::Missing
         );
+    }
+
+    /// testaruda-cd4u: `[adapters] timeout_ms` bounds every adapter response
+    /// window (default stays 30s when absent) and must flow into the
+    /// AdapterRegistry the pipelines spawn with.
+    #[test]
+    fn adapters_timeout_ms_parses_and_flows_to_registry() {
+        let toml = r#"
+[adapters]
+timeout_ms = 5000
+default = "testaruda-adapter-rust"
+[adapters.extensions]
+".rs" = "testaruda-adapter-rust"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.adapters.timeout_ms, Some(5000));
+        let reg = config.adapters.to_registry();
+        assert_eq!(reg.timeout_ms(), Some(5000));
+    }
+
+    #[test]
+    fn adapters_timeout_ms_absent_defaults_to_none() {
+        let toml = r#"
+[adapters]
+default = "testaruda-adapter-rust"
+[adapters.extensions]
+".rs" = "testaruda-adapter-rust"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.adapters.timeout_ms, None);
+        assert_eq!(config.adapters.to_registry().timeout_ms(), None);
     }
 
     #[test]

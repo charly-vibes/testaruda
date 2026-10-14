@@ -17,6 +17,8 @@
 //! Diagnostics go to stderr. Exit code indicates process status.
 
 use std::io::{BufRead, BufReader, Write};
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -150,6 +152,11 @@ impl AdapterIO {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        // Own process group (testaruda-cd4u): shim chains (sh -> adapter) run
+        // as one group, so deadline kills can take the whole tree instead of
+        // orphaning grandchildren.
+        #[cfg(unix)]
+        cmd.process_group(0);
         if let Some(dir) = cwd {
             cmd.current_dir(dir);
         }
@@ -258,7 +265,7 @@ impl AdapterIO {
 
         // Protocol version check (TIA-ADAPT-011)
         if hs.protocol != PROTOCOL_VERSION {
-            let _ = io.child.kill();
+            io.kill_tree();
             return Err(AdapterError::VersionMismatch {
                 core: PROTOCOL_VERSION,
                 adapter: hs.protocol,
@@ -378,7 +385,7 @@ impl AdapterIO {
             // Check timeout
             let elapsed = start.elapsed();
             if elapsed > self.timeout {
-                let _ = self.child.kill();
+                self.kill_tree();
                 return Err(AdapterError::Timeout(self.timeout.as_millis() as u64));
             }
 
@@ -438,18 +445,51 @@ impl AdapterIO {
         }
     }
 
+    /// Kill the adapter process tree.
+    ///
+    /// Kills the child's process group when possible (testaruda-cd4u) so
+    /// shim chains (`/bin/sh shim` -> real adapter) do not orphan their
+    /// grandchildren, then reaps the direct child with a bounded wait —
+    /// the unbounded `wait()` here was the do_wait wedge surface.
+    fn kill_tree(&mut self) {
+        // Already exited and reaped (e.g. ProcessExit in read_response)? Skip
+        // the kill entirely: the pid may have been recycled, and signaling a
+        // recycled group could hit an unrelated process (testaruda-cd4u).
+        if let Ok(Some(_)) = self.child.try_wait() {
+            return;
+        }
+        #[cfg(unix)]
+        {
+            // Safe: signal-only FFI on a pid we own. The child was spawned
+            // with `process_group(0)`, so its pid IS the group id.
+            let pgid = self.child.id() as i32;
+            unsafe {
+                libc::kill(-pgid, libc::SIGKILL);
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = self.child.kill();
+        // Bounded reap: SIGKILL cannot be blocked, so this returns quickly;
+        // the bound keeps a pathological uninterruptible child from wedging us.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            match self.child.try_wait() {
+                Ok(Some(_)) | Err(_) => return,
+                Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
+            }
+        }
+    }
+
     /// Kill the adapter process.
     pub fn kill(mut self) -> Result<(), AdapterError> {
-        let _ = self.child.kill();
-        self.child.wait()?;
+        self.kill_tree();
         Ok(())
     }
 }
 
 impl Drop for AdapterIO {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        self.kill_tree();
     }
 }
 
@@ -635,6 +675,9 @@ struct IngestResponse {
 pub struct AdapterRegistry {
     extensions: Vec<(String, String)>,
     default: Option<String>,
+    /// Per-response deadline for spawned adapters (testaruda-cd4u).
+    /// `None` falls back to `DEFAULT_TIMEOUT_MS` in `AdapterIO::spawn_in`.
+    timeout_ms: Option<u64>,
 }
 
 impl Default for AdapterRegistry {
@@ -648,6 +691,7 @@ impl AdapterRegistry {
         Self {
             extensions: Vec::new(),
             default: None,
+            timeout_ms: None,
         }
     }
 
@@ -658,6 +702,16 @@ impl AdapterRegistry {
 
     pub fn set_default(&mut self, binary: &str) {
         self.default = Some(binary.to_string());
+    }
+
+    /// Set the per-response adapter deadline (testaruda-cd4u).
+    pub fn set_timeout_ms(&mut self, timeout_ms: Option<u64>) {
+        self.timeout_ms = timeout_ms;
+    }
+
+    /// The configured per-response adapter deadline, if any.
+    pub fn timeout_ms(&self) -> Option<u64> {
+        self.timeout_ms
     }
 
     /// Find the adapter binary for a file path by extension.
@@ -836,6 +890,54 @@ for line in sys.stdin:
             Err(other) => panic!("expected Timeout, got: {other}"),
             Ok(_) => panic!("expected Timeout, but adapter responded"),
         }
+    }
+
+    /// Scan /proc for a live process whose cmdline contains `marker`.
+    #[cfg(unix)]
+    fn process_with_cmdline(marker: &str) -> bool {
+        let proc_dir = std::path::Path::new("/proc");
+        let Ok(entries) = std::fs::read_dir(proc_dir) else {
+            return false; // no /proc — cannot verify, assume absent
+        };
+        for entry in entries.flatten() {
+            let Ok(cmdline) = std::fs::read(entry.path().join("cmdline")) else {
+                continue;
+            };
+            let cmd = String::from_utf8_lossy(&cmdline).replace('\0', " ");
+            if cmd.contains(marker) {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn readiness_io_timeout_kills_process_group() {
+        // testaruda-cd4u: the deadline kill must take the whole adapter
+        // process group, not just the direct child. The observed incident was
+        // exec -> /bin/sh shim -> adapter, where killing the direct child
+        // orphaned the real adapter process for days. Here the adapter (a)
+        // never reads stdin (deadline fires during handshake) and (b) spawned
+        // a long-lived grandchild with a unique marker; after the timeout the
+        // grandchild must be gone.
+        let dir = tempfile::tempdir().unwrap();
+        let script = io_script(
+            dir.path(),
+            "import subprocess\nsubprocess.Popen(['sleep', '424242'])\ntime.sleep(30)",
+        );
+        let result = spawn_adapter(&script, Some(300));
+        match result {
+            Err(AdapterError::Timeout(_)) => {}
+            Err(other) => panic!("expected Timeout, got: {other}"),
+            Ok(_) => panic!("expected Timeout, but adapter responded"),
+        }
+        // Give the kernel a moment to reap the killed group.
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(
+            !process_with_cmdline("sleep 424242"),
+            "orphaned grandchild survived the adapter timeout (testaruda-cd4u)"
+        );
     }
 
     #[test]

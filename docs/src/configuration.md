@@ -10,6 +10,10 @@ confidence_threshold = 0.5
 [adapters]
 # Adapter used when no extension mapping matches.
 default = "testaruda-adapter-rust"
+# Per-response adapter deadline in milliseconds. A deadline miss kills the
+# adapter's whole process group (shim chains included) and surfaces as a
+# typed timeout error — a hung adapter child can never wedge exec. Default: 30000.
+# timeout_ms = 30000
 
 [adapters.extensions]
 # Adapter binaries must be on PATH or specified with absolute paths.

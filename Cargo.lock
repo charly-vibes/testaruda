@@ -1156,6 +1156,7 @@ dependencies = [
  "clap_complete",
  "genesis-vibes",
  "glob",
+ "libc",
  "miette",
  "predicates",
  "rusqlite",

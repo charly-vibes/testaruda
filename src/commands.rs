@@ -240,7 +240,7 @@ pub fn run_adapter_pipeline(
 
     // Step 2: For each adapter, run discover + static-deps on all files
     for (binary, files) in &adapter_files {
-        match discover_and_link_adapter(store, binary, files) {
+        match discover_and_link_adapter(store, binary, files, registry.timeout_ms()) {
             Ok(unresolved) => evidence.unresolved_files.extend(unresolved),
             Err(_) => {
                 if !evidence.failed_binaries.contains(binary) {
@@ -266,8 +266,11 @@ pub fn run_adapter_pipeline(
 /// Spawn `binary` with a diagnostic on failure naming the resolved binary
 /// (TIA-ADAPT-024). Returns None (after warning) instead of an error so one
 /// broken adapter never blocks the others.
-fn spawn_adapter_or_warn(binary: &str) -> Option<testaruda::adapter::AdapterIO> {
-    match spawn_adapter(binary, None) {
+fn spawn_adapter_or_warn(
+    binary: &str,
+    timeout_ms: Option<u64>,
+) -> Option<testaruda::adapter::AdapterIO> {
+    match spawn_adapter(binary, timeout_ms) {
         Ok(a) => Some(a),
         Err(e) => {
             let binary_name = testaruda::adapter::parse_command_string(binary)
@@ -288,8 +291,10 @@ fn discover_and_link_adapter(
     store: &Store,
     binary: &str,
     files: &[String],
+    timeout_ms: Option<u64>,
 ) -> std::result::Result<Vec<String>, String> {
-    let mut adapter = spawn_adapter_or_warn(binary).ok_or_else(|| "spawn failed".to_string())?;
+    let mut adapter =
+        spawn_adapter_or_warn(binary, timeout_ms).ok_or_else(|| "spawn failed".to_string())?;
 
     // Run discover (TIA-ADAPT-004)
     match adapter.discover() {
@@ -352,7 +357,7 @@ fn run_uncovered_changed_files(
         if adapter_files.contains_key(binary) {
             continue; // already processed in the full walk
         }
-        let mut adapter = match spawn_adapter_or_warn(binary) {
+        let mut adapter = match spawn_adapter_or_warn(binary, registry.timeout_ms()) {
             Some(a) => a,
             None => {
                 if !evidence.failed_binaries.iter().any(|b| b == binary) {
@@ -408,7 +413,7 @@ pub fn run_discover_pipeline(
                 continue;
             }
 
-            let mut adapter = match spawn_adapter(binary, None) {
+            let mut adapter = match spawn_adapter(binary, registry.timeout_ms()) {
                 Ok(a) => a,
                 Err(e) => {
                     eprintln!("  ⚠️  Failed to spawn {}: {}", binary, e);
@@ -1362,7 +1367,7 @@ fn run_ci_tests(ctx: &CiRunCtx) -> miette::Result<()> {
     }
     let mut known_adapters: Vec<(String, &str)> = Vec::new();
     for binary in &binaries {
-        match spawn_adapter(binary, None) {
+        match spawn_adapter(binary, ctx.registry.timeout_ms()) {
             Ok(adapter) => {
                 known_adapters.push((adapter.name.clone(), binary));
             }
@@ -1426,7 +1431,7 @@ fn run_adapter_group(
     adapter_binary: &str,
     node_ids: &[String],
 ) -> miette::Result<Option<i32>> {
-    let mut adapter = match spawn_adapter(adapter_binary, None) {
+    let mut adapter = match spawn_adapter(adapter_binary, ctx.registry.timeout_ms()) {
         Ok(a) => a,
         Err(e) => {
             return Err(miette!("failed to spawn adapter {}: {}", adapter_binary, e));
@@ -1648,16 +1653,17 @@ fn ingest_raw(store: &Store, path: &str, adapter: Option<String>) -> miette::Res
 
     // Resolve adapter binary: explicit --adapter flag, or auto-detect
     // from the project's config, or fall back to the Python adapter
-    let adapter_binary: String = if let Some(explicit) = adapter {
-        explicit
+    let (adapter_binary, timeout_ms): (String, Option<u64>) = if let Some(explicit) = adapter {
+        (explicit, None)
     } else {
         let project_root = find_project_root()?;
         let config = testaruda::config::Config::load_or_default(&project_root);
         let registry = config.adapters.to_registry();
-        resolve_ingest_adapter(&registry)
+        let binary = resolve_ingest_adapter(&registry);
+        (binary, registry.timeout_ms())
     };
 
-    let mut adapter = spawn_adapter(&adapter_binary, None)
+    let mut adapter = spawn_adapter(&adapter_binary, timeout_ms)
         .map_err(|e| miette!("Failed to spawn adapter {}: {}", adapter_binary, e))?;
 
     let ingest_result = adapter

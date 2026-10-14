@@ -45,6 +45,10 @@ thiserror = "2"
 
 # Glob pattern matching for must-run rules (TIA-SAFE-009)
 glob = "0.3"
+
+# Process-group kill for adapter deadline enforcement (testaruda-cd4u)
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 anyhow = "1"
 
 # Observability

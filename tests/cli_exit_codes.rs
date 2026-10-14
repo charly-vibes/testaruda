@@ -401,6 +401,99 @@ fn json_mode_exits_with_low_confidence_code() {
 // empty set — the core SHALL raise a fallback signal for the affected
 // component (conservatively selecting that component's tests, FULL_RUN = 10).
 
+/// testaruda-cd4u: a hung adapter child must never wedge exec/discover.
+/// The adapter (a) spawns a long-lived grandchild and (b) never reads stdin
+/// nor responds. With `[adapters] timeout_ms = 300` the discover pipeline
+/// must finish promptly (typed timeout treated as adapter deficit, not a
+/// crash) and the grandchild must not survive as an orphan (process-group
+/// kill). Before cd4u the engine had no bound around adapter execution — a
+/// wedged exec tree persisted for days.
+#[test]
+fn discover_hanging_adapter_times_out_and_kills_process_group() {
+    let project = setup_project();
+    let hang = project.path().join("hang.py");
+    std::fs::write(
+        &hang,
+        "import subprocess, time\nsubprocess.Popen(['sleep', '424243'])\ntime.sleep(30)\n",
+    )
+    .unwrap();
+    std::fs::write(
+        project.path().join("testaruda.toml"),
+        "[adapters]\ntimeout_ms = 300\n[adapters.extensions]\n\".foo\" = \"python3 hang.py\"\n",
+    )
+    .unwrap();
+    std::fs::write(project.path().join("source.foo"), "fn main() {}\n").unwrap();
+
+    // Bounded run: spawn + poll instead of output(), so a regression back to
+    // the unbounded wait fails this test with a diagnosis instead of hanging
+    // the whole suite until the CI timeout.
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
+        .args(["discover"])
+        .current_dir(project.path())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("failed to spawn testaruda discover");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let status = loop {
+        match child.try_wait().expect("try_wait failed") {
+            Some(status) => break status,
+            None if std::time::Instant::now() > deadline => {
+                let _ = child.kill();
+                panic!(
+                    "discover did not finish within 30s against a hanging adapter — \
+                     exec is wedging again (testaruda-cd4u)"
+                );
+            }
+            None => std::thread::sleep(std::time::Duration::from_millis(100)),
+        }
+    };
+
+    // The adapter deficit is recorded, never fatal: discover exits 0 with a
+    // warning naming the adapter timeout.
+    assert!(
+        status.success(),
+        "discover should degrade gracefully on adapter timeout, got: {status:?}"
+    );
+    let stderr = {
+        use std::io::Read;
+        let mut buf = String::new();
+        if let Some(mut s) = child.stderr.take() {
+            let _ = s.read_to_string(&mut buf);
+        }
+        buf
+    };
+    assert!(
+        stderr.contains("timeout") || stderr.contains("Failed"),
+        "expected a diagnostic about the adapter timeout.\nstderr: {stderr}"
+    );
+
+    // The shim's grandchild (sleep 424243) must be gone — the deadline kill
+    // takes the whole process group, not just the direct child.
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(
+        !marker_process_alive("424243"),
+        "orphaned grandchild survived the configured adapter timeout (testaruda-cd4u)"
+    );
+}
+
+/// Scan /proc for a live process whose cmdline contains `marker`.
+fn marker_process_alive(marker: &str) -> bool {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return false; // no /proc — cannot verify, assume absent
+    };
+    for entry in entries.flatten() {
+        let Ok(cmdline) = std::fs::read(entry.path().join("cmdline")) else {
+            continue;
+        };
+        let cmd = String::from_utf8_lossy(&cmdline).replace('\0', " ");
+        if cmd.contains(marker) {
+            return true;
+        }
+    }
+    false
+}
+
 /// Shared harness for incomplete-evidence cases. Warm store (every test item
 /// has run history) so nothing is always-run: the selection can only come
 /// from real adapter evidence or the conservative fallback. The changed file
