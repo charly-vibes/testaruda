@@ -1,6 +1,6 @@
 //! Configuration — parses `testaruda.toml` for adapter registrations and project settings.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use genesis::config::ConfigFile;
@@ -304,6 +304,49 @@ pub fn detect_project_language(project_root: &Path) -> Option<String> {
     None
 }
 
+/// Batch-resolve which of `paths` (relative to `root`) are gitignored.
+/// Delegates semantics to `git check-ignore --stdin -z` in one subprocess;
+/// outside a git repo (or when git is missing) everything is kept —
+/// recall-safe. Used to keep generated/build artifacts out of adapter
+/// discovery (testaruda-onj6 / gh-64).
+pub fn git_ignored_paths(root: &Path, paths: &[String]) -> HashSet<String> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let mut child = match Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["check-ignore", "--stdin", "-z"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(_) => return HashSet::new(),
+    };
+    // Feed paths on a thread so a large list cannot deadlock against the
+    // child's stdout pipe filling up while we are still writing.
+    let owned: Vec<String> = paths.to_vec();
+    let mut stdin = child.stdin.take().expect("piped stdin");
+    let writer = std::thread::spawn(move || {
+        for p in &owned {
+            let _ = stdin.write_all(p.as_bytes());
+            let _ = stdin.write_all(b"\0");
+        }
+    });
+    let mut out = String::new();
+    if let Some(mut stdout) = child.stdout.take() {
+        let _ = std::io::Read::read_to_string(&mut stdout, &mut out);
+    }
+    let _ = writer.join();
+    let _ = child.wait();
+    out.split('\0')
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .collect()
+}
+
 /// Build a filter_entry closure from a list of directory names to exclude.
 /// Returns a function that returns `true` if the entry should be included,
 /// `false` if it should be skipped (matched by name).
@@ -467,6 +510,61 @@ pub fn normalize_adapters_config(content: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Generated/build artifacts must not be indexed as project source
+    /// (testaruda-onj6 / gh-64): spk orchestrate wrote generated proptest
+    /// files into an untracked specodelic/ dir, the rust adapter discovered
+    /// 9 phantom test items, and every pre-push gate run failed until the
+    /// artifacts were hand-deleted and gitignored. The engine walk must
+    /// exclude gitignored paths; untracked-but-not-ignored files (new local
+    /// work) stay indexed — recall-safe.
+    #[test]
+    fn git_ignored_paths_excludes_ignored_keeps_the_rest() {
+        let dir = tempfile::tempdir().unwrap();
+        let run_git = |dir: &Path, args: &[&str]| {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir)
+                .args(args)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .output()
+                .unwrap();
+        };
+        run_git(dir.path(), &["init", "-q"]);
+        std::fs::write(dir.path().join(".gitignore"), "generated/\n*.tmp.rs\n").unwrap();
+        std::fs::create_dir_all(dir.path().join("generated")).unwrap();
+        std::fs::write(dir.path().join("generated/spec_props.rs"), "").unwrap();
+        std::fs::write(dir.path().join("generated/tmp.tmp.rs"), "").unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src/lib.rs"), "").unwrap();
+        std::fs::write(dir.path().join("untracked.rs"), "").unwrap();
+
+        let paths = vec![
+            "generated/spec_props.rs".to_string(),
+            "generated/tmp.tmp.rs".to_string(),
+            "src/lib.rs".to_string(),
+            "untracked.rs".to_string(),
+        ];
+        let ignored = git_ignored_paths(dir.path(), &paths);
+        assert_eq!(
+            ignored,
+            std::collections::HashSet::from([
+                "generated/spec_props.rs".to_string(),
+                "generated/tmp.tmp.rs".to_string(),
+            ]),
+            "gitignored files excluded, tracked + untracked-not-ignored kept"
+        );
+    }
+
+    /// Outside a git repo there is no ignore semantics — everything is kept
+    /// (recall-safe), and the helper must not error.
+    #[test]
+    fn git_ignored_paths_outside_a_repo_keeps_everything() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "").unwrap();
+        let ignored = git_ignored_paths(dir.path(), &["a.rs".to_string()]);
+        assert!(ignored.is_empty());
+    }
 
     #[test]
     fn exclude_filter_skips_hidden_dirs_but_not_walk_root() {
