@@ -811,7 +811,9 @@ fn cmd_ingest(cmd: &serde_json::Value) -> serde_json::Value {
 }
 
 /// Parse a JUnit XML testcase tag and extract attributes.
-fn parse_junit_testcase(line: &str) -> Option<(&str, &str, f64)> {
+/// Name/file values are XML-unescaped to match discovery ids, which carry
+/// the raw characters (testaruda-uwup).
+fn parse_junit_testcase(line: &str) -> Option<(String, String, f64)> {
     let tag_start = line.find("<testcase")?;
 
     // Find the closing > of the tag, handling > inside attribute values
@@ -832,8 +834,10 @@ fn parse_junit_testcase(line: &str) -> Option<(&str, &str, f64)> {
 
     let tag = &line[tag_start..tag_end];
 
-    let name = extract_xml_attr(tag, "name")?;
-    let file = extract_xml_attr(tag, "file").or_else(|| extract_xml_attr(tag, "classname"))?;
+    let name = extract_xml_attr(tag, "name").map(xml_unescape)?;
+    let file = extract_xml_attr(tag, "file")
+        .or_else(|| extract_xml_attr(tag, "classname"))
+        .map(xml_unescape)?;
     let time_str = extract_xml_attr(tag, "time").unwrap_or("0");
     let time_secs: f64 = time_str.parse().unwrap_or(0.0);
 
@@ -855,6 +859,22 @@ fn extract_xml_attr<'a>(tag: &'a str, attr: &str) -> Option<&'a str> {
         }
     }
     None
+}
+
+/// Unescape the five named XML entities in a junit attribute value.
+/// Named entities (lt/gt/quot/apos) are replaced before amp so a
+/// double-escaped `&lt;` resolves to `<`, never to `<`.
+
+/// Unescape the five named XML entities in a junit attribute value.
+/// Named entities (lt/gt/quot/apos) are replaced before amp so a
+/// double-escaped `&lt;` resolves to `<`, never to `<`.
+fn xml_unescape(value: &str) -> String {
+    value
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
 }
 
 /// Check if a block of text contains a <failure or <error element.
@@ -1912,11 +1932,51 @@ mod tests {
     }
 
     #[test]
+    fn ingest_junit_xml_unescapes_entities() {
+        // tambor evidence (testaruda-uwup): junit escapes ' -> ' and
+        // < -> < in name attributes; discovery ids carry the raw chars,
+        // so the adapter must unescape extracted name/file values.
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="test.ts" file="test.ts">
+    <testcase classname="test.ts" name="it&apos;s &lt;ok&gt; &amp; &quot;fine&quot;" file="test.ts" time="0.001">
+    </testcase>
+  </testsuite>
+</testsuites>"#;
+        let cmd = serde_json::json!({
+            "command": "ingest",
+            "params": {"run_output": xml}
+        });
+        let result = super::cmd_ingest(&cmd);
+        let results = &result["result"]["per_test_results"];
+        let arr = results.as_array().unwrap();
+        assert_eq!(arr.len(), 1, "should have 1 test result");
+        assert_eq!(
+            arr[0]["test_id"],
+            serde_json::json!("test.ts::it's <ok> & \"fine\""),
+            "entities must unescape to the raw discovery-id chars: {:?}",
+            arr[0]["test_id"]
+        );
+    }
+
+    #[test]
     fn extract_xml_attr_basic() {
         let tag = r#"<testcase name="my test" file="src/test.ts" time="0.001">"#;
         assert_eq!(super::extract_xml_attr(tag, "name"), Some("my test"));
         assert_eq!(super::extract_xml_attr(tag, "file"), Some("src/test.ts"));
         assert_eq!(super::extract_xml_attr(tag, "time"), Some("0.001"));
+    }
+
+    #[test]
+    fn xml_unescape_five_entities() {
+        assert_eq!(
+            super::xml_unescape("it's <ok> & \"fine\""),
+            "it's <ok> & \"fine\""
+        );
+        // ordering: double-escaped amp+entity resolves one level only
+        assert_eq!(super::xml_unescape("&lt;"), "<");
+        assert_eq!(super::xml_unescape("&"), "&");
+        assert_eq!(super::xml_unescape("plain"), "plain");
     }
 
     #[test]
