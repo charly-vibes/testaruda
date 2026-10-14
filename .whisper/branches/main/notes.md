@@ -15,3 +15,6 @@
 - 2026-10-14T13:55:06Z [id:88b58888555aa80a9579022aece5d3c8cf09efcbe2149b86a07deb54ffa7fbab] ### 2026-10-14 10:55 — snap
   - Post-snap wrap: nezm closed (gates fix merged in #73, upstream DDL-3fd), all session work pushed (main @ 4506cba), nothing in_progress.
   - **Next:** P1 wave — 0bwk/yvyb/v9ey/2bxl (selection confidence semantics) or h7bv epic (release quality); then y3iv → genesis-c9x adoption. Context is saturated — recommend wai close + /clear before picking up.
+- 2026-10-14T15:06:56Z [id:ce7fbd5a55e309642319409e68fe4f16abd55576ca750b1b377fd70a87d315dd] ### 2026-10-14 15:10 — snap
+  - P1 wave MERGED: PR #77 squash-merged to main (06034fc), branch deleted locally+remotely. CI caught one test-only gap: dotnet select_falls_back_when_titi_not_installed self-skips when titi IS installed (local), so the 0bwk conservative-fallback reason string was unasserted in CI — fixed by adding 'conservative component fallback' to the accepted FULL_RUN causes (7640339, included in #77). Pretender full-repo baseline refreshed pre-merge: 0 fixed / 66 still open / 0 new.
+  - **Next:** h7bv epic (release quality: .1 PR adapter gate, .2 binary completeness) or pevk (julia discovery scope); context was heavy — recommend wai close + /clear before picking up.
