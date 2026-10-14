@@ -1,0 +1,6 @@
+[tools.specodelic]
+description = "Specodelic spec format linter + pipeline (spk)"
+
+[tools.specodelic.detector]
+type = "file"
+path = "AGENTS.md"

@@ -1,0 +1,7 @@
+- 2026-10-09T20:11:16Z [id:5dfb2f55e6147c76eaf109c5a4653f38723532de016e2a7782e8ae5858210743] ### 2026-10-09 17:09 — snap
+  - Closed testaruda-1fwk: tagged and shipped v0.5.3 — release run 37984162912 green (ingest 4a51638 + discovery ancestry 73ca44f + all 5 adapters in tarballs). Release PR #68 initially missed cargo build --workspace in .github/workflows/release.yml; fixed in 6997713, tag re-pushed 8c92406.
+  - Verified Linux amd64 tarball contains all 5 binaries; crates.io, homebrew tap, and scoop bucket all updated to 0.5.3.
+  - **Next:** verify tambor CI can pin v0.5.3 and that a consumer repo's init → exec → select cycle works end-to-end (the original pain from the ticket).
+- 2026-10-09T20:12:48Z [id:baee37c7d14eb2995a0002f29d80d8b6137020436d58adbda546d6e354f9f723] ### 2026-10-09 17:12 — snap
+  - On main (clean apart from untracked .genesis/.pretender/.whisper artifacts): first /next snap captured shipped v0.5.3 (testaruda-1fwk closed, 5 adapters in tarballs).
+  - **Next:** consumer verification — tambor CI pins v0.5.3, run a real init → exec → select cycle in a TS repo (the 59/325 match-rate pain). No code or branch state changed since last snap.

@@ -1,12 +1,12 @@
 {
   "top_hotspots": [
     {
-      "fingerprint": "src/main.rs::main::function_lines_max",
+      "fingerprint": "src/main.rs::main::cognitive_max",
       "count": 20,
       "distinct_days": 2
     },
     {
-      "fingerprint": "src/main.rs::main::cyclomatic_max",
+      "fingerprint": "src/main.rs::main::function_lines_max",
       "count": 20,
       "distinct_days": 2
     },
@@ -16,39 +16,39 @@
       "distinct_days": 2
     },
     {
-      "fingerprint": "src/main.rs::main::cognitive_max",
+      "fingerprint": "src/main.rs::main::cyclomatic_max",
       "count": 20,
       "distinct_days": 2
     },
     {
-      "fingerprint": "tests/adapter_python.rs::static_deps_nonexistent_file_unresolved::min_assertions",
-      "count": 4,
-      "distinct_days": 2
+      "fingerprint": "tests/seeded_fault.rs::test_seeded_fault_soundness_and_precision::min_assertions",
+      "count": 5,
+      "distinct_days": 3
     },
     {
-      "fingerprint": "tests/adapter_julia.rs::julia_adapter_monorepo_fingerprint::min_assertions",
-      "count": 4,
-      "distinct_days": 2
+      "fingerprint": "tests/adapter_julia.rs::julia_adapter_monorepo_discover_per_package_b::min_assertions",
+      "count": 5,
+      "distinct_days": 3
     },
     {
-      "fingerprint": "tests/adapter_julia.rs::julia_adapter_static_deps_multiple_files::min_assertions",
-      "count": 4,
-      "distinct_days": 2
+      "fingerprint": "tests/seeded_fault.rs::run_test::min_assertions",
+      "count": 5,
+      "distinct_days": 3
     },
     {
-      "fingerprint": "tests/adapter_julia.rs::julia_adapter_ingest_mixed_outcomes::min_assertions",
-      "count": 4,
-      "distinct_days": 2
+      "fingerprint": "tests/ordering.rs::run_test::min_assertions",
+      "count": 5,
+      "distinct_days": 3
     },
     {
-      "fingerprint": "tests/recall_fault.rs::test_recall_fault_pipeline::min_assertions",
-      "count": 4,
-      "distinct_days": 2
+      "fingerprint": "tests/adapter_julia.rs::julia_adapter_monorepo_discover_per_package_c_no_tests::min_assertions",
+      "count": 5,
+      "distinct_days": 3
     },
     {
-      "fingerprint": "tests/fixtures/typescript/src/greeting.ts::farewell::min_assertions",
-      "count": 4,
-      "distinct_days": 2
+      "fingerprint": "tests/ordering.rs::test_ordering_scenarios::min_assertions",
+      "count": 5,
+      "distinct_days": 3
     }
   ],
   "top_patterns": [
@@ -88,9 +88,9 @@
       "rule_key": "min_assertions",
       "role": "test",
       "area": "tests",
-      "count": 457,
+      "count": 474,
       "distinct_files": 14,
-      "distinct_days": 2
+      "distinct_days": 3
     },
     {
       "rule_key": "abc_max",
@@ -132,5 +132,11 @@
       "distinct_files": 69,
       "distinct_days": 1
     }
-  ]
+  ],
+  "resolution": {
+    "fixed": 0,
+    "still_open": 0,
+    "new": 73,
+    "rate": null
+  }
 }
