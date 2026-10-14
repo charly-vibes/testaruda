@@ -184,6 +184,157 @@ fn readiness_execution_runner_failure() {
     assert_eq!(plan["data"]["selected_count"], 2);
 }
 
+/// testaruda-8trl: stale items discovered before a directory joined
+/// [discover].exclude keep living in the store and get selected — the runner
+/// then collects fixture projects the discover walk excludes (pytest exit 2
+/// reddens the pre-push gate). The CI runner must never be invoked on a
+/// node_id under an excluded path: drop those ids before grouping, warn, and
+/// let the remaining ids run (recall-safe stale-data hygiene).
+#[test]
+fn ci_run_skips_selected_items_under_excluded_paths() {
+    let project = setup_project();
+    let adapter = project.path().join("adapter.py");
+    std::fs::write(&adapter, r#"import json, sys
+name = sys.argv[1]
+for line in sys.stdin:
+    cmd = json.loads(line)['command']
+    result = []
+    if cmd == 'handshake':
+        result = dict(name=name, version='1', protocol=1, languages=['fake'], granularity='file', capabilities={})
+    elif cmd == 'static-deps':
+        print(json.dumps(dict(candidates=[], edges=[], unresolved=[])), flush=True)
+        continue
+    elif cmd == 'fingerprint':
+        print(json.dumps(dict(fingerprints=[])), flush=True)
+        continue
+    elif cmd == 'run-args':
+        sel = json.loads(line)['params'].get('selected', [])
+        argv = ['python3', '-c', "import sys; open('executed','w').write(' '.join(sys.argv[1:]))"] + list(sel)
+        result = dict(runner_args=argv, collection_path='unused')
+    elif cmd == 'ingest':
+        result = dict(per_test_results=[dict(test_id='normal.py', outcome='passed')])
+    print(json.dumps(dict(ok=True, result=result)), flush=True)
+"#).unwrap();
+    let good = format!("python3 {} healthy", adapter.display());
+    std::fs::write(project.path().join("testaruda.toml"), format!(
+        "confidence_threshold = 0.0\n[adapters.extensions]\n\".bar\" = {good:?}\n\n[discover]\nexclude = [\"fixtures\"]\n"
+    )).unwrap();
+    std::fs::write(project.path().join("source.bar"), "change").unwrap();
+    // The items' files exist on disk — only the *directory* joined
+    // [discover].exclude after discovery, so the stale-path prune (gh-71)
+    // must not remove them.
+    let fixture_dir = project
+        .path()
+        .join("tests/fixtures/python-src-layout/tests");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    std::fs::write(
+        fixture_dir.join("test_model.py"),
+        "def test_model(): pass\n",
+    )
+    .unwrap();
+    std::fs::write(
+        project.path().join("normal.py"),
+        "def test_normal(): pass\n",
+    )
+    .unwrap();
+    let conn = rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap();
+    conn.execute_batch(
+        "INSERT INTO test_items(component, adapter, node_id) VALUES
+        ('default','healthy','tests/fixtures/python-src-layout/tests/test_model.py'),
+        ('default','healthy','normal.py');",
+    )
+    .unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
+        .args(["select", "--safe", "--json", "--files", "source.bar"])
+        .current_dir(project.path())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr);
+    assert!(
+        stderr.contains("[discover].exclude"),
+        "expected a diagnostic about skipped excluded items.\nstderr: {}",
+        stderr
+    );
+    let executed = std::fs::read_to_string(project.path().join("executed")).unwrap_or_default();
+    assert!(
+        executed.contains("normal.py"),
+        "non-excluded item must still run. executed: {:?}",
+        executed
+    );
+    assert!(
+        !executed.contains("fixtures"),
+        "excluded-path item must never reach the runner. executed: {:?}",
+        executed
+    );
+}
+
+/// testaruda-8trl (all-excluded case): when every selected item sits under
+/// [discover].exclude paths, the group empties and must be skipped entirely —
+/// never an adapter run with zero ids (run-args error → "incomplete
+/// execution") and never a non-zero exit for the pre-push gate.
+#[test]
+fn ci_run_all_excluded_group_skips_runner_entirely() {
+    let project = setup_project();
+    let adapter = project.path().join("adapter.py");
+    std::fs::write(&adapter, r#"import json, sys
+name = sys.argv[1]
+for line in sys.stdin:
+    cmd = json.loads(line)['command']
+    result = []
+    if cmd == 'handshake':
+        result = dict(name=name, version='1', protocol=1, languages=['fake'], granularity='file', capabilities={})
+    elif cmd == 'static-deps':
+        print(json.dumps(dict(candidates=[], edges=[], unresolved=[])), flush=True)
+        continue
+    elif cmd == 'fingerprint':
+        print(json.dumps(dict(fingerprints=[])), flush=True)
+        continue
+    elif cmd == 'run-args':
+        result = dict(runner_args=['python3', '-c', "open('executed','w').write('yes')"], collection_path='unused')
+    elif cmd == 'ingest':
+        result = dict(per_test_results=[])
+    print(json.dumps(dict(ok=True, result=result)), flush=True)
+"#).unwrap();
+    let good = format!("python3 {} healthy", adapter.display());
+    std::fs::write(project.path().join("testaruda.toml"), format!(
+        "confidence_threshold = 0.0\n[adapters.extensions]\n\".bar\" = {good:?}\n\n[discover]\nexclude = [\"fixtures\"]\n"
+    )).unwrap();
+    std::fs::write(project.path().join("source.bar"), "change").unwrap();
+    let fixture_dir = project
+        .path()
+        .join("tests/fixtures/python-src-layout/tests");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    std::fs::write(
+        fixture_dir.join("test_model.py"),
+        "def test_model(): pass\n",
+    )
+    .unwrap();
+    let conn = rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap();
+    conn.execute_batch(
+        "INSERT INTO test_items(component, adapter, node_id) VALUES
+        ('default','healthy','tests/fixtures/python-src-layout/tests/test_model.py');",
+    )
+    .unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
+        .args(["select", "--safe", "--json", "--files", "source.bar"])
+        .current_dir(project.path())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr);
+    assert!(
+        !project.path().join("executed").exists(),
+        "runner must not be invoked when the whole group is excluded.\nstderr: {}",
+        stderr
+    );
+    assert!(
+        stderr.contains("[discover].exclude"),
+        "expected the skip diagnostic.\nstderr: {}",
+        stderr
+    );
+}
+
 /// Test that `testaruda select --json` exits with the outcome-derived code
 /// (not 0) when no tests are selected (exit code 20).
 #[test]

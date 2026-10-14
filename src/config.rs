@@ -370,6 +370,20 @@ pub fn make_exclude_filter(exclude: &[String]) -> impl Fn(&walkdir::DirEntry) ->
     }
 }
 
+/// True when a test node_id's path contains a component matching an exclude
+/// pattern (testaruda-8trl). Node ids are file paths (`tests/fixtures/x.py`,
+/// `src/lib.rs::test_x`) or symbol paths (`tests::foo::bar(Test)`); splitting
+/// on path separators keeps symbol-path segments intact, so a module merely
+/// named like an exclude pattern (`tests::target::…`) can never false-positive.
+pub fn node_id_is_excluded(node_id: &str, exclude: &[String]) -> bool {
+    if exclude.is_empty() {
+        return false;
+    }
+    node_id
+        .split(['/', '\\'])
+        .any(|seg| exclude.iter().any(|pat| seg == pat.as_str()))
+}
+
 impl AdapterConfig {
     /// Build an `AdapterRegistry` from this config.
     /// The `default` field is handled separately from extensions.
