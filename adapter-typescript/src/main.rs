@@ -351,7 +351,7 @@ fn cmd_discover(_cmd: &serde_json::Value) -> serde_json::Value {
     tests.retain(|t| {
         t["node_id"]
             .as_str()
-            .map_or(true, |id| seen.insert(id.to_string()))
+            .is_none_or(|id| seen.insert(id.to_string()))
     });
 
     json_ok(serde_json::Value::Array(tests))
@@ -860,10 +860,6 @@ fn extract_xml_attr<'a>(tag: &'a str, attr: &str) -> Option<&'a str> {
     }
     None
 }
-
-/// Unescape the five named XML entities in a junit attribute value.
-/// Named entities (lt/gt/quot/apos) are replaced before amp so a
-/// double-escaped `&lt;` resolves to `<`, never to `<`.
 
 /// Unescape the five named XML entities in a junit attribute value.
 /// Named entities (lt/gt/quot/apos) are replaced before amp so a
@@ -1563,9 +1559,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file_path = dir.path().join("test.ts");
         let mut f = std::fs::File::create(&file_path).unwrap();
-        write!(
+        writeln!(
             f,
-            "describe(\"suite\", () => {{ it(\"test\", () => {{}}); }});\n"
+            "describe(\"suite\", () => {{ it(\"test\", () => {{}}); }});"
         )
         .unwrap();
         drop(f);
@@ -1575,11 +1571,9 @@ mod tests {
         let tests = super::parse_test_file(&path, &source, "ts");
 
         assert!(!tests.is_empty(), "should find tests in describe block");
-        let has_test = tests.iter().any(|t| {
-            t["node_id"]
-                .as_str()
-                .map_or(false, |id| id.contains("test"))
-        });
+        let has_test = tests
+            .iter()
+            .any(|t| t["node_id"].as_str().is_some_and(|id| id.contains("test")));
         assert!(has_test, "should contain test name in node_id");
     }
 
@@ -1656,7 +1650,7 @@ mod tests {
         with_cwd(|| {
             use std::io::Write;
             let mut f = std::fs::File::create("vitest.config.ts").unwrap();
-            write!(f, "export default {{}}\n").unwrap();
+            writeln!(f, "export default {{}}").unwrap();
             drop(f);
 
             let runner = super::detect_runner();
@@ -1669,7 +1663,7 @@ mod tests {
         with_cwd(|| {
             use std::io::Write;
             let mut f = std::fs::File::create("jest.config.ts").unwrap();
-            write!(f, "export default {{}}\n").unwrap();
+            writeln!(f, "export default {{}}").unwrap();
             drop(f);
 
             let runner = super::detect_runner();
@@ -1682,7 +1676,7 @@ mod tests {
         with_cwd(|| {
             use std::io::Write;
             let mut f = std::fs::File::create("package.json").unwrap();
-            write!(f, "{{\"devDependencies\": {{\"vitest\": \"^1.0.0\"}}}}\n").unwrap();
+            writeln!(f, "{{\"devDependencies\": {{\"vitest\": \"^1.0.0\"}}}}").unwrap();
             drop(f);
 
             let runner = super::detect_runner();
@@ -1711,7 +1705,7 @@ mod tests {
         with_cwd(|| {
             use std::io::Write;
             let mut f = std::fs::File::create(".mocharc.yml").unwrap();
-            writeln!(f, "").unwrap();
+            writeln!(f).unwrap();
             drop(f);
             let runner = super::detect_runner();
             assert_eq!(runner, super::Runner::Mocha, "should detect mocha config");
@@ -1767,7 +1761,7 @@ mod tests {
         with_cwd(|| {
             use std::io::Write;
             let mut f = std::fs::File::create("vitest.config.ts").unwrap();
-            write!(f, "export default {{}}\n").unwrap();
+            writeln!(f, "export default {{}}").unwrap();
             drop(f);
 
             let cmd = serde_json::json!({
@@ -1784,7 +1778,7 @@ mod tests {
             );
             assert!(result["result"]["runner_args"]
                 .as_array()
-                .map(|a| a.len() > 0)
+                .map(|a| !a.is_empty())
                 .unwrap_or(false));
         });
     }
@@ -2058,7 +2052,7 @@ mod tests {
         assert!(
             fp["fingerprint"]
                 .as_str()
-                .map(|s| s.len() > 0)
+                .map(|s| !s.is_empty())
                 .unwrap_or(false),
             "should include non-empty fingerprint"
         );

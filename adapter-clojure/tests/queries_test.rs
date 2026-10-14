@@ -232,6 +232,7 @@ fn deps_finds_toplevel_require() {
     );
 }
 
+#[test]
 fn deps_ignores_comment() {
     let q = make_query(include_str!("../queries/deps.scm"));
     let src = ";; (:require [some.lib])\n(ns my-project.core)";
