@@ -6,6 +6,7 @@
 # Beads / Dolt files (added by bd init)
 # Beads internal state (track only issues.jsonl for backup)
 !.beads/issues.jsonl
+.beads.gate.lock
 /book/
 # Cargo
 *.db

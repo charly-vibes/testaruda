@@ -6,6 +6,18 @@ extend-ignore-re = [
 ]
 
 [default.extend-words]
+# Intentional typo fixtures for the suggestion engine (src/main.rs, tests/cli.rs,
+# tests/genesis_compatibility.rs, adapter-typescript) — never "fix" these.
+slect = "slect"
+injest = "injest"
+discovr = "discovr"
+selec = "selec"
+# Stock mdBook CSS variable name (theme/charly.css) — renaming breaks the override.
+existant = "existant"
+# Test-variable name for edge lists (tests/recall_fault.rs).
+froms = "froms"
+# Valid English variant used in adapter-typescript test names/messages.
+unparseable = "unparseable"
 EDN = "EDN"
 LOV = "LOV"
 Asai = "Asai"
@@ -19,5 +31,8 @@ extend-exclude = [
   ".dont/",
   ".testaruda/",
   ".agents/",
+  # Historical research notes + captured tool JSON (third-party commit messages,
+  # package names) — spell-gating these artifacts has no value.
+  "docs/research/",
   "0-*.md"
 ]
