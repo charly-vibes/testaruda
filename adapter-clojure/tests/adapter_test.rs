@@ -119,10 +119,22 @@ fn fingerprint_returns_results() {
 
 #[test]
 fn run_args_returns_results() {
-    let resp =
-        send_command(r#"{"command":"run-args","params":{"selected":["test/core_test.clj"]}}"#);
+    let resp = send_command(
+        r#"{"command":"run-args","params":{"selected":["my-project.core-test::test-greet(Test)"]}}"#,
+    );
     assert_eq!(resp["ok"], true, "run-args should succeed: {resp}");
-    assert!(resp["result"]["args"].is_array(), "should have args array");
+    // TIA-ADAPT-007 contract (gh-81): the engine deserializes
+    // RunArgsResult { runner_args, collection_path } — the legacy
+    // {"command", "args", "env"} shape is rejected with
+    // "missing field `runner_args`".
+    assert!(
+        resp["result"]["runner_args"].is_array(),
+        "should have runner_args array: {resp}"
+    );
+    assert!(
+        resp["result"]["collection_path"].is_string(),
+        "should have collection_path: {resp}"
+    );
 }
 
 #[test]
