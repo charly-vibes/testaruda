@@ -877,7 +877,6 @@ pub fn select(args: SelectArgs) -> miette::Result<()> {
             &registry,
             &selection,
             &delta.files,
-            &config.discover.exclude,
             outcome.exit_code(),
             args.safe,
         )?;
@@ -897,7 +896,6 @@ fn run_selected_ci_tests(
     registry: &AdapterRegistry,
     selection: &Selection,
     delta_files: &[String],
-    exclude: &[String],
     outcome_code: i32,
     safe: bool,
 ) -> miette::Result<()> {
@@ -905,7 +903,6 @@ fn run_selected_ci_tests(
         store,
         registry,
         selection,
-        exclude,
     })?;
     if let Err(e) = store.advance_fingerprints(delta_files) {
         eprintln!(
@@ -1353,7 +1350,6 @@ struct CiRunCtx<'a> {
     store: &'a Store,
     registry: &'a AdapterRegistry,
     selection: &'a Selection,
-    exclude: &'a [String],
 }
 
 /// CI mode (TIA-CI-008): run selected tests via the adapters and ingest results.
@@ -1364,33 +1360,6 @@ struct CiRunCtx<'a> {
 /// .ts paths, exited 4, ingested nothing, and the store stayed cold forever.
 fn run_ci_tests(ctx: &CiRunCtx) -> miette::Result<()> {
     let groups = collect_selected_by_adapter(ctx.store, &ctx.selection.tests);
-    // testaruda-8trl: stale items discovered before a path joined
-    // [discover].exclude stay in the store and get selected — the runner then
-    // collects fixture/vendored projects the discover walk excludes (pytest
-    // exit 2 reddens the pre-push gate). Drop excluded node_ids before
-    // running; this is stale-data hygiene, never a live-selection cut.
-    let groups: Vec<(String, Vec<String>)> = groups
-        .into_iter()
-        .map(|(adapter, ids)| {
-            let mut excluded = 0usize;
-            let kept: Vec<String> = ids
-                .into_iter()
-                .filter(|id| {
-                    let keep = !testaruda::config::node_id_is_excluded(id, ctx.exclude);
-                    if !keep {
-                        excluded += 1;
-                    }
-                    keep
-                })
-                .collect();
-            if excluded > 0 {
-                eprintln!(
-                    "  ⚠️  CI: skipping {excluded} selected test item(s) under [discover].exclude paths"
-                );
-            }
-            (adapter, kept)
-        })
-        .collect();
     if groups.is_empty() {
         return Ok(());
     }
