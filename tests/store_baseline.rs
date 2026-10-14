@@ -89,3 +89,35 @@ fn fingerprint_baseline_preserved_across_selections() {
         "repeat select keeps the change classified"
     );
 }
+
+// ===== Fingerprint computation (moved from store.rs for the 5000-line gate) =====
+
+#[test]
+fn compute_fingerprint_is_stable_blake3() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("content.txt");
+    std::fs::write(&path, b"hello world").unwrap();
+
+    let fp = Store::compute_fingerprint(&path).unwrap();
+    // blake3("hello world")
+    assert_eq!(fp.len(), 64, "blake3 hex should be 64 chars");
+    assert!(
+        fp.chars().all(|c| c.is_ascii_hexdigit()),
+        "blake3 hex should be hex digits"
+    );
+
+    // Same content should produce same hash
+    let fp2 = Store::compute_fingerprint(&path).unwrap();
+    assert_eq!(fp, fp2);
+
+    // Changed content should produce different hash
+    std::fs::write(&path, b"goodbye world").unwrap();
+    let fp3 = Store::compute_fingerprint(&path).unwrap();
+    assert_ne!(fp, fp3);
+}
+
+#[test]
+fn compute_fingerprint_missing_file_errors() {
+    let result = Store::compute_fingerprint(std::path::Path::new("/nonexistent/file.rs"));
+    assert!(result.is_err());
+}

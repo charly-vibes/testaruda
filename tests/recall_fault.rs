@@ -222,7 +222,17 @@ fn test_recall_fault_pipeline() {
 
     let dir = tempfile::tempdir().expect("failed to create temp dir");
     create_rust_fixture(dir.path());
-    std::fs::write(dir.path().join("testaruda.toml"), "").unwrap();
+    // Pin a low confidence threshold: this test verifies the RECALL invariant
+    // (semantic mutation must be selected via edges). The seeded store's
+    // invocation quality (fingerprint='unknown' adapter-resolution factor) is
+    // deliberately degenerate; without a pinned threshold the TIA-SAFE-002
+    // component fallback (testaruda-2bxl) would mask the edge-selection
+    // behavior under test by selecting the whole component.
+    std::fs::write(
+        dir.path().join("testaruda.toml"),
+        "confidence_threshold = 0.1\n",
+    )
+    .unwrap();
 
     let store = Store::open(dir.path().join(".testaruda")).unwrap();
     store.initialize().unwrap();
@@ -306,7 +316,17 @@ fn test_recall_fault_semantic_mutation_detected() {
 
     let dir = tempfile::tempdir().expect("failed to create temp dir");
     create_rust_fixture(dir.path());
-    std::fs::write(dir.path().join("testaruda.toml"), "").unwrap();
+    // Pin a low confidence threshold: this test verifies the RECALL invariant
+    // (semantic mutation must be selected via edges). The seeded store's
+    // invocation quality (fingerprint='unknown' adapter-resolution factor) is
+    // deliberately degenerate; without a pinned threshold the TIA-SAFE-002
+    // component fallback (testaruda-2bxl) would mask the edge-selection
+    // behavior under test by selecting the whole component.
+    std::fs::write(
+        dir.path().join("testaruda.toml"),
+        "confidence_threshold = 0.1\n",
+    )
+    .unwrap();
 
     let project_dir = dir.path().to_path_buf();
 

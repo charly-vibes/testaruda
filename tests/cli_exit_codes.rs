@@ -701,3 +701,121 @@ fn readiness_baseline_failed_execution() {
         "failed execution must not advance the baseline"
     );
 }
+
+// ===== Confidence floor over real component memberships (testaruda-2bxl) =====
+//
+// TIA-SAFE-002/003: the confidence fallback must consult ACTUAL component
+// memberships (loaded from the store) and fire only for the below-threshold
+// component; always-run-only components are exempt.
+//
+// Seed: three components (content units are all 'default' — the unit
+// classification is component-scoped to 'default'; TESTS carry the
+// component axis the engine reasons over).
+// - 'default': t1 (edge→source.a, k=0.1), t4/t8 (no edges)
+// - 'other':   t2/t3 (edges→source.b, k=1.0), t5 (no edges)
+// - 'sparse':  t6 (edge→source.c, k=0.1, NO history → always-run), t7 (no edges, has history)
+// Invocation quality works out to 0.7 (history depth factor), so effective
+// confidences: t1 0.07, t2/t3 0.7, t6 0.07. Threshold 0.5.
+// Test-item ids follow insertion order: t1=1 t4=2 t8=3 t2=4 t3=5 t5=6 t7=7 t6=8.
+fn readiness_confidence_setup() -> tempfile::TempDir {
+    let project = setup_project();
+    std::fs::write(
+        project.path().join("testaruda.toml"),
+        "confidence_threshold = 0.5\n[adapters.extensions]\n",
+    )
+    .unwrap();
+    std::fs::write(project.path().join("source.a"), "aaa").unwrap();
+    std::fs::write(project.path().join("source.b"), "bbb").unwrap();
+    std::fs::write(project.path().join("source.c"), "ccc").unwrap();
+    let conn = rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap();
+    conn.execute_batch(
+        "INSERT INTO content_units(component, path, symbol, kind, fingerprint) VALUES
+            ('default','source.a',NULL,'source','seed-a'),
+            ('default','source.b',NULL,'source','seed-b'),
+            ('default','source.c',NULL,'source','seed-c');
+         INSERT INTO test_items(component, adapter, node_id) VALUES
+            ('default','x','t1'), ('default','x','t4'), ('default','x','t8'),
+            ('other','x','t2'), ('other','x','t3'), ('other','x','t5'),
+            ('sparse','x','t7'), ('sparse','x','t6');
+         INSERT INTO dependency_edges(test_item_id, content_unit_id, environment, origin, k_value) VALUES
+            (1, 1, 'default', 'static', 100000),
+            (4, 2, 'default', 'static', 1000000),
+            (5, 2, 'default', 'static', 1000000),
+            (8, 3, 'default', 'static', 100000);
+         INSERT INTO reverse_index(content_unit_id, test_item_id) VALUES (1,1),(2,4),(2,5),(3,8);
+         INSERT INTO run_history(test_item_id,run_id,outcome,environment)
+         SELECT id, 'prev', 'passed', 'default' FROM test_items WHERE id <= 7;",
+    )
+    .unwrap();
+    project
+}
+
+fn run_confidence_select(project: &tempfile::TempDir, file: &str) -> serde_json::Value {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
+        .args(["select", "--json", "--files", file])
+        .current_dir(project.path())
+        .output()
+        .expect("testaruda select --json failed");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let plan: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .unwrap_or_else(|e| panic!("no plan: {e}; stderr: {stderr}"));
+    plan
+}
+
+fn selected_test_ids(plan: &serde_json::Value) -> Vec<u64> {
+    plan["data"]["tests"]
+        .as_array()
+        .map(|ts| ts.iter().filter_map(|t| t["id"].as_u64()).collect())
+        .unwrap_or_default()
+}
+
+/// Below-threshold component: the fallback must select the WHOLE component
+/// (t1 + the edge-less t4/t8), not just the reachability-selected t1.
+#[test]
+fn readiness_confidence_below_threshold() {
+    let project = readiness_confidence_setup();
+    let plan = run_confidence_select(&project, "source.a");
+    let mut ids = selected_test_ids(&plan);
+    ids.sort();
+    // t6 (id 8) is always-run and joins every selection; the fallback must
+    // add the whole 'default' component: t1 (1) + edge-less t4 (2), t8 (3).
+    assert_eq!(
+        ids,
+        vec![1, 2, 3, 8],
+        "whole below-threshold component must fall back"
+    );
+}
+
+/// Above-threshold component: only the reachability-selected tests run —
+/// the edge-less t5/t7 must NOT be force-included.
+#[test]
+fn readiness_confidence_above_threshold() {
+    let project = readiness_confidence_setup();
+    let plan = run_confidence_select(&project, "source.b");
+    let mut ids = selected_test_ids(&plan);
+    ids.sort();
+    // Only the reachability-selected t2 (4), t3 (5) + always-run t6 (8) —
+    // edge-less t5 (6) must NOT be force-included.
+    assert_eq!(
+        ids,
+        vec![4, 5, 8],
+        "above-threshold component must not fall back"
+    );
+}
+
+/// Always-run-only component (TIA-SAFE-002 exception): t6 is always-run;
+/// the component must NOT fall back to include its other members.
+#[test]
+fn readiness_confidence_always_run_only() {
+    let project = readiness_confidence_setup();
+    let plan = run_confidence_select(&project, "source.c");
+    let mut ids = selected_test_ids(&plan);
+    ids.sort();
+    // Only the always-run t6 (8): 'sparse' must NOT fall back to include
+    // its history-carrying edge-less member t7 (7) (TIA-SAFE-002 exception).
+    assert_eq!(
+        ids,
+        vec![8],
+        "always-run-only component must not trigger fallback"
+    );
+}

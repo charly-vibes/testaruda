@@ -726,6 +726,7 @@ impl Store {
         }
 
         self.process_file_fingerprints(delta, &mut ctx)?;
+        self.load_test_components(&mut ctx)?;
         self.load_dependency_edges(&mut ctx)?;
         self.load_failed_tests(&mut ctx)?;
         self.load_no_history_tests(&mut ctx)?;
@@ -827,6 +828,29 @@ impl Store {
                     ctx.unresolved.push(id);
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Load the component membership of every test item into `ctx.test_comp`
+    /// (testaruda-2bxl): without it, the engine's confidence floor
+    /// (TIA-SAFE-002) cannot resolve which tests belong to a falling-back
+    /// component, and component-scoped fallback (TIA-SAFE-003) selects
+    /// nothing. Component names map to stable engine keys via `component_key`.
+    fn load_test_components(&self, ctx: &mut SelectionContext) -> miette::Result<()> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, component FROM test_items")
+            .map_err(|e| miette::miette!("Query prep failed: {}", e))?;
+        let rows: Vec<(u32, String)> = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, u32>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| miette::miette!("Query failed: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect();
+        for (id, component) in rows {
+            ctx.test_comp.push((id, component_key(&component)));
         }
         Ok(())
     }
@@ -2406,41 +2430,6 @@ fn find_project_root() -> miette::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
-
-    #[test]
-    fn test_compute_fingerprint() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("content.txt");
-        let mut f = std::fs::File::create(&path).unwrap();
-        f.write_all(b"hello world").unwrap();
-        drop(f);
-
-        let fp = Store::compute_fingerprint(&path).unwrap();
-        // blake3("hello world")
-        assert_eq!(fp.len(), 64, "blake3 hex should be 64 chars");
-        assert!(
-            fp.chars().all(|c| c.is_ascii_hexdigit()),
-            "blake3 hex should be hex digits"
-        );
-
-        // Same content should produce same hash
-        let fp2 = Store::compute_fingerprint(&path).unwrap();
-        assert_eq!(fp, fp2);
-
-        // Changed content should produce different hash
-        let mut f = std::fs::File::create(&path).unwrap();
-        f.write_all(b"goodbye world").unwrap();
-        drop(f);
-        let fp3 = Store::compute_fingerprint(&path).unwrap();
-        assert_ne!(fp, fp3);
-    }
-
-    #[test]
-    fn test_compute_fingerprint_missing_file() {
-        let result = Store::compute_fingerprint(Path::new("/nonexistent/file.rs"));
-        assert!(result.is_err());
-    }
 
     #[test]
     fn test_missing_file_returns_unresolved() {

@@ -716,11 +716,10 @@ fn evidence_deficit_for_unit(
     Some((path, cause))
 }
 
-/// Mark one component for conservative fallback: engine `comp_fallback` key
-/// plus — for this component only — `test_comp` membership, so the engine's
-/// `comp_fallback × test_comp` rule selects all of the component's tests.
-/// Confidence-floor evaluation stays confined to components already falling
-/// back (testaruda-2bxl's slice owns the general semantics).
+/// Mark one component for conservative fallback (engine `comp_fallback` key).
+/// Membership comes from the store's globally loaded `test_comp`
+/// (testaruda-2bxl), so the engine's `comp_fallback × test_comp` rule can
+/// select all of the component's tests.
 fn mark_component_fallback(
     store: &Store,
     ctx: &mut SelectionContext,
@@ -731,15 +730,10 @@ fn mark_component_fallback(
     if !ctx.comp_fallback.contains(&key) {
         ctx.comp_fallback.push(key);
     }
-    let mut test_count = 0usize;
-    if let Ok(test_ids) = store.get_test_ids_for_component(component) {
-        test_count = test_ids.len();
-        for tid in test_ids {
-            if !ctx.test_comp.iter().any(|&(t, k)| t == tid && k == key) {
-                ctx.test_comp.push((tid, key));
-            }
-        }
-    }
+    let test_count = store
+        .get_test_ids_for_component(component)
+        .unwrap_or_default()
+        .len();
     eprintln!(
         "  ⚠️  Incomplete adapter evidence for component '{}' — conservative component fallback ({}; {} {})",
         component,
