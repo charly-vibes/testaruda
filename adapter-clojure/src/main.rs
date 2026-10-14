@@ -105,36 +105,8 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
     };
 
     // Phase 1: Parse changed files to get namespace → file mapping.
-    let mut changed_ns_to_file: HashMap<String, String> = HashMap::new();
-    let mut any_clojure = false;
-
-    for file_val in changed_files {
-        let file_path = match file_val.as_str() {
-            Some(s) => s,
-            None => continue,
-        };
-        if !is_clojure_source(file_path) {
-            continue;
-        }
-        any_clojure = true;
-
-        let content = match std::fs::read_to_string(file_path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
-        let tree = query::parse(&content);
-
-        let ns_query = query::compile_query(include_str!("../queries/ns.scm"));
-        let ns_caps = query::run_query(&ns_query, &tree, content.as_bytes());
-        let ns = ns_caps
-            .iter()
-            .find(|c| c.name == "namespace_name")
-            .map(|c| c.text.clone())
-            .unwrap_or_else(|| infer_namespace_from_path(file_path));
-        changed_ns_to_file.insert(ns, file_path.to_string());
-    }
-
-    if !any_clojure {
+    let changed_ns_to_file = collect_changed_namespaces(changed_files);
+    if changed_ns_to_file.is_empty() {
         return serde_json::json!({
             "ok": true,
             "candidates": [],
@@ -171,85 +143,179 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
     {
         let path = entry.path().to_string_lossy().to_string();
         let clean_path = path.strip_prefix("./").unwrap_or(&path);
-
-        // Only scan test files for dependency edges
-        if !clean_path.starts_with("test/")
-            && !clean_path.starts_with("tests/")
-            && !clean_path.contains("/test/")
-        {
+        if !is_test_file_path(clean_path) {
             continue;
         }
+        process_test_file(
+            entry.path(),
+            clean_path,
+            &ns_q,
+            &deps_q,
+            &discover_q,
+            &changed_ns_to_file,
+            &mut candidates,
+            &mut candidates_set,
+            &mut edges,
+            &mut edge_set,
+        );
+    }
 
-        let content = match std::fs::read_to_string(entry.path()) {
+    let unresolved = unresolved_changed_files(changed_files, &changed_ns_to_file);
+
+    serde_json::json!({
+        "ok": true,
+        "candidates": candidates,
+        "edges": edges,
+        "unresolved": unresolved,
+        "symbol_edges": []
+    })
+}
+
+/// Phase 1: map each changed clojure file's namespace to its path. Empty
+/// when no changed file is a clojure-family source.
+fn collect_changed_namespaces(changed_files: &[serde_json::Value]) -> HashMap<String, String> {
+    let mut changed_ns_to_file: HashMap<String, String> = HashMap::new();
+    for file_val in changed_files {
+        let file_path = match file_val.as_str() {
+            Some(s) => s,
+            None => continue,
+        };
+        if !is_clojure_source(file_path) {
+            continue;
+        }
+        let content = match std::fs::read_to_string(file_path) {
             Ok(c) => c,
             Err(_) => continue,
         };
         let tree = query::parse(&content);
 
-        // Get namespace name
-        let ns_caps = query::run_query(&ns_q, &tree, content.as_bytes());
-        let namespace = ns_caps
+        let ns_query = query::compile_query(include_str!("../queries/ns.scm"));
+        let ns_caps = query::run_query(&ns_query, &tree, content.as_bytes());
+        let ns = ns_caps
             .iter()
             .find(|c| c.name == "namespace_name")
             .map(|c| c.text.clone())
-            .unwrap_or_default();
+            .unwrap_or_else(|| infer_namespace_from_path(file_path));
+        changed_ns_to_file.insert(ns, file_path.to_string());
+    }
+    changed_ns_to_file
+}
 
-        // Discover test function names (same logic as cmd_discover)
-        let discover_caps = query::run_query(&discover_q, &tree, content.as_bytes());
-        let test_names: Vec<&str> = discover_caps
-            .iter()
-            .filter(|c| c.name == "test_name")
-            .map(|c| c.text.as_str())
-            .collect();
+/// Only test files carry dependency edges to source.
+fn is_test_file_path(clean_path: &str) -> bool {
+    clean_path.starts_with("test/")
+        || clean_path.starts_with("tests/")
+        || clean_path.contains("/test/")
+}
 
-        // Build node_ids matching cmd_discover format
-        let test_node_ids: Vec<String> = if test_names.is_empty() {
-            // No explicit test names — emit edge from file path as fallback
-            vec![clean_path.to_string()]
-        } else {
-            test_names
-                .iter()
-                .map(|name| {
-                    if namespace.is_empty() {
-                        format!("{}::{}(Test)", clean_path.replace('/', "::"), name)
-                    } else {
-                        format!("{}::{}(Test)", namespace, name)
-                    }
-                })
-                .collect()
-        };
+/// Phase 2 per-file work: discover test node_ids (candidates), parse the
+/// file's deps and emit edges to changed source files.
+#[allow(clippy::too_many_arguments)]
+fn process_test_file(
+    entry_path: &std::path::Path,
+    clean_path: &str,
+    ns_q: &tree_sitter::Query,
+    deps_q: &tree_sitter::Query,
+    discover_q: &tree_sitter::Query,
+    changed_ns_to_file: &HashMap<String, String>,
+    candidates: &mut Vec<String>,
+    candidates_set: &mut HashSet<String>,
+    edges: &mut Vec<serde_json::Value>,
+    edge_set: &mut HashSet<(String, String)>,
+) {
+    let content = match std::fs::read_to_string(entry_path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    let tree = query::parse(&content);
 
-        // Collect unique candidates
-        for node_id in &test_node_ids {
-            if candidates_set.insert(node_id.clone()) {
-                candidates.push(node_id.clone());
-            }
-        }
+    // Get namespace name
+    let ns_caps = query::run_query(ns_q, &tree, content.as_bytes());
+    let namespace = ns_caps
+        .iter()
+        .find(|c| c.name == "namespace_name")
+        .map(|c| c.text.clone())
+        .unwrap_or_default();
 
-        // Parse deps and match against changed namespaces
-        let dep_caps = query::run_query(&deps_q, &tree, content.as_bytes());
-        let test_deps = extract_dep_namespaces_from_caps(&dep_caps, &content);
+    // Discover test function names (same logic as cmd_discover)
+    let discover_caps = query::run_query(discover_q, &tree, content.as_bytes());
+    let test_names: Vec<&str> = discover_caps
+        .iter()
+        .filter(|c| c.name == "test_name")
+        .map(|c| c.text.as_str())
+        .collect();
 
-        for dep_ns in &test_deps {
-            if let Some(source_file) = changed_ns_to_file.get(dep_ns) {
-                let to = source_file.clone();
-                for node_id in &test_node_ids {
-                    let edge_key = (node_id.clone(), to.clone());
-                    if edge_set.insert(edge_key) {
-                        edges.push(serde_json::json!({
-                            "from": node_id,
-                            "to": to,
-                            "weight": 1_000_000,
-                            "origin": "static"
-                        }));
-                    }
-                }
-            }
+    let test_node_ids = build_test_node_ids(&namespace, &test_names, clean_path);
+
+    // Collect unique candidates
+    for node_id in &test_node_ids {
+        if candidates_set.insert(node_id.clone()) {
+            candidates.push(node_id.clone());
         }
     }
 
-    // Compute unresolved: changed files we couldn't find namespace for
-    let mut unresolved: Vec<String> = Vec::new();
+    // Parse deps and match against changed namespaces
+    let dep_caps = query::run_query(deps_q, &tree, content.as_bytes());
+    let test_deps = extract_dep_namespaces_from_caps(&dep_caps, &content);
+    push_dep_edges(
+        &test_deps,
+        &test_node_ids,
+        changed_ns_to_file,
+        edges,
+        edge_set,
+    );
+}
+
+/// Build node_ids matching cmd_discover format. Without explicit test
+/// names, emit an edge from the file path as fallback.
+fn build_test_node_ids(namespace: &str, test_names: &[&str], clean_path: &str) -> Vec<String> {
+    if test_names.is_empty() {
+        return vec![clean_path.to_string()];
+    }
+    test_names
+        .iter()
+        .map(|name| {
+            if namespace.is_empty() {
+                format!("{}::{}(Test)", clean_path.replace('/', "::"), name)
+            } else {
+                format!("{}::{}(Test)", namespace, name)
+            }
+        })
+        .collect()
+}
+
+/// Emit static edges for test deps that hit a changed source namespace.
+fn push_dep_edges(
+    test_deps: &[String],
+    test_node_ids: &[String],
+    changed_ns_to_file: &HashMap<String, String>,
+    edges: &mut Vec<serde_json::Value>,
+    edge_set: &mut HashSet<(String, String)>,
+) {
+    for dep_ns in test_deps {
+        let Some(to) = changed_ns_to_file.get(dep_ns) else {
+            continue;
+        };
+        for node_id in test_node_ids {
+            let edge_key = (node_id.clone(), to.clone());
+            if edge_set.insert(edge_key) {
+                edges.push(serde_json::json!({
+                    "from": node_id,
+                    "to": to,
+                    "weight": 1_000_000,
+                    "origin": "static"
+                }));
+            }
+        }
+    }
+}
+
+/// Changed files we couldn't find a namespace for.
+fn unresolved_changed_files(
+    changed_files: &[serde_json::Value],
+    changed_ns_to_file: &HashMap<String, String>,
+) -> Vec<String> {
+    let mut unresolved = Vec::new();
     for file_val in changed_files {
         let file_path = match file_val.as_str() {
             Some(s) => s,
@@ -259,14 +325,7 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
             unresolved.push(file_path.to_string());
         }
     }
-
-    serde_json::json!({
-        "ok": true,
-        "candidates": candidates,
-        "edges": edges,
-        "unresolved": unresolved,
-        "symbol_edges": []
-    })
+    unresolved
 }
 
 /// Extract dependency namespace names from tree-sitter capture results.
@@ -455,17 +514,7 @@ fn build_run_args_response(
     config: &project::ProjectConfig,
     selected: &[String],
 ) -> serde_json::Value {
-    // Deduped namespaces for `-n`-style selectors; full testable ids for
-    // `:only`/`--focus` style selectors.
-    let mut namespaces: Vec<String> = Vec::new();
-    let mut testable_ids: Vec<String> = Vec::new();
-    for node_id in selected {
-        let (ns, name) = parse_node_id(node_id);
-        if !namespaces.contains(&ns) {
-            namespaces.push(ns.clone());
-        }
-        testable_ids.push(format!("{}/{}", ns, name));
-    }
+    let (namespaces, testable_ids) = parse_selection(selected);
 
     let args: Vec<String> = match &config.runner {
         project::TestRunner::Leiningen => {
@@ -482,93 +531,7 @@ fn build_run_args_response(
             args.extend(testable_ids);
             args
         }
-        project::TestRunner::Babashka => {
-            // Namespace-style ids (`finanzas.cli-test`) and script-file ids
-            // (`test::finanzas::cli_test.bb::name`) need different runners:
-            // bb test namespaces load via require; ns-less .bb scripts are
-            // self-running executables that call (System/exit) themselves,
-            // so they must run as `bb <file>` subprocesses.
-            let mut script_files: Vec<String> = Vec::new();
-            let mut ns_only: Vec<String> = Vec::new();
-            for ns in &namespaces {
-                if is_source_file_path(ns) {
-                    if !script_files.contains(ns) {
-                        script_files.push(ns.clone());
-                    }
-                } else if !ns_only.contains(ns) {
-                    ns_only.push(ns.clone());
-                }
-            }
-
-            let mut script = String::new();
-            let mut needs_classpath = false;
-            if !ns_only.is_empty() {
-                let requires: Vec<String> = ns_only.iter().map(|ns| format!("'{ns}")).collect();
-                if config.declares_test_runner {
-                    // `bb --main babashka.test-runner` requires the dep to
-                    // be declared in bb.edn — it is NOT bundled with bb.
-                    let mut args = vec![
-                        "bb".to_string(),
-                        "--main".to_string(),
-                        "babashka.test-runner".to_string(),
-                        "-n".to_string(),
-                    ];
-                    args.extend(ns_only);
-                    return json_ok(serde_json::json!({
-                        "runner_args": args,
-                        "collection_path": ""
-                    }));
-                }
-                // Inline clojure.test runner: bb has clojure.test built in,
-                // so a classpath of test roots + source roots plus an -e
-                // script runs the selected namespaces without any
-                // project-side test deps.
-                needs_classpath = true;
-                script.push_str(&format!(
-                    "(require {}) (clojure.test/run-tests {})",
-                    requires.join(" "),
-                    requires.join(" ")
-                ));
-            }
-            if !script_files.is_empty() {
-                // Clojure map literals contain braces, so assemble the script
-                // with push_str instead of format! placeholders.
-                let quoted_files: Vec<String> =
-                    script_files.iter().map(|p| format!("\"{p}\"")).collect();
-                script.push_str("(require '[babashka.process :as p]) ");
-                script.push_str("(let [fail (atom false)] ");
-                script.push_str(&format!("(doseq [f [{}] ] ", quoted_files.join(" ")));
-                // (when-not (zero? (:exit (p/shell ...))) (reset! ...))
-                script.push_str(concat!(
-                    "(println \"\u{25b8} bb\" f) ",
-                    "(when-not (zero? (:exit ",
-                    "(p/shell {:continue true :out :inherit :err :inherit} \"bb\" f))) ",
-                    "(reset! fail true)) ",
-                    "(when @fail (System/exit 1)))"
-                ));
-                script.push_str(")");
-            }
-            let mut args = vec!["bb".to_string()];
-            if needs_classpath {
-                let mut classpath: Vec<&String> = config.test_paths.iter().collect();
-                for p in &config.source_paths {
-                    if !classpath.contains(&p) {
-                        classpath.push(p);
-                    }
-                }
-                args.push("--classpath".to_string());
-                args.push(
-                    classpath
-                        .iter()
-                        .map(|s| s.as_str())
-                        .collect::<Vec<_>>()
-                        .join(":"),
-                );
-            }
-            args.push("-e".to_string());
-            args.push(script);
-            args
-        }
+        project::TestRunner::Babashka => build_babashka_args(config, &namespaces),
         project::TestRunner::Cognitect | project::TestRunner::Default => {
             let mut args = vec![
                 "clojure".to_string(),
@@ -584,6 +547,134 @@ fn build_run_args_response(
         "runner_args": args,
         "collection_path": ""
     }))
+}
+
+/// Split selected node_ids into deduped namespaces for `-n`-style
+/// selectors and full testable ids for `:only`/`--focus` selectors.
+fn parse_selection(selected: &[String]) -> (Vec<String>, Vec<String>) {
+    let mut namespaces: Vec<String> = Vec::new();
+    let mut testable_ids: Vec<String> = Vec::new();
+    for node_id in selected {
+        let (ns, name) = parse_node_id(node_id);
+        if !namespaces.contains(&ns) {
+            namespaces.push(ns.clone());
+        }
+        testable_ids.push(format!("{}/{}", ns, name));
+    }
+    (namespaces, testable_ids)
+}
+
+/// Build runner args for a babashka project.
+///
+/// Namespace-style ids (`finanzas.cli-test`) and script-file ids
+/// (`test::finanzas::cli_test.bb::name`) need different runners: bb test
+/// namespaces load via require; ns-less .bb scripts are self-running
+/// executables that call (System/exit) themselves, so they must run as
+/// `bb <file>` subprocesses.
+fn build_babashka_args(config: &project::ProjectConfig, namespaces: &[String]) -> Vec<String> {
+    if let Some(args) = babashka_test_runner_args(config, namespaces) {
+        return args;
+    }
+
+    let mut script_files: Vec<String> = Vec::new();
+    let mut ns_only: Vec<String> = Vec::new();
+    for ns in namespaces {
+        if is_source_file_path(ns) {
+            if !script_files.contains(ns) {
+                script_files.push(ns.clone());
+            }
+        } else if !ns_only.contains(ns) {
+            ns_only.push(ns.clone());
+        }
+    }
+
+    let mut script = String::new();
+    let mut needs_classpath = false;
+    if !ns_only.is_empty() {
+        // Inline clojure.test runner: bb has clojure.test built in, so a
+        // classpath of test roots + source roots plus an -e script runs
+        // the selected namespaces without any project-side test deps.
+        needs_classpath = true;
+        script.push_str(&clojure_test_script(&ns_only));
+    }
+    if !script_files.is_empty() {
+        script.push_str(&babashka_script_file_shell(&script_files));
+    }
+
+    let mut args = vec!["bb".to_string()];
+    if needs_classpath {
+        args.push("--classpath".to_string());
+        args.push(babashka_classpath(config));
+    }
+    args.push("-e".to_string());
+    args.push(script);
+    args
+}
+
+/// `bb --main babashka.test-runner` args when bb.edn declares the dep —
+/// returns None otherwise (the runner is NOT bundled with bb).
+fn babashka_test_runner_args(
+    config: &project::ProjectConfig,
+    namespaces: &[String],
+) -> Option<Vec<String>> {
+    if !config.declares_test_runner || namespaces.is_empty() {
+        return None;
+    }
+    let mut args = vec![
+        "bb".to_string(),
+        "--main".to_string(),
+        "babashka.test-runner".to_string(),
+        "-n".to_string(),
+    ];
+    args.extend(namespaces.to_vec());
+    Some(args)
+}
+
+/// Inline clojure.test script: require the namespaces, run their tests.
+fn clojure_test_script(namespaces: &[String]) -> String {
+    let requires: Vec<String> = namespaces.iter().map(|ns| format!("'{ns}")).collect();
+    format!(
+        "(require {}) (clojure.test/run-tests {})",
+        requires.join(" "),
+        requires.join(" ")
+    )
+}
+
+/// Script-file shell: run each ns-less .bb script as a `bb <file>` child
+/// process with inherited output, failing when any child fails.
+fn babashka_script_file_shell(script_files: &[String]) -> String {
+    // Clojure map literals contain braces, so assemble the script with
+    // push_str-style literals instead of format! placeholders.
+    let mut script = String::new();
+    let quoted_files: Vec<String> = script_files.iter().map(|p| format!("\"{p}\"")).collect();
+    script.push_str("(require '[babashka.process :as p]) ");
+    script.push_str("(let [fail (atom false)] ");
+    script.push_str(&format!("(doseq [f [{}] ] ", quoted_files.join(" ")));
+    // (when-not (zero? (:exit (p/shell ...))) (reset! ...))
+    script.push_str(concat!(
+        "(println \"\u{25b8} bb\" f) ",
+        "(when-not (zero? (:exit ",
+        "(p/shell {:continue true :out :inherit :err :inherit} \"bb\" f))) ",
+        "(reset! fail true)) ",
+        "(when @fail (System/exit 1)))"
+    ));
+    script.push(')');
+    script
+}
+
+/// Classpath for bb `-e` runs: test roots first, then source roots.
+fn babashka_classpath(config: &project::ProjectConfig) -> String {
+    let mut classpath: Vec<&String> = config.test_paths.iter().collect();
+    for p in &config.source_paths {
+        if !classpath.contains(&p) {
+            classpath.push(p);
+        }
+    }
+    classpath
+        .iter()
+        .map(|s| s.as_str())
+        .collect::<Vec<_>>()
+        .join(":")
 }
 
 fn cmd_run_args(cmd: &serde_json::Value) -> serde_json::Value {
@@ -743,16 +834,36 @@ fn parse_clojure_test_output(content: &str) -> serde_json::Value {
 /// `duration_ms`, `error_text` — the previous `edges`/`results`/`passed`
 /// keys were never read by the engine.
 fn parse_junit_xml(content: &str) -> serde_json::Value {
-    let mut results: Vec<serde_json::Value> = Vec::new();
+    let results = parse_junit_cases(content);
 
-    // Simple line-based JUnit XML parser
+    serde_json::json!({
+        "per_test_results": results,
+        "runtime_edges": [],
+        "external_inputs": []
+    })
+}
+
+/// Accumulated state of the `<testcase>` currently being parsed.
+struct JunitCase {
+    test_name: String,
+    class_name: String,
+    test_time: f64,
+    passed: bool,
+    failure_message: String,
+}
+
+/// Line-based JUnit XML parser: collect one result per `<testcase>`.
+fn parse_junit_cases(content: &str) -> Vec<serde_json::Value> {
+    let mut results: Vec<serde_json::Value> = Vec::new();
+    let mut case = JunitCase {
+        test_name: String::new(),
+        class_name: String::new(),
+        test_time: 0.0,
+        passed: true,
+        failure_message: String::new(),
+    };
     let mut in_testcase = false;
     let mut in_failure = false;
-    let mut test_name = String::new();
-    let mut class_name = String::new();
-    let mut test_time = 0.0f64;
-    let mut passed = true;
-    let mut failure_message = String::new();
 
     for line in content.lines() {
         let trimmed = line.trim();
@@ -760,62 +871,70 @@ fn parse_junit_xml(content: &str) -> serde_json::Value {
         if trimmed.starts_with("<testcase") {
             in_testcase = true;
             in_failure = false;
-            test_name = extract_attr(trimmed, "name").unwrap_or_default();
-            class_name = extract_attr(trimmed, "classname").unwrap_or_default();
-            test_time = extract_attr(trimmed, "time")
-                .and_then(|t| t.parse::<f64>().ok())
-                .unwrap_or(0.0);
-            passed = true;
-            failure_message.clear();
+            case = JunitCase {
+                test_name: extract_attr(trimmed, "name").unwrap_or_default(),
+                class_name: extract_attr(trimmed, "classname").unwrap_or_default(),
+                test_time: extract_attr(trimmed, "time")
+                    .and_then(|t| t.parse::<f64>().ok())
+                    .unwrap_or(0.0),
+                passed: true,
+                failure_message: String::new(),
+            };
         } else if trimmed.starts_with("<failure") {
-            passed = false;
-            failure_message = extract_attr(trimmed, "message").unwrap_or_default();
-            in_failure = !trimmed.ends_with("</failure>");
-            // Same-line body: `<failure msg="...">boom</failure>`
-            if let Some(start) = trimmed.find('>') {
-                if start + 1 < trimmed.len() {
-                    let body = trimmed[start + 1..].trim_end_matches("</failure>");
-                    if !body.trim().is_empty() {
-                        if !failure_message.is_empty() {
-                            failure_message.push('\n');
-                        }
-                        failure_message.push_str(body.trim());
-                    }
-                }
-            }
+            in_failure = junit_failure_open(trimmed, &mut case);
         } else if trimmed.starts_with("</failure") {
             in_failure = false;
         } else if in_failure {
-            // Failure body text (may be multi-line CDATA/plain text)
-            if !failure_message.is_empty() {
-                failure_message.push('\n');
-            }
-            failure_message.push_str(trimmed);
+            junit_failure_body(trimmed, &mut case.failure_message);
         } else if trimmed.starts_with("</testcase>") && in_testcase {
-            let node_id = if class_name.is_empty() {
-                test_name.clone()
-            } else {
-                format!("{}::{}", class_name, test_name)
-            };
-
-            results.push(serde_json::json!({
-                "test_id": node_id,
-                "outcome": if passed { "passed" } else { "failed" },
-                "duration_ms": (test_time * 1000.0).round() as u64,
-                "error_text": if passed { "" } else { &failure_message }
-            }));
-
+            emit_junit_result(&case, &mut results);
             in_testcase = false;
-        } else if trimmed.starts_with("<testsuite") {
-            // Extract suite attributes if needed
+        }
+        // `<testsuite>` attributes are not needed per-test
+    }
+    results
+}
+
+/// Handle the `<failure ...>` open tag: capture the message attribute and
+/// any same-line body (`<failure msg="...">boom</failure>`). Returns
+/// whether the failure body continues on following lines.
+fn junit_failure_open(trimmed: &str, case: &mut JunitCase) -> bool {
+    case.passed = false;
+    case.failure_message = extract_attr(trimmed, "message").unwrap_or_default();
+    let same_line_body = trimmed.ends_with("</failure>");
+    if let Some(start) = trimmed.find('>') {
+        if start + 1 < trimmed.len() {
+            let body = trimmed[start + 1..].trim_end_matches("</failure>");
+            junit_failure_body(body.trim(), &mut case.failure_message);
         }
     }
+    !same_line_body
+}
 
-    serde_json::json!({
-        "per_test_results": results,
-        "runtime_edges": [],
-        "external_inputs": []
-    })
+/// Append failure body text (may be multi-line CDATA/plain text).
+fn junit_failure_body(body: &str, failure_message: &mut String) {
+    if body.is_empty() {
+        return;
+    }
+    if !failure_message.is_empty() {
+        failure_message.push('\n');
+    }
+    failure_message.push_str(body);
+}
+
+/// Emit one finished `<testcase>` as an engine-shaped TestRunResult.
+fn emit_junit_result(case: &JunitCase, results: &mut Vec<serde_json::Value>) {
+    let node_id = if case.class_name.is_empty() {
+        case.test_name.clone()
+    } else {
+        format!("{}::{}", case.class_name, case.test_name)
+    };
+    results.push(serde_json::json!({
+        "test_id": node_id,
+        "outcome": if case.passed { "passed" } else { "failed" },
+        "duration_ms": (case.test_time * 1000.0).round() as u64,
+        "error_text": if case.passed { "" } else { &case.failure_message }
+    }));
 }
 
 /// Extract an XML attribute value by name from a tag string.

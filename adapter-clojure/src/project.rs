@@ -141,9 +141,12 @@ impl ProjectConfig {
 
 /// Extract `:test-paths` from a `deps.edn` string using balanced-brace scan.
 ///
-/// Scans for `:test-paths [` then reads a sequence of strings up to the
-/// matching `]`, respecting nested bracket depth.
+/// Falls back to `["test"]` when the key is absent.
 fn extract_deps_edn_test_paths(content: &str) -> Vec<String> {
+    edn_test_paths_with_default(content)
+}
+
+fn edn_test_paths_with_default(content: &str) -> Vec<String> {
     let paths = extract_edn_string_vec(content, b":test-paths");
     if paths.is_empty() {
         vec!["test".to_string()]
@@ -157,53 +160,65 @@ fn extract_deps_edn_test_paths(content: &str) -> Vec<String> {
 /// Scans for the keyword then reads a sequence of strings up to the
 /// matching `]`, respecting nested bracket depth. Falls back to `[]`.
 fn extract_edn_string_vec(content: &str, needle: &[u8]) -> Vec<String> {
-    let content_bytes = content.as_bytes();
-    let mut paths = Vec::new();
+    let bytes = content.as_bytes();
+    match find_edn_vector_start(bytes, needle) {
+        Some(start) => scan_edn_strings(&bytes[start..]),
+        None => Vec::new(),
+    }
+}
 
-    // Find the keyword (handling potential whitespace before the value)
+/// Find the position just past the opening `[` of the EDN vector that
+/// follows the first `needle` keyword occurrence carrying one.
+fn find_edn_vector_start(bytes: &[u8], needle: &[u8]) -> Option<usize> {
     let mut pos = 0;
-    while let Some(start) = content_bytes[pos..]
-        .windows(needle.len())
-        .position(|w| w == needle)
-    {
-        let key_end = pos + start + needle.len();
-        // Skip whitespace to find [
-        let after = &content_bytes[key_end..];
-        if let Some(open_bracket) = after.iter().position(|&b| b == b'[') {
-            let values_start = key_end + open_bracket + 1;
-            let mut depth: i32 = 1;
-            let mut search_pos = values_start;
-            let mut in_string = false;
+    while pos + needle.len() <= bytes.len() {
+        if &bytes[pos..pos + needle.len()] == needle {
+            if let Some(open_bracket) = bytes[pos + needle.len()..].iter().position(|&b| b == b'[')
+            {
+                return Some(pos + needle.len() + open_bracket + 1);
+            }
+            // Keyword without a vector — keep scanning for the next one
+            pos += needle.len();
+        } else {
+            pos += 1;
+        }
+    }
+    None
+}
 
-            // Find the matching ]
-            while search_pos < content_bytes.len() {
-                let b = content_bytes[search_pos];
-                if b == b'"' {
-                    in_string = !in_string;
-                } else if !in_string && b == b'[' {
-                    depth += 1;
-                } else if !in_string && b == b']' {
+/// Scan an EDN vector body for string literals up to the matching close
+/// bracket (bracket-depth aware, string-aware). Returns the strings.
+fn scan_edn_strings(values: &[u8]) -> Vec<String> {
+    let mut paths = Vec::new();
+    let mut depth: i32 = 1;
+    let mut in_string = false;
+    let mut token_start = 0;
+    for (i, &b) in values.iter().enumerate() {
+        if in_string {
+            if b == b'"' {
+                in_string = false;
+                let slice = std::str::from_utf8(&values[token_start..i]).unwrap_or("");
+                if !slice.is_empty() {
+                    paths.push(slice.to_string());
+                }
+            }
+        } else {
+            match b {
+                b'"' => {
+                    in_string = true;
+                    token_start = i + 1;
+                }
+                b'[' => depth += 1,
+                b']' => {
                     depth -= 1;
                     if depth == 0 {
-                        // Extract the content between brackets
-                        let slice = &content_bytes[values_start..search_pos];
-                        let slice_str = std::str::from_utf8(slice).unwrap_or("");
-                        // Split by whitespace and extract quoted strings
-                        for token in slice_str.split_whitespace() {
-                            let trimmed = token.trim_matches('"');
-                            if !trimmed.is_empty() {
-                                paths.push(trimmed.to_string());
-                            }
-                        }
                         break;
                     }
                 }
-                search_pos += 1;
+                _ => {}
             }
         }
-        pos = key_end + 1;
     }
-
     paths
 }
 
@@ -242,54 +257,8 @@ fn detect_map_key(content: &str, key: &[u8]) -> bool {
 /// Matches `:test-paths` followed by a vector of string literals.
 /// Falls back to `["test"]` if not found.
 fn extract_project_clj_test_paths(content: &str) -> Vec<String> {
-    // Use a simple balanced-brace scan similar to deps.edn
-    // since project.clj uses similar data structure syntax
-    let content_bytes = content.as_bytes();
-    let needle = b":test-paths";
-    let mut paths = Vec::new();
-
-    if let Some(start) = content_bytes
-        .windows(needle.len())
-        .position(|w| w == needle)
-    {
-        let key_end = start + needle.len();
-        let after = &content_bytes[key_end..];
-        if let Some(open_bracket) = after.iter().position(|&b| b == b'[') {
-            let values_start = key_end + open_bracket + 1;
-            let mut depth = 1i32;
-            let mut search_pos = values_start;
-            let mut in_string = false;
-
-            while search_pos < content_bytes.len() {
-                let b = content_bytes[search_pos];
-                if b == b'"' {
-                    in_string = !in_string;
-                } else if !in_string && b == b'[' {
-                    depth += 1;
-                } else if !in_string && b == b']' {
-                    depth -= 1;
-                    if depth == 0 {
-                        let slice = &content_bytes[values_start..search_pos];
-                        let slice_str = std::str::from_utf8(slice).unwrap_or("");
-                        for token in slice_str.split_whitespace() {
-                            let trimmed = token.trim_matches('"');
-                            if !trimmed.is_empty() {
-                                paths.push(trimmed.to_string());
-                            }
-                        }
-                        break;
-                    }
-                }
-                search_pos += 1;
-            }
-        }
-    }
-
-    if paths.is_empty() {
-        vec!["test".to_string()]
-    } else {
-        paths
-    }
+    // Same EDN scan as deps.edn — project.clj uses the same data literals
+    edn_test_paths_with_default(content)
 }
 
 #[cfg(test)]
