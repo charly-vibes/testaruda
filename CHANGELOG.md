@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.5 — adapter-clojure run-args contract + babashka runner (2026-10-14)
 
 ### Fixed
 
