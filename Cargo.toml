@@ -45,10 +45,6 @@ thiserror = "2"
 
 # Glob pattern matching for must-run rules (TIA-SAFE-009)
 glob = "0.3"
-
-# Process-group kill for adapter deadline enforcement (testaruda-cd4u)
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
 anyhow = "1"
 
 # Observability
@@ -65,6 +61,13 @@ clap_complete = "4.6.7"
 genesis-vibes = "0.13"
 shell-words = "1"
 time = { version = "0.3.55", features = ["formatting"] }
+
+# Process-group kill for adapter deadline enforcement (testaruda-cd4u).
+# Keep this table LAST before the next table header — a target-specific
+# [dependencies] table silently claims every dependency that follows it,
+# which broke the Windows release build once already (v0.5.4 first tag).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
