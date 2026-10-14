@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.5.4 — bounded adapter execution, stale-test pruning, gitignored exclusion (2026-10-14)
+
+Fixes-only release from five days of dogfooding: one wedge-class bug, two
+selection-correctness gaps, and the selection-confidence P1 wave.
+
+### Fixed
+
+- Engine: `exec` prunes selected tests whose files are absent at HEAD — stale
+  calibration after a branch switch now exits cleanly instead of running ghost
+  ids (gh-71, #73).
+- Engine: the adapter pipeline drops gitignored files/items at the choke
+  point — generated artifacts (build outputs, compiled proptest modules) no
+  longer become test items or content units (gh-64, #74).
+- Engine: selection confidence semantics corrected and adapter IO bounded
+  (P1 wave 0bwk/yvyb/v9ey/2bxl, #77) — a silent or partial-line adapter hits
+  a typed deadline instead of blocking forever on a live pipe.
+- Engine: a hung adapter child can no longer wedge `exec` —
+  `[adapters] timeout_ms` configures the per-response deadline (default 30s),
+  the deadline kill takes the adapter's whole process group (shim chains no
+  longer orphan grandchildren), and the kill reap is bounded
+  (testaruda-cd4u).
+
+### Changed
+
+- Internal: all git invocation in `src/change.rs` delegates to the shared
+  `genesis::git` module; genesis-vibes bumped 0.8 → 0.13 (#78).
+
 ## 0.5.3 — adapter discovery ancestry + collection_path ingest, tarballs ship all adapters (2026-10-09)
 
 Fixes release so consumer repos (tambor CI) can pin one version and get a
