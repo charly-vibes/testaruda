@@ -165,3 +165,8 @@ Contributor setup and quality checks are documented in
 ## License
 
 Apache 2.0
+
+## Documentation provenance
+
+Rendered docs are generated artifacts; the repository sources are
+authoritative — edit the repo sources, not the rendered output.
