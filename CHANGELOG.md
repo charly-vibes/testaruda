@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Adapter-clojure: run-args emits the TIA-ADAPT-007 contract
+  (`{"runner_args": [...], "collection_path"}`) — the legacy
+  `{"command", "args", "env"}` shape failed engine deserialization with
+  "missing field `runner_args`", so `exec` could never run a clojure/babashka
+  project (gh-81, testaruda-0af8).
+- Adapter-clojure: bb.edn projects now detect a Babashka runner. ns-less
+  `.bb` script files (the finanzas convention — self-running scripts that
+  call `System/exit`) run as `bb <file>` child processes; test namespaces
+  load via `clojure.test/run-tests` (babashka.test-runner only when bb.edn
+  declares the dep — it is not bundled with bb).
+- Adapter-clojure: ingest now parses clojure.test text output (`FAIL in
+  (name) (file:line)`), attributing failures to `ns::name(Test)` via the
+  path-derived namespace convention; JUnit XML results switched to the
+  engine's `TestRunResult` keys (`outcome`/`duration_ms`/`error_text`) —
+  the previous `passed`/`time` keys were never read.
+
 ## 0.5.4 — bounded adapter execution, stale-test pruning, gitignored exclusion (2026-10-14)
 
 Fixes-only release from five days of dogfooding: one wedge-class bug, two

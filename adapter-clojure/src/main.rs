@@ -411,6 +411,181 @@ fn cmd_fingerprint(cmd: &serde_json::Value) -> serde_json::Value {
 /// Run-args: build CLI args for the test runner (TIA-ADAPT-002).
 ///
 /// Standard protocol: `{"command":"run-args","params":{"selected":[...]}}`.
+/// Parse a node_id into `(namespace, test_name)`.
+///
+/// Format: `<namespace>::<test-name>(Test)` — ns-less files use the
+/// path-derived namespace (see [`infer_namespace_from_path`]), so the `::`
+/// separator is always present; the fallback treats the whole id as the
+/// namespace with no test name.
+fn parse_node_id(node_id: &str) -> (String, String) {
+    let body = node_id.strip_suffix("(Test)").unwrap_or(node_id);
+    if body.matches("::").count() > 1 {
+        // ns-less script-file id (t79n): the file path is `::`-joined and
+        // the test name is the final segment, e.g.
+        // `test::finanzas::cli_test.bb::test-foo(Test)` → path
+        // `test/finanzas/cli_test.bb`, name `test-foo`.
+        let (path, name) = body.rsplit_once("::").unwrap_or((body, ""));
+        return (path.replace("::", "/"), name.to_string());
+    }
+    match body.split_once("::") {
+        Some((ns, name)) => (ns.to_string(), name.to_string()),
+        None => (body.to_string(), String::new()),
+    }
+}
+
+/// True when the node_id's namespace segment is a file path encoded with
+/// `::` separators — the ns-less script-file fallback (t79n), e.g.
+/// `test::finanzas::cli_test.bb`. Real namespaces use dots and never end
+/// with a clojure-family file extension.
+fn is_source_file_path(ns: &str) -> bool {
+    ns.ends_with(".bb") || ns.ends_with(".clj") || ns.ends_with(".cljs") || ns.ends_with(".cljc")
+}
+
+/// Build the run-args response (TIA-ADAPT-007, gh-81).
+///
+/// The engine (src/adapter.rs `RunArgsResult`) expects `{"runner_args":
+/// [...], "collection_path": ...}` — the legacy `{"command", "args",
+/// "env"}` shape fails deserialization with "missing field `runner_args`".
+///
+/// `collection_path` is `""` for every clojure-family runner: Cognitect/
+/// Leiningen/babashka.test-runner report to stdout (and the engine falls
+/// back to combined stdout/stderr for ingest); Kaocha's junit-xml plugin
+/// is opt-in, so nothing is declared unconditionally.
+fn build_run_args_response(
+    config: &project::ProjectConfig,
+    selected: &[String],
+) -> serde_json::Value {
+    // Deduped namespaces for `-n`-style selectors; full testable ids for
+    // `:only`/`--focus` style selectors.
+    let mut namespaces: Vec<String> = Vec::new();
+    let mut testable_ids: Vec<String> = Vec::new();
+    for node_id in selected {
+        let (ns, name) = parse_node_id(node_id);
+        if !namespaces.contains(&ns) {
+            namespaces.push(ns.clone());
+        }
+        testable_ids.push(format!("{}/{}", ns, name));
+    }
+
+    let args: Vec<String> = match &config.runner {
+        project::TestRunner::Leiningen => {
+            let mut args = vec!["lein".to_string(), "test".to_string(), ":only".to_string()];
+            args.extend(testable_ids);
+            args
+        }
+        project::TestRunner::Kaocha => {
+            let mut args = vec![
+                "clojure".to_string(),
+                "-M:test".to_string(),
+                "--focus".to_string(),
+            ];
+            args.extend(testable_ids);
+            args
+        }
+        project::TestRunner::Babashka => {
+            // Namespace-style ids (`finanzas.cli-test`) and script-file ids
+            // (`test::finanzas::cli_test.bb::name`) need different runners:
+            // bb test namespaces load via require; ns-less .bb scripts are
+            // self-running executables that call (System/exit) themselves,
+            // so they must run as `bb <file>` subprocesses.
+            let mut script_files: Vec<String> = Vec::new();
+            let mut ns_only: Vec<String> = Vec::new();
+            for ns in &namespaces {
+                if is_source_file_path(ns) {
+                    if !script_files.contains(ns) {
+                        script_files.push(ns.clone());
+                    }
+                } else if !ns_only.contains(ns) {
+                    ns_only.push(ns.clone());
+                }
+            }
+
+            let mut script = String::new();
+            let mut needs_classpath = false;
+            if !ns_only.is_empty() {
+                let requires: Vec<String> = ns_only.iter().map(|ns| format!("'{ns}")).collect();
+                if config.declares_test_runner {
+                    // `bb --main babashka.test-runner` requires the dep to
+                    // be declared in bb.edn — it is NOT bundled with bb.
+                    let mut args = vec![
+                        "bb".to_string(),
+                        "--main".to_string(),
+                        "babashka.test-runner".to_string(),
+                        "-n".to_string(),
+                    ];
+                    args.extend(ns_only);
+                    return json_ok(serde_json::json!({
+                        "runner_args": args,
+                        "collection_path": ""
+                    }));
+                }
+                // Inline clojure.test runner: bb has clojure.test built in,
+                // so a classpath of test roots + source roots plus an -e
+                // script runs the selected namespaces without any
+                // project-side test deps.
+                needs_classpath = true;
+                script.push_str(&format!(
+                    "(require {}) (clojure.test/run-tests {})",
+                    requires.join(" "),
+                    requires.join(" ")
+                ));
+            }
+            if !script_files.is_empty() {
+                // Clojure map literals contain braces, so assemble the script
+                // with push_str instead of format! placeholders.
+                let quoted_files: Vec<String> =
+                    script_files.iter().map(|p| format!("\"{p}\"")).collect();
+                script.push_str("(require '[babashka.process :as p]) ");
+                script.push_str("(let [fail (atom false)] ");
+                script.push_str(&format!("(doseq [f [{}] ] ", quoted_files.join(" ")));
+                // (when-not (zero? (:exit (p/shell ...))) (reset! ...))
+                script.push_str(concat!(
+                    "(println \"\u{25b8} bb\" f) ",
+                    "(when-not (zero? (:exit ",
+                    "(p/shell {:continue true :out :inherit :err :inherit} \"bb\" f))) ",
+                    "(reset! fail true)) ",
+                    "(when @fail (System/exit 1)))"
+                ));
+                script.push_str(")");
+            }
+            let mut args = vec!["bb".to_string()];
+            if needs_classpath {
+                let mut classpath: Vec<&String> = config.test_paths.iter().collect();
+                for p in &config.source_paths {
+                    if !classpath.contains(&p) {
+                        classpath.push(p);
+                    }
+                }
+                args.push("--classpath".to_string());
+                args.push(
+                    classpath
+                        .iter()
+                        .map(|s| s.as_str())
+                        .collect::<Vec<_>>()
+                        .join(":"),
+                );
+            }
+            args.push("-e".to_string());
+            args.push(script);
+            args
+        }
+        project::TestRunner::Cognitect | project::TestRunner::Default => {
+            let mut args = vec![
+                "clojure".to_string(),
+                "-M:test".to_string(),
+                "-n".to_string(),
+            ];
+            args.extend(namespaces);
+            args
+        }
+    };
+
+    json_ok(serde_json::json!({
+        "runner_args": args,
+        "collection_path": ""
+    }))
+}
+
 fn cmd_run_args(cmd: &serde_json::Value) -> serde_json::Value {
     let params = &cmd["params"];
     let selected: Vec<String> = match params["selected"].as_array() {
@@ -425,126 +600,154 @@ fn cmd_run_args(cmd: &serde_json::Value) -> serde_json::Value {
         return json_err("no tests selected");
     }
 
-    // Use project config to determine runner
-    let config = project::ProjectConfig::detect(std::path::Path::new("."));
+    let config = project::ProjectConfig::detect(std::path::Path::new("."))
+        .unwrap_or_else(project::ProjectConfig::default);
 
-    // Extract test names from node_ids (format: <namespace>::<test-name>(Test))
-    let mut test_names: Vec<String> = Vec::new();
-    for node_id in &selected {
-        // Format: my-project.core-test::test-greet(Test) → test-greet
-        if let Some(test_part) = node_id.split("::").nth(1) {
-            let name = test_part.trim_end_matches("(Test)");
-            test_names.push(name.to_string());
-        } else {
-            // Fallback: treat node_id as namespace
-            test_names.push(node_id.to_string());
-        }
-    }
-
-    let runner = config
-        .as_ref()
-        .map(|c| &c.runner)
-        .unwrap_or(&project::TestRunner::Default);
-
-    let args: Vec<String> = match runner {
-        project::TestRunner::Leiningen => {
-            // lein test :only namespace/test-name
-            let mut args = vec!["test".to_string(), ":only".to_string()];
-            for name in &test_names {
-                args.push(format!("{}/{}", name, name)); // simplified
-            }
-            args
-        }
-        project::TestRunner::Kaocha => {
-            // clojure -M:test --focus namespace
-            let mut args = vec!["-M:test".to_string(), "--focus".to_string()];
-            for name in &test_names {
-                args.push(name.clone());
-            }
-            args
-        }
-        project::TestRunner::Cognitect | project::TestRunner::Default => {
-            // clojure -M:test -n namespace
-            let mut args = vec!["-M:test".to_string(), "-n".to_string()];
-            for name in &test_names {
-                args.push(name.clone());
-            }
-            args
-        }
-    };
-
-    json_ok(serde_json::json!({
-        "command": "clojure",
-        "args": args,
-        "env": {}
-    }))
+    build_run_args_response(&config, &selected)
 }
 
-/// Ingest: parse JUnit XML output from Cognitect runner or Leiningen stdout
-/// and return runtime edges and per-test results (TIA-ADAPT-002).
-/// Ingest: parse test runner output and return runtime edges + per-test results.
+/// Ingest: parse test runner output and return per-test results.
 ///
-/// Standard protocol: `{"command":"ingest","params":{"run_output":"..."}}`.
+/// The engine always feeds ingest a single string (TIA-ADAPT-008):
+/// either the freshly-rewritten `collection_path` file or the runner's
+/// combined stdout/stderr. This adapter accepts, in order:
+///
+/// 1. JUnit XML (a runner configured with a junit reporter),
+/// 2. newline-delimited JSON test results (legacy ingest convention),
+/// 3. plain clojure.test text output (`FAIL in (name) (file:line)`) —
+///    the actual output of Cognitect/Leiningen/babashka.test-runner runs.
+///
+/// Pass-only text names no individual tests, so it yields no results; the
+/// engine keeps un-ingested items always_run, which is recall-safe
+/// (SAFE-007). Failures ARE individually attributable and keep warm
+/// selection effective.
 fn cmd_ingest(cmd: &serde_json::Value) -> serde_json::Value {
     let params = &cmd["params"];
-
-    // Try run_output as a string (newline-delimited JSON lines)
-    if let Some(run_output) = params["run_output"].as_str() {
-        if run_output.is_empty() {
-            return json_ok(serde_json::json!({
-                "per_test_results": [],
-                "runtime_edges": [],
-                "external_inputs": []
-            }));
-        }
-
-        // Parse each line as a JSON test result
-        let mut results = Vec::new();
-        for line in run_output.lines() {
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            if let Ok(entry) = serde_json::from_str::<serde_json::Value>(trimmed) {
-                let test_id = entry["test_id"].as_str().unwrap_or("").to_string();
-                let outcome = entry["outcome"].as_str().unwrap_or("passed").to_string();
-                let duration_ms = entry["duration_ms"].as_i64().unwrap_or(0);
-                results.push(serde_json::json!({
-                    "test_id": test_id,
-                    "outcome": outcome,
-                    "duration_ms": duration_ms
-                }));
-            }
-        }
-
+    let run_output = params["run_output"].as_str().unwrap_or("");
+    if run_output.trim().is_empty() {
         return json_ok(serde_json::json!({
-            "per_test_results": results,
+            "per_test_results": [],
             "runtime_edges": [],
             "external_inputs": []
         }));
     }
 
-    // Fallback: try JUnit XML from target/test-results.xml
-    let collection_path = params["collection_path"]
-        .as_str()
-        .unwrap_or("target/test-results.xml");
-    match std::fs::read_to_string(collection_path) {
-        Ok(content) => parse_junit_xml(&content),
-        Err(_) => json_ok(serde_json::json!({
-            "per_test_results": [],
+    // 1. JUnit XML — detectable by leading `<`
+    if run_output.trim_start().starts_with('<') {
+        return json_ok(parse_junit_xml(run_output));
+    }
+
+    // 2. Newline-delimited JSON test results
+    let mut jsonl: Vec<serde_json::Value> = Vec::new();
+    for line in run_output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Ok(entry) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            let test_id = entry["test_id"].as_str().unwrap_or("").to_string();
+            let outcome = entry["outcome"].as_str().unwrap_or("passed").to_string();
+            let duration_ms = entry["duration_ms"].as_i64().unwrap_or(0);
+            jsonl.push(serde_json::json!({
+                "test_id": test_id,
+                "outcome": outcome,
+                "duration_ms": duration_ms
+            }));
+        }
+    }
+    if !jsonl.is_empty() {
+        return json_ok(serde_json::json!({
+            "per_test_results": jsonl,
             "runtime_edges": [],
             "external_inputs": []
-        })),
+        }));
     }
+
+    // 3. clojure.test text output
+    json_ok(parse_clojure_test_output(run_output))
 }
 
-/// Parse JUnit XML content and return runtime edges and per-test results.
+/// Parse plain clojure.test output into per-test results.
+///
+/// Recognizes `FAIL in (name) (path:line)` / `ERROR in (name)` blocks and
+/// attributes each failure to `namespace::name(Test)` using the
+/// path-derived namespace convention (`infer_namespace_from_path`). Only
+/// failures are emitted — passes are not individually named by clojure.test.
+fn parse_clojure_test_output(content: &str) -> serde_json::Value {
+    let mut results: Vec<serde_json::Value> = Vec::new();
+    let mut current: Option<(String, String, Vec<String>)> = None; // (test_id, outcome, detail lines)
+
+    let flush = |current: &mut Option<(String, String, Vec<String>)>,
+                 results: &mut Vec<serde_json::Value>| {
+        if let Some((test_id, outcome, detail)) = current.take() {
+            results.push(serde_json::json!({
+                "test_id": test_id,
+                "outcome": outcome,
+                "duration_ms": 0,
+                "error_text": detail.join("\n")
+            }));
+        }
+    };
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed
+            .strip_prefix("FAIL in (")
+            .or_else(|| trimmed.strip_prefix("ERROR in ("))
+        {
+            // Both FAIL and ERROR are failures for the engine: anything
+            // other than outcome "failed" counts as a pass (src/store.rs
+            // run-history), so an ERROR reported as "error" would be
+            // unsound — map both to "failed".
+            let outcome = "failed";
+            flush(&mut current, &mut results);
+            let name = rest.split(")").next().unwrap_or("");
+            // Optional location: `(path/to/file.clj:42)` after the name paren
+            let file = trimmed
+                .rsplit_once(") (")
+                .and_then(|(_, loc)| loc.strip_suffix(")"))
+                .and_then(|loc| loc.rsplit_once(':').map(|(f, _)| f.to_string()));
+            let test_id = match file {
+                Some(f) => format!("{}::{}(Test)", infer_namespace_from_path(&f), name),
+                None => name.to_string(),
+            };
+            current = Some((test_id, outcome.to_string(), Vec::new()));
+        } else if trimmed.starts_with("Ran ")
+            || trimmed.starts_with("Testing ")
+            || (trimmed.is_empty() && current.is_none())
+        {
+            // summary / section-header lines — stop collecting detail
+            if trimmed.starts_with("Ran ") || trimmed.starts_with("Testing ") {
+                flush(&mut current, &mut results);
+            }
+            continue;
+        } else if current.is_some() && !trimmed.is_empty() {
+            if let Some((_, _, detail)) = current.as_mut() {
+                detail.push(line.to_string());
+            }
+        }
+    }
+    flush(&mut current, &mut results);
+
+    serde_json::json!({
+        "per_test_results": results,
+        "runtime_edges": [],
+        "external_inputs": []
+    })
+}
+
+/// Parse JUnit XML content and return per-test results.
+///
+/// Response shape follows the engine's `IngestResult`/`TestRunResult`
+/// (TIA-ADAPT-008): `per_test_results` entries carry `test_id`, `outcome`,
+/// `duration_ms`, `error_text` — the previous `edges`/`results`/`passed`
+/// keys were never read by the engine.
 fn parse_junit_xml(content: &str) -> serde_json::Value {
-    let edges: Vec<serde_json::Value> = Vec::new();
     let mut results: Vec<serde_json::Value> = Vec::new();
 
     // Simple line-based JUnit XML parser
     let mut in_testcase = false;
+    let mut in_failure = false;
     let mut test_name = String::new();
     let mut class_name = String::new();
     let mut test_time = 0.0f64;
@@ -556,6 +759,7 @@ fn parse_junit_xml(content: &str) -> serde_json::Value {
 
         if trimmed.starts_with("<testcase") {
             in_testcase = true;
+            in_failure = false;
             test_name = extract_attr(trimmed, "name").unwrap_or_default();
             class_name = extract_attr(trimmed, "classname").unwrap_or_default();
             test_time = extract_attr(trimmed, "time")
@@ -566,6 +770,27 @@ fn parse_junit_xml(content: &str) -> serde_json::Value {
         } else if trimmed.starts_with("<failure") {
             passed = false;
             failure_message = extract_attr(trimmed, "message").unwrap_or_default();
+            in_failure = !trimmed.ends_with("</failure>");
+            // Same-line body: `<failure msg="...">boom</failure>`
+            if let Some(start) = trimmed.find('>') {
+                if start + 1 < trimmed.len() {
+                    let body = trimmed[start + 1..].trim_end_matches("</failure>");
+                    if !body.trim().is_empty() {
+                        if !failure_message.is_empty() {
+                            failure_message.push('\n');
+                        }
+                        failure_message.push_str(body.trim());
+                    }
+                }
+            }
+        } else if trimmed.starts_with("</failure") {
+            in_failure = false;
+        } else if in_failure {
+            // Failure body text (may be multi-line CDATA/plain text)
+            if !failure_message.is_empty() {
+                failure_message.push('\n');
+            }
+            failure_message.push_str(trimmed);
         } else if trimmed.starts_with("</testcase>") && in_testcase {
             let node_id = if class_name.is_empty() {
                 test_name.clone()
@@ -575,9 +800,9 @@ fn parse_junit_xml(content: &str) -> serde_json::Value {
 
             results.push(serde_json::json!({
                 "test_id": node_id,
-                "passed": passed,
-                "time": test_time,
-                "failure_message": if passed { "" } else { &failure_message }
+                "outcome": if passed { "passed" } else { "failed" },
+                "duration_ms": (test_time * 1000.0).round() as u64,
+                "error_text": if passed { "" } else { &failure_message }
             }));
 
             in_testcase = false;
@@ -586,10 +811,11 @@ fn parse_junit_xml(content: &str) -> serde_json::Value {
         }
     }
 
-    json_ok(serde_json::json!({
-        "edges": edges,
-        "results": results
-    }))
+    serde_json::json!({
+        "per_test_results": results,
+        "runtime_edges": [],
+        "external_inputs": []
+    })
 }
 
 /// Extract an XML attribute value by name from a tag string.
@@ -598,4 +824,315 @@ fn extract_attr(tag: &str, attr: &str) -> Option<String> {
     let start = tag.find(&search)? + search.len();
     let end = tag[start..].find('"')?;
     Some(tag[start..start + end].to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── run-args contract (gh-81, TIA-ADAPT-007) ─────────────────────────────
+
+    fn runner_config(runner: project::TestRunner) -> project::ProjectConfig {
+        project::ProjectConfig {
+            runner,
+            ..project::ProjectConfig::default()
+        }
+    }
+
+    #[test]
+    fn run_args_new_contract_shape() {
+        let resp = build_run_args_response(
+            &runner_config(project::TestRunner::Cognitect),
+            &["finanzas.core-test::test-greet(Test)".to_string()],
+        );
+        let result = &resp["result"];
+        assert!(
+            result["runner_args"].is_array(),
+            "runner_args missing: {resp}"
+        );
+        assert!(
+            result["collection_path"].is_string(),
+            "collection_path missing: {resp}"
+        );
+        assert_eq!(
+            result["runner_args"],
+            serde_json::json!(["clojure", "-M:test", "-n", "finanzas.core-test"])
+        );
+        assert_eq!(result["collection_path"], serde_json::json!(""));
+    }
+
+    #[test]
+    fn run_args_babashka_declared_test_runner() {
+        let config = project::ProjectConfig {
+            runner: project::TestRunner::Babashka,
+            declares_test_runner: true,
+            ..project::ProjectConfig::default()
+        };
+        let resp =
+            build_run_args_response(&config, &["finanzas.cli-test::test-main(Test)".to_string()]);
+        let result = &resp["result"];
+        assert_eq!(
+            result["runner_args"],
+            serde_json::json!([
+                "bb",
+                "--main",
+                "babashka.test-runner",
+                "-n",
+                "finanzas.cli-test"
+            ])
+        );
+    }
+
+    #[test]
+    fn run_args_babashka_script_files_run_per_file() {
+        // ns-less .bb script files (t79n) are self-running executables that
+        // call (System/exit) — they must run as `bb <file>` subprocesses,
+        // not be require'd into a shared namespace.
+        let config = runner_config(project::TestRunner::Babashka);
+        let resp = build_run_args_response(
+            &config,
+            &[
+                "test::finanzas::cli_test.bb::help-lists-all-subcommands(Test)".to_string(),
+                "test::finanzas::cli_test.bb::unknown-subcommand-exits-2(Test)".to_string(),
+            ],
+        );
+        let result = &resp["result"];
+        let args = result["runner_args"].as_array().unwrap();
+        assert_eq!(args[0], "bb");
+        // No classpath needed: script files run as child bb processes that
+        // resolve bb.edn themselves.
+        assert_eq!(args[1], "-e");
+        let script = args[2].as_str().unwrap();
+        assert_eq!(
+            script.matches("test/finanzas/cli_test.bb").count(),
+            1,
+            "dedupe: {script}"
+        );
+        assert!(script.contains("p/shell"), "got: {script}");
+        assert!(script.contains(":inherit"), "got: {script}");
+        assert!(script.contains("System/exit"), "got: {script}");
+    }
+
+    #[test]
+    fn run_args_babashka_mixed_files_and_namespaces() {
+        let config = project::ProjectConfig {
+            runner: project::TestRunner::Babashka,
+            source_paths: vec!["src".to_string()],
+            ..project::ProjectConfig::default()
+        };
+        let resp = build_run_args_response(
+            &config,
+            &[
+                "test::finanzas::cli_test.bb::test-a(Test)".to_string(),
+                "finanzas.core-test::test-greet(Test)".to_string(),
+            ],
+        );
+        let result = &resp["result"];
+        let args = result["runner_args"].as_array().unwrap();
+        assert_eq!(args[0], "bb");
+        assert_eq!(args[1], "--classpath");
+        assert_eq!(args[2], "test:src");
+        assert_eq!(args[3], "-e");
+        let script = args[4].as_str().unwrap();
+        assert!(
+            script.contains("run-tests 'finanzas.core-test"),
+            "got: {script}"
+        );
+        assert!(
+            script.contains("test/finanzas/cli_test.bb"),
+            "got: {script}"
+        );
+    }
+
+    #[test]
+    fn is_source_file_path_detects_script_ids() {
+        assert!(is_source_file_path("test/finanzas/cli_test.bb"));
+        assert!(is_source_file_path("cli_test.clj"));
+        assert!(!is_source_file_path("finanzas.cli-test"));
+        assert!(!is_source_file_path("finanzas.core-test"));
+    }
+
+    #[test]
+    fn parse_node_id_reconstructs_script_file_path() {
+        assert_eq!(
+            parse_node_id("test::finanzas::cli_test.bb::test-foo(Test)"),
+            (
+                "test/finanzas/cli_test.bb".to_string(),
+                "test-foo".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn run_args_babashka_inline_runner_when_dep_undeclared() {
+        // babashka.test-runner is NOT bundled with bb (verified live on
+        // finanzas, bb 1.12.218) — without a declared dep, run an inline
+        // clojure.test script over the selected namespaces instead.
+        let config = project::ProjectConfig {
+            runner: project::TestRunner::Babashka,
+            source_paths: vec!["src".to_string()],
+            test_paths: vec!["test".to_string()],
+            ..project::ProjectConfig::default()
+        };
+        let resp = build_run_args_response(
+            &config,
+            &[
+                "finanzas.cli-test::test-main(Test)".to_string(),
+                "finanzas.cli-test::test-parse(Test)".to_string(),
+                "finanzas.core-test::test-greet(Test)".to_string(),
+            ],
+        );
+        let result = &resp["result"];
+        let args = result["runner_args"].as_array().unwrap();
+        assert_eq!(args[0], "bb");
+        assert_eq!(args[1], "--classpath");
+        assert_eq!(args[2], "test:src");
+        assert_eq!(args[3], "-e");
+        let script = args[4].as_str().unwrap();
+        assert!(
+            script.contains("(require 'finanzas.cli-test 'finanzas.core-test)"),
+            "got: {script}"
+        );
+        assert!(
+            script.contains("(clojure.test/run-tests 'finanzas.cli-test 'finanzas.core-test)"),
+            "got: {script}"
+        );
+    }
+
+    #[test]
+    fn run_args_dedupes_namespaces() {
+        let resp = build_run_args_response(
+            &runner_config(project::TestRunner::Cognitect),
+            &[
+                "finanzas.core-test::test-a(Test)".to_string(),
+                "finanzas.core-test::test-b(Test)".to_string(),
+                "finanzas.cli-test::test-c(Test)".to_string(),
+            ],
+        );
+        let result = &resp["result"];
+        assert_eq!(
+            result["runner_args"],
+            serde_json::json!([
+                "clojure",
+                "-M:test",
+                "-n",
+                "finanzas.core-test",
+                "finanzas.cli-test"
+            ])
+        );
+    }
+
+    #[test]
+    fn run_args_kaocha_focus() {
+        let resp = build_run_args_response(
+            &runner_config(project::TestRunner::Kaocha),
+            &["finanzas.core-test::test-greet(Test)".to_string()],
+        );
+        let result = &resp["result"];
+        assert_eq!(
+            result["runner_args"],
+            serde_json::json!([
+                "clojure",
+                "-M:test",
+                "--focus",
+                "finanzas.core-test/test-greet"
+            ])
+        );
+    }
+
+    #[test]
+    fn run_args_leiningen_uses_ns_over_name() {
+        let resp = build_run_args_response(
+            &runner_config(project::TestRunner::Leiningen),
+            &["finanzas.core-test::test-greet(Test)".to_string()],
+        );
+        let result = &resp["result"];
+        assert_eq!(
+            result["runner_args"],
+            serde_json::json!(["lein", "test", ":only", "finanzas.core-test/test-greet"])
+        );
+    }
+
+    #[test]
+    fn parse_node_id_extracts_ns_and_name() {
+        assert_eq!(
+            parse_node_id("finanzas.core-test::test-greet(Test)"),
+            ("finanzas.core-test".to_string(), "test-greet".to_string())
+        );
+    }
+
+    // ── ingest: clojure.test text output (gh-81) ─────────────────────────────
+
+    #[test]
+    fn ingest_clojure_test_failures_from_text() {
+        let output = concat!(
+            "Testing finanzas.cli-test\n\n",
+            "FAIL in (test-main) (test/finanzas/cli_test.bb:12)\n",
+            "expected: (= 0 (cli/run []))\n",
+            "  actual: (not (= 0 nil))\n\n",
+            "ERROR in (test-parse) (test/finanzas/cli_test.bb:20)\n",
+            "Uncaught exception, not in assertion.\n\n",
+            "RAN 2 TESTS\n",
+            "0 failures\n"
+        );
+        let resp = cmd_ingest(&serde_json::json!({
+            "params": {"run_output": output}
+        }));
+        let results = resp["result"]["per_test_results"].as_array().unwrap();
+        assert_eq!(results.len(), 2, "got: {resp}");
+        assert_eq!(results[0]["test_id"], "finanzas.cli-test::test-main(Test)");
+        assert_eq!(results[0]["outcome"], "failed");
+        assert!(results[0]["error_text"]
+            .as_str()
+            .unwrap()
+            .contains("expected:"));
+        assert_eq!(results[1]["test_id"], "finanzas.cli-test::test-parse(Test)");
+        assert_eq!(results[1]["outcome"], "failed");
+        // Correct response keys per TIA-ADAPT-008 TestRunResult
+        assert!(results[0].get("duration_ms").is_some());
+    }
+
+    #[test]
+    fn ingest_pass_only_text_yields_no_results() {
+        // Pass-only clojure.test output names no individual tests; an empty
+        // result list is recall-safe (engine keeps un-ingested items always_run).
+        let output = "Testing finanzas.cli-test\n\nRAN 6 TESTS\n0 failures\n";
+        let resp = cmd_ingest(&serde_json::json!({
+            "params": {"run_output": output}
+        }));
+        let results = resp["result"]["per_test_results"].as_array().unwrap();
+        assert!(results.is_empty(), "got: {resp}");
+    }
+
+    #[test]
+    fn ingest_junit_xml_uses_engine_result_shape() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="finanzas.core-test" tests="1" failures="1">
+    <testcase name="test-greet" classname="finanzas.core-test" time="0.01">
+      <failure message="expected: (= \"hi\" out)">boom</failure>
+    </testcase>
+  </testsuite>
+</testsuites>"#;
+        let resp = cmd_ingest(&serde_json::json!({
+            "params": {"run_output": xml}
+        }));
+        let results = resp["result"]["per_test_results"].as_array().unwrap();
+        assert_eq!(results.len(), 1, "got: {resp}");
+        assert_eq!(results[0]["test_id"], "finanzas.core-test::test-greet");
+        assert_eq!(results[0]["outcome"], "failed");
+        assert_eq!(results[0]["duration_ms"], 10);
+        assert!(results[0]["error_text"].as_str().unwrap().contains("boom"));
+    }
+
+    #[test]
+    fn ingest_jsonl_still_supported() {
+        let resp = cmd_ingest(&serde_json::json!({
+            "params": {"run_output": "{\"test_id\":\"a::b(Test)\",\"outcome\":\"passed\",\"duration_ms\":3}\n"}
+        }));
+        let results = resp["result"]["per_test_results"].as_array().unwrap();
+        assert_eq!(results.len(), 1, "got: {resp}");
+        assert_eq!(results[0]["test_id"], "a::b(Test)");
+        assert_eq!(results[0]["outcome"], "passed");
+    }
 }

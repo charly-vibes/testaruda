@@ -15,6 +15,8 @@ pub enum TestRunner {
     Kaocha,
     /// Leiningen (`lein test :only namespace/test-name`).
     Leiningen,
+    /// Babashka (`bb --main babashka.test-runner`, bb.edn projects — gh-81).
+    Babashka,
     /// No runner found — use default (`clojure -M:test`).
     Default,
 }
@@ -26,18 +28,34 @@ pub struct ProjectConfig {
     pub runner: TestRunner,
     /// Directories containing test files (e.g. ["test"]).
     pub test_paths: Vec<String>,
+    /// `:paths` (source roots) from EDN config — used to build the classpath
+    /// for babashka's inline test runner (bb.edn projects without a declared
+    /// babashka/test-runner dep, gh-81).
+    pub source_paths: Vec<String>,
+    /// bb.edn declares a babashka/test-runner dep — `bb --main
+    /// babashka.test-runner` works. When false, the adapter must use the
+    /// inline clojure.test runner (babashka.test-runner is NOT bundled with
+    /// bb; verified live on finanzas, bb 1.12.218).
+    pub declares_test_runner: bool,
 }
 
 impl ProjectConfig {
     /// Detect and read project configuration from the given directory.
     ///
-    /// Prefers `deps.edn` over `project.clj`. Returns `None` if neither
-    /// configuration file exists.
+    /// `bb.edn` takes precedence over `deps.edn`/`project.clj` when present:
+    /// discovery finds `.bb` files (gh-34), which only babashka can execute —
+    /// a JVM runner cannot run them at all, while bb runs plain
+    /// clojure.test `.clj` files fine. Returns `None` if no configuration
+    /// file exists.
     pub fn detect(dir: &std::path::Path) -> Option<Self> {
+        let bb_path = dir.join("bb.edn");
         let deps_path = dir.join("deps.edn");
         let proj_path = dir.join("project.clj");
 
-        if deps_path.exists() {
+        if bb_path.exists() {
+            let content = std::fs::read_to_string(&bb_path).ok()?;
+            Some(Self::from_bb_edn(&content))
+        } else if deps_path.exists() {
             let content = std::fs::read_to_string(&deps_path).ok()?;
             Some(Self::from_deps_edn(&content))
         } else if proj_path.exists() {
@@ -45,6 +63,27 @@ impl ProjectConfig {
             Some(Self::from_project_clj(&content))
         } else {
             None
+        }
+    }
+
+    /// Parse `bb.edn` content and return a [`ProjectConfig`] (gh-81).
+    ///
+    /// A babashka project runs tests via `bb --main babashka.test-runner`.
+    /// Reads `:test-paths` (same EDN convention as deps.edn), defaulting
+    /// to `["test"]`.
+    pub fn from_bb_edn(content: &str) -> Self {
+        Self {
+            runner: TestRunner::Babashka,
+            test_paths: {
+                let paths = extract_edn_string_vec(content, b":test-paths");
+                if paths.is_empty() {
+                    vec!["test".to_string()]
+                } else {
+                    paths
+                }
+            },
+            source_paths: extract_edn_string_vec(content, b":paths"),
+            declares_test_runner: content.contains("babashka/test-runner"),
         }
     }
 
@@ -62,7 +101,12 @@ impl ProjectConfig {
     pub fn from_deps_edn(content: &str) -> Self {
         let test_paths = extract_deps_edn_test_paths(content);
         let runner = detect_deps_edn_runner(content);
-        Self { runner, test_paths }
+        Self {
+            runner,
+            test_paths,
+            source_paths: Vec::new(),
+            declares_test_runner: false,
+        }
     }
 
     /// Parse `project.clj` content and return a [`ProjectConfig`].
@@ -76,7 +120,12 @@ impl ProjectConfig {
     pub fn from_project_clj(content: &str) -> Self {
         let test_paths = extract_project_clj_test_paths(content);
         let runner = TestRunner::Leiningen;
-        Self { runner, test_paths }
+        Self {
+            runner,
+            test_paths,
+            source_paths: Vec::new(),
+            declares_test_runner: false,
+        }
     }
 
     /// Default project configuration (no file found).
@@ -84,6 +133,8 @@ impl ProjectConfig {
         Self {
             runner: TestRunner::Default,
             test_paths: vec!["test".to_string()],
+            source_paths: Vec::new(),
+            declares_test_runner: false,
         }
     }
 }
@@ -93,11 +144,23 @@ impl ProjectConfig {
 /// Scans for `:test-paths [` then reads a sequence of strings up to the
 /// matching `]`, respecting nested bracket depth.
 fn extract_deps_edn_test_paths(content: &str) -> Vec<String> {
+    let paths = extract_edn_string_vec(content, b":test-paths");
+    if paths.is_empty() {
+        vec!["test".to_string()]
+    } else {
+        paths
+    }
+}
+
+/// Extract a `[...]` vector of string literals following an EDN keyword.
+///
+/// Scans for the keyword then reads a sequence of strings up to the
+/// matching `]`, respecting nested bracket depth. Falls back to `[]`.
+fn extract_edn_string_vec(content: &str, needle: &[u8]) -> Vec<String> {
     let content_bytes = content.as_bytes();
     let mut paths = Vec::new();
 
-    // Find ":test-paths" (handling potential whitespace before the value)
-    let needle = b":test-paths";
+    // Find the keyword (handling potential whitespace before the value)
     let mut pos = 0;
     while let Some(start) = content_bytes[pos..]
         .windows(needle.len())
@@ -141,11 +204,7 @@ fn extract_deps_edn_test_paths(content: &str) -> Vec<String> {
         pos = key_end + 1;
     }
 
-    if paths.is_empty() {
-        vec!["test".to_string()]
-    } else {
-        paths
-    }
+    paths
 }
 
 /// Detect the test runner from `deps.edn` content.
@@ -399,5 +458,40 @@ mod tests {
         let config = ProjectConfig::default();
         assert_eq!(config.test_paths, vec!["test"]);
         assert_eq!(config.runner, TestRunner::Default);
+    }
+
+    // ── bb.edn (babashka, gh-81) ─────────────────────────────────────────────
+
+    #[test]
+    fn bb_edn_is_babashka() {
+        let content = r#"{:deps {}
+ :tasks {test {:task (clojure "-M:test")}}}"#;
+        let config = ProjectConfig::from_bb_edn(content);
+        assert_eq!(config.runner, TestRunner::Babashka);
+        assert_eq!(config.test_paths, vec!["test"]);
+    }
+
+    #[test]
+    fn detect_bb_edn_only_project() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("bb.edn"), "{:deps {}}").unwrap();
+        let config = ProjectConfig::detect(dir.path()).unwrap();
+        assert_eq!(config.runner, TestRunner::Babashka);
+        assert_eq!(config.test_paths, vec!["test"]);
+    }
+
+    #[test]
+    fn detect_bb_edn_takes_precedence_over_deps_edn() {
+        // Discovered tests include .bb files, which only babashka can execute
+        // (t79n/gh-34); a JVM runner cannot run them at all, so bb.edn wins.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("bb.edn"), "{:deps {}}").unwrap();
+        std::fs::write(
+            dir.path().join("deps.edn"),
+            r#"{:aliases {:test {:extra-deps {io.github.cognitect-labs/test-runner {:mvn/version "0.5.1"}}}}}"#,
+        )
+        .unwrap();
+        let config = ProjectConfig::detect(dir.path()).unwrap();
+        assert_eq!(config.runner, TestRunner::Babashka);
     }
 }

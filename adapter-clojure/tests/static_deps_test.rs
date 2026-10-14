@@ -1,5 +1,4 @@
 use assert_cmd::Command;
-use std::sync::OnceLock;
 
 /// Create a fixture project directory with Clojure source and test files.
 fn fixture_project() -> tempfile::TempDir {
