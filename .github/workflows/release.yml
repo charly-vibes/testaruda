@@ -172,7 +172,7 @@ jobs:
         with:
           key: linux
 
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-just@v4
 
       # Workspace quality gates on the exact commit being published —
       # build jobs compile but never test; a red tag commit must not ship
