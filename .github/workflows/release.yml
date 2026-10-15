@@ -157,9 +157,36 @@ jobs:
           path: bins/
           retention-days: 1
 
+  quality:
+    name: Quality gate (workspace, tag commit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: linux
+
+      - uses: extractions/setup-just@v2
+
+      # Workspace quality gates on the exact commit being published —
+      # build jobs compile but never test; a red tag commit must not ship
+      # (testaruda-h7bv.3). Recipes are the same workspace-wide gates PRs
+      # run via `just ci` (h7bv.1 contract).
+      - name: Workspace quality gates
+        run: |
+          just fmt-check
+          just lint
+          just test
+
   publish:
     name: Publish Release
-    needs: [build-linux, build-darwin, build-windows]
+    needs: [build-linux, build-darwin, build-windows, quality]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
