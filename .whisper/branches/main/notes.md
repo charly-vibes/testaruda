@@ -82,3 +82,9 @@
 - h7bv.3 shipped (PR #90, squash ca75d3d-ish): release.yml quality job runs just fmt-check/lint/test on the tag commit; publish needs quality + all 3 build jobs — failure/skip/cancel anywhere skips all 4 publication paths. 9 publication contract cases incl. local needs-semantics simulation (success/failure/skipped/cancelled) — no live publish used to verify.
 - Gotcha: adapters have no --version — smoke via echo '{"command":"handshake"}' | bin | grep '"ok":true'. Workflow YAML parsers: job-block extraction stops on <4-space indent.
 - **Next:** pevk (P1 julia discovery scope), then P2 queue (ymzg, p7m0, kx1t, yo3i, srqu, qybw, 7tip, 47ws, 7r9l).
+
+### 2026-10-15 (v0.5.6 release) — snap
+- RELEASED v0.5.6 (PR #91 bump+CHANGELOG, tag push, run 38765380634 fully green): first release through the h7bv gates — Quality gate (workspace fmt-check/lint/test on tag commit) ran and passed; Publish job's h7bv.2 verifier verified all 5 archives ("OK ... complete and checksum-verified" x5); native smoke OK on all 3 build platforms.
+- Live verification: GH assets (5 archives + checksums.txt), linux_amd64 tarball exec-bit + --version 0.5.6 + all 4 adapter handshakes, crates.io 0.5.6, homebrew 0.5.6, scoop 0.5.6. Epic h7bv's gates are now live-proven on a real release.
+- Contents since 0.5.5: y3iv stale-item pruning, 8trl exclude-path skip, cpd vacuous-pass calibration fix, uwup TS junit unescape, h7bv.1/.2/.3 release-quality gates.
+- **Next:** pevk (P1 julia discovery scope), then P2 queue.
