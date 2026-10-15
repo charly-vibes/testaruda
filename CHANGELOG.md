@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.5.6 — release-quality gates: archive verification, binary smoke, publication gating (2026-10-15)
+
+### Fixed
+
+- Store: test items absent from a completed discovery walk are now pruned
+  at discover time — per-adapter replacement semantics applied only after
+  COMPLETED full walks, never partial changed-file discovery. Cascades
+  edges/reverse index/run history/provenance in one transaction; keeps
+  still-present tests' history and invalidates stale selection caches
+  (testaruda-y3iv, PR #87).
+- CI: selected test items whose path matches a `[discover].exclude`
+  pattern are dropped before grouping and never reach the runner — stale
+  python fixture items no longer wedge the pre-push gate with exit 2
+  (testaruda-8trl, PR #86).
+- Ranking calibration: vacuous pass when the hold-out set has 0 failures
+  no longer produces a degenerate score (testaruda-cpd, PR #85).
+- Adapter-typescript: junit ingest XML-unescapes `name`/`file` attributes
+  — `&`-encoded test names matched 0 store items after discover
+  refresh (testaruda-uwup, PR #84).
+
+### Changed
+
+- Release quality (epic testaruda-h7bv): `just ci` gates the whole
+  workspace — shipped adapter crates fail PR quality checks too
+  (h7bv.1, PR #88). Release archives are verified for completeness
+  (all 5 advertised binaries, exec bits, checksums) and smoke-tested
+  (`--version` / adapter handshake) on every build platform before
+  anything is uploaded (h7bv.2, PR #89). Publication to GitHub release,
+  crates.io, homebrew tap and scoop is coupled to a workspace quality
+  job on the exact tag commit — a red tag commit ships nowhere
+  (h7bv.3, PR #90).
+
 ## 0.5.5 — adapter-clojure run-args contract + babashka runner (2026-10-14)
 
 ### Fixed
