@@ -71,6 +71,9 @@ jobs:
 
   deploy:
     needs: build
+    # The github-pages environment only accepts deployments from the
+    # publishing branch (main) — tag builds are build-only smoke tests.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
