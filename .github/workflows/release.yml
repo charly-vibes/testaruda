@@ -58,6 +58,15 @@ jobs:
             cp "target/aarch64-unknown-linux-gnu/release/${bin}" "bins/linux_arm64/${bin}"
           done
 
+      - name: Smoke staged binaries
+        run: |
+          set -e
+          ./bins/linux_amd64/testaruda --version
+          for bin in bins/linux_amd64/testaruda-adapter-*; do
+            echo '{"command":"handshake"}' | "$bin" | grep -q '"ok":true'
+          done
+          echo "smoke OK: linux_amd64"
+
       - uses: actions/upload-artifact@v4
         with:
           name: bins-linux
@@ -92,6 +101,15 @@ jobs:
             cp "target/aarch64-apple-darwin/release/${bin}" "bins/darwin_arm64/${bin}"
           done
 
+      - name: Smoke staged binaries
+        run: |
+          set -e
+          ./bins/darwin_amd64/testaruda --version
+          for bin in bins/darwin_amd64/testaruda-adapter-*; do
+            echo '{"command":"handshake"}' | "$bin" | grep -q '"ok":true'
+          done
+          echo "smoke OK: darwin_amd64"
+
       - uses: actions/upload-artifact@v4
         with:
           name: bins-darwin
@@ -122,6 +140,16 @@ jobs:
           for bin in testaruda testaruda-adapter-rust testaruda-adapter-python testaruda-adapter-typescript testaruda-adapter-clojure; do
             cp "target/x86_64-pc-windows-msvc/release/${bin}.exe" "bins/windows_amd64/${bin}.exe"
           done
+
+      - name: Smoke staged binaries
+        shell: bash
+        run: |
+          set -e
+          ./bins/windows_amd64/testaruda.exe --version
+          for bin in bins/windows_amd64/testaruda-adapter-*.exe; do
+            echo '{"command":"handshake"}' | "$bin" | grep -q '"ok":true'
+          done
+          echo "smoke OK: windows_amd64"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -168,6 +196,21 @@ jobs:
                testaruda-adapter-typescript.exe testaruda-adapter-clojure.exe)
 
           cd dist && sha256sum *.tar.gz *.zip > checksums.txt
+
+      - name: Verify archive completeness (h7bv.2 gate)
+        run: |
+          set -e
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          for plat in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
+            python3 scripts/verify-release-archive.py \
+              --archive "dist/testaruda_${VERSION}_${plat}.tar.gz" \
+              --checksums dist/checksums.txt --platform "$plat"
+          done
+          python3 scripts/verify-release-archive.py \
+            --archive "dist/testaruda_${VERSION}_windows_amd64.zip" \
+            --checksums dist/checksums.txt --platform windows_amd64
+          echo "archive completeness verified for all 5 platforms"
 
       - name: Create GitHub release
         run: |
