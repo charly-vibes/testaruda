@@ -153,6 +153,22 @@ project configurations.
 testaruda auto-detects Clojure projects by looking for `deps.edn` or
 `project.clj` in the project root.
 
+## Contract bundle
+
+Every release ships `testaruda-<version>-contract-bundle.tar.gz` — the
+extracted structural contract (`contract.json`) plus a digest-bound
+`manifest.toml`, consumed by the wild contract checker. The manifest is the
+trust-chain head: verify the bundle before use with
+
+```sh
+tar xzf testaruda-<version>-contract-bundle.tar.gz
+test "sha256:$(sha256sum contract.json | cut -d' ' -f1)" = \
+  "$(grep contract_sha256 manifest.toml | cut -d'"' -f2)" && echo verified
+```
+
+A `contract_sha256` mismatch means the bundle was tampered with or corrupted —
+refuse it (diagnostic `bundle-digest-mismatch` at the consumer side).
+
 ## Requirements
 
 See `docs/src/tia-srs-ears.md` for the full Software Requirements Specification
