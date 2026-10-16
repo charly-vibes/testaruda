@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.7 — contract bundle attached to releases (2026-10-15)
+
+### Added
+
+- Release: every release now ships
+  `testaruda-<version>-contract-bundle.tar.gz` — the extracted structural
+  contract (`contract.json`) plus a digest-bound `manifest.toml` (tool,
+  version, commit, profile, contract_sha256, extractor_version,
+  extracted_at), produced by the pinned `wild-vibes 0.2.0` extractor on the
+  exact release checkout (beads wild-xc4, rung-2 shadow pilot of the
+  wild.adopt ladder). The bundle gates nothing yet; the manifest is the
+  digest-bound trust-chain head — digest verification one-liner in the
+  README Contract bundle section.
+
 ## 0.5.6 — release-quality gates: archive verification, binary smoke, publication gating (2026-10-15)
 
 ### Fixed
