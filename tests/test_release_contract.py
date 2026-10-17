@@ -32,7 +32,12 @@ RELEASE_WORKFLOW = (REPO / ".github/workflows/release.yml").read_text()
 # and must pass the same gates as the engine.
 WORKSPACE_RECIPES = {
     "lint": r"clippy\s+--workspace\s+--all-targets",
-    "test": r"cargo\s+test\s+--workspace",
+    # DDL test-runner standard (DDL-85p): `test` is the testaruda exec loop
+    # (its selection falls back to the full workspace suite), and the plain
+    # workspace run stays wired as `test-full` — both required so the
+    # shipped adapters keep full-suite coverage either way.
+    "test": r"testaruda\s+exec",
+    "test-full": r"cargo\s+test\s+--workspace",
     "build-release": r"cargo\s+build\s+--workspace\s+--release",
 }
 

@@ -3,7 +3,9 @@
 //! - Discover tests and compute fingerprints and static dependencies.
 //! - Provide runner arguments and ingest results over line-delimited JSON.
 //!
-//! Rationale: Reuse project discovery exclusions to keep fixture projects out
+//! Rationale: Prune the engine's documented default exclusion set from the
+//! discovery walk (mirrored in DISCOVER_EXCLUDE_DIRS, see testaruda.toml
+//! `[discover].exclude`) so fixture projects and vendored/env trees stay out
 //! of the runnable test inventory (testaruda-vpnf).
 
 use std::io::{BufRead, BufReader, Write};
@@ -73,18 +75,44 @@ fn cmd_handshake() -> serde_json::Value {
     }))
 }
 
+/// Directory names pruned from discovery walks. Mirrors the engine's
+/// documented default list — testaruda.toml `[discover].exclude` — kept in
+/// sync manually: the adapter protocol carries no config payload, and the
+/// adapter must not read the engine's config (a cwd-relative read silently
+/// degrades to defaults whenever the engine spawns from a subdirectory).
+/// "fixtures" keeps integration-test fixture projects (inputs to the
+/// engine's Rust tests, never standalone suites) out of the runnable
+/// inventory — discovering them fed stale pytest runs and reddened the
+/// pre-push gate with exit 2 (testaruda-vpnf).
+const DISCOVER_EXCLUDE_DIRS: &[&str] = &[
+    "target",
+    ".git",
+    "node_modules",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache",
+    "build",
+    "dist",
+    ".tox",
+    "fixtures",
+];
+
 /// Discover: find test_*.py and *_test.py files (TIA-ADAPT-004).
-/// Excludes common virtual environment and cache directories.
+/// Prunes directories named in DISCOVER_EXCLUDE_DIRS (mirrors the engine's
+/// testaruda.toml `[discover].exclude` defaults — see that constant).
 fn cmd_discover() -> serde_json::Value {
     let mut tests = Vec::new();
 
-    let config = testaruda::config::Config::load_or_default(Path::new("."));
+    let exclude: Vec<String> = DISCOVER_EXCLUDE_DIRS
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
 
     for entry in walkdir::WalkDir::new(".")
         .into_iter()
-        .filter_entry(testaruda::config::make_exclude_filter(
-            &config.discover.exclude,
-        ))
+        .filter_entry(testaruda::config::make_exclude_filter(&exclude))
         .filter_map(|e| e.ok())
     {
         if !entry.file_type().is_file() {
@@ -1170,6 +1198,51 @@ mod tests {
         assert!(
             !node_ids.iter().any(|id| id.contains(".venv")),
             "vendored tests in .venv should be excluded, got: {:?}",
+            node_ids
+        );
+        assert_eq!(node_ids.len(), 1, "only one test should be discovered");
+    }
+
+    /// Fixture projects (tests/fixtures/python-src-layout/) are inputs to
+    /// the engine's Rust integration tests, never standalone suites — but a
+    /// pre-push gate run kept feeding their files to pytest (collection
+    /// ImportError → exit 2). "fixtures" must be pruned from discovery like
+    /// .venv is.
+    #[test]
+    fn test_cmd_discover_excludes_fixtures() {
+        let dir = tempfile::tempdir().unwrap();
+        let fixture_tests = dir
+            .path()
+            .join("fixtures")
+            .join("python-src-layout")
+            .join("tests");
+        std::fs::create_dir_all(&fixture_tests).unwrap();
+
+        // Write a test file inside the fixture project
+        std::fs::write(
+            fixture_tests.join("test_model.py"),
+            "def test_model(): pass\n",
+        )
+        .unwrap();
+
+        // Write a real project test file
+        let tests_dir = dir.path().join("tests");
+        std::fs::create_dir_all(&tests_dir).unwrap();
+        std::fs::write(tests_dir.join("test_real.py"), "def test_real(): pass\n").unwrap();
+
+        let result = with_cwd(dir.path(), cmd_discover);
+
+        assert!(result["ok"].as_bool().unwrap());
+        let items = result["result"].as_array().unwrap();
+        let node_ids: Vec<&str> = items.iter().filter_map(|t| t["node_id"].as_str()).collect();
+
+        assert!(
+            node_ids.contains(&"tests/test_real.py"),
+            "project test should be discovered"
+        );
+        assert!(
+            !node_ids.iter().any(|id| id.contains("fixtures")),
+            "fixture-project tests should be excluded, got: {:?}",
             node_ids
         );
         assert_eq!(node_ids.len(), 1, "only one test should be discovered");
