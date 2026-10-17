@@ -5,6 +5,10 @@
 //!
 //! Uses tree-sitter-typescript for parsing `.ts`/`.tsx`/`.mts`/`.cts` files,
 //! extracting imports, test declarations, and exports via Scheme queries.
+//!
+//! run-args collapses fully-selected files to file-path filters: hundreds of
+//! per-test `-- <node_id>` argv entries kill vitest on CI (exit 249, empty
+//! output, node 24) — a fully-selected file runs identically from its path.
 
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Write};
@@ -596,8 +600,10 @@ fn cmd_run_args(cmd: &serde_json::Value) -> serde_json::Value {
                 "--reporter=junit".to_string(),
                 "--outputFile=target/test-results.xml".to_string(),
             ];
-            // Add selected test files
-            for sel in &selected {
+            // One `-- <filter>` pair per collapsed filter: fully-selected
+            // files contribute a single file-path filter, partial selection
+            // keeps per-test node_ids.
+            for sel in &collapse_filters(&selected) {
                 runner_args.push("--".to_string());
                 runner_args.push(sel.clone());
             }
@@ -663,6 +669,45 @@ fn cmd_run_args(cmd: &serde_json::Value) -> serde_json::Value {
         }
         Runner::Unknown => json_err("no test runner detected (vitest, jest, mocha, ava, or tape)"),
     }
+}
+
+/// Collapse selected node_ids into vitest run filters: when EVERY discovered
+/// test of a file is selected, emit ONE filter — the file path; otherwise emit
+/// that file's node_ids unchanged (exact semantics for partial selection).
+/// Hundreds of per-test argv entries kill vitest on CI (exit 249 with empty
+/// stdout/stderr, node 24, repro'd at ~470 filters; fine at ~240) — a
+/// fully-selected file runs identically from its path alone.
+fn collapse_filters(selected: &[String]) -> Vec<String> {
+    // Group selected node_ids by their file (the part before the first "::").
+    let mut by_file: HashMap<&str, Vec<&str>> = HashMap::new();
+    for sel in selected {
+        let file = sel.split("::").next().unwrap_or(sel);
+        by_file.entry(file).or_default().push(sel);
+    }
+
+    // Full discovery inventory, keyed by file.
+    let discovered = cmd_discover(&serde_json::json!({}));
+    let mut inventory: HashMap<&str, HashSet<&str>> = HashMap::new();
+    if let Some(results) = discovered["result"].as_array() {
+        for t in results {
+            if let (Some(id), Some(file)) = (t["node_id"].as_str(), t["file"].as_str()) {
+                inventory.entry(file).or_default().insert(id);
+            }
+        }
+    }
+
+    let mut filters = Vec::with_capacity(by_file.len());
+    for (file, sels) in &by_file {
+        let fully_selected = inventory
+            .get(file)
+            .is_some_and(|all| all.len() == sels.len() && sels.iter().all(|s| all.contains(s)));
+        if fully_selected {
+            filters.push(file.to_string());
+        } else {
+            filters.extend(sels.iter().map(|s| s.to_string()));
+        }
+    }
+    filters
 }
 
 /// Detected test runner.
@@ -933,9 +978,19 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let orig = std::env::current_dir().unwrap();
         std::env::set_current_dir(dir.path()).unwrap();
-        let result = f();
-        std::env::set_current_dir(&orig).unwrap();
-        result
+        // Restore on drop too: a panicking test body used to skip the restore,
+        // leaving the process cwd inside the deleted tempdir and failing every
+        // later with_cwd test with NotFound.
+        struct Restore(std::path::PathBuf);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                if std::env::set_current_dir(&self.0).is_err() {
+                    // Nothing sane to do — the panic already unwinds.
+                }
+            }
+        }
+        let _restore = Restore(orig);
+        f()
     }
 
     fn ts_language() -> tree_sitter::Language {
@@ -1804,6 +1859,155 @@ mod tests {
             !result["ok"].as_bool().unwrap_or(true),
             "should fail with empty selected"
         );
+    }
+
+    #[test]
+    fn cmd_run_args_collapses_fully_selected_files() {
+        with_cwd(|| {
+            use std::io::Write;
+            let mut f = std::fs::File::create("vitest.config.ts").unwrap();
+            writeln!(f, "export default {{}}").unwrap();
+            drop(f);
+
+            let mut f = std::fs::File::create("full.test.ts").unwrap();
+            writeln!(
+                f,
+                "describe(\"s\", () => {{ it(\"a\", () => {{}}); it(\"b\", () => {{}}); }});"
+            )
+            .unwrap();
+            drop(f);
+
+            let mut f = std::fs::File::create("part.test.ts").unwrap();
+            writeln!(
+                f,
+                "describe(\"s\", () => {{ it(\"a\", () => {{}}); it(\"b\", () => {{}}); }});"
+            )
+            .unwrap();
+            drop(f);
+
+            // Discover the real node_ids the adapter produces for these files.
+            let discovered = super::cmd_discover(&serde_json::json!({}));
+            let mut full_ids = Vec::new();
+            let mut part_ids = Vec::new();
+            for t in discovered["result"].as_array().unwrap() {
+                match t["file"].as_str().unwrap() {
+                    "full.test.ts" => full_ids.push(t["node_id"].as_str().unwrap().to_string()),
+                    "part.test.ts" => part_ids.push(t["node_id"].as_str().unwrap().to_string()),
+                    _ => {}
+                }
+            }
+            assert_eq!(
+                full_ids.len(),
+                2,
+                "full.test.ts should discover 2 tests: {:?}",
+                full_ids
+            );
+            assert_eq!(part_ids.len(), 2, "part.test.ts should discover 2 tests");
+
+            // Every test of full.test.ts selected + a partial pick from part.test.ts.
+            let mut selected = full_ids.clone();
+            selected.push(part_ids[0].clone());
+            let cmd = serde_json::json!({
+                "command": "run-args",
+                "params": {"selected": selected}
+            });
+            let result = super::cmd_run_args(&cmd);
+            assert!(
+                result["ok"].as_bool().unwrap_or(false),
+                "should succeed: {:?}",
+                result
+            );
+            let args: Vec<String> = result["result"]["runner_args"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect();
+            // Skip the fixed prefix (npx vitest run --reporter=junit --outputFile=...).
+            let filters: Vec<&str> = args
+                .iter()
+                .skip(5)
+                .map(String::as_str)
+                .filter(|s| *s != "--")
+                .collect();
+            assert!(
+                filters.contains(&"full.test.ts"),
+                "fully-selected file should collapse to its path: {:?}",
+                filters
+            );
+            assert!(
+                !filters.iter().any(|f| f.starts_with("full.test.ts::")),
+                "no per-test filters should remain for the fully-selected file: {:?}",
+                filters
+            );
+            assert!(
+                filters.contains(&part_ids[0].as_str()),
+                "partial selection keeps its node_id filter: {:?}",
+                filters
+            );
+        });
+    }
+
+    #[test]
+    fn cmd_run_args_keeps_partial_selection() {
+        with_cwd(|| {
+            use std::io::Write;
+            let mut f = std::fs::File::create("vitest.config.ts").unwrap();
+            writeln!(f, "export default {{}}").unwrap();
+            drop(f);
+
+            let mut f = std::fs::File::create("solo.test.ts").unwrap();
+            writeln!(
+                f,
+                "describe(\"s\", () => {{ it(\"a\", () => {{}}); it(\"b\", () => {{}}); }});"
+            )
+            .unwrap();
+            drop(f);
+
+            let discovered = super::cmd_discover(&serde_json::json!({}));
+            let ids: Vec<String> = discovered["result"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|t| t["file"].as_str() == Some("solo.test.ts"))
+                .filter_map(|t| t["node_id"].as_str().map(String::from))
+                .collect();
+            assert_eq!(
+                ids.len(),
+                2,
+                "solo.test.ts should discover 2 tests: {:?}",
+                ids
+            );
+
+            // Only one of the two tests selected — selection stays per-test.
+            let cmd = serde_json::json!({
+                "command": "run-args",
+                "params": {"selected": [ids[0]]}
+            });
+            let result = super::cmd_run_args(&cmd);
+            assert!(
+                result["ok"].as_bool().unwrap_or(false),
+                "should succeed: {:?}",
+                result
+            );
+            let args: Vec<String> = result["result"]["runner_args"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect();
+            let filters: Vec<&str> = args
+                .iter()
+                .skip(5)
+                .map(String::as_str)
+                .filter(|s| *s != "--")
+                .collect();
+            assert_eq!(
+                filters,
+                vec![ids[0].as_str()],
+                "partial selection must keep the exact per-test filter"
+            );
+        });
     }
 
     #[test]
