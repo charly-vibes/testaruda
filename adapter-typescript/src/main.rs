@@ -932,6 +932,11 @@ fn parse_junit_xml(content: &str) -> Vec<serde_json::Value> {
     while i < lines.len() {
         let line = lines[i];
         if let Some((name, file, time_secs)) = parse_junit_testcase(line) {
+            // tambor-uzp: vitest's junit reporter flattens describe chains
+            // with " > " in the name attribute while discovery ids join
+            // segments with "::" — re-encode so the ingest join matches
+            // the store item.
+            let name = name.replace(" > ", "::");
             let test_id = format!("{}::{}", file, name);
 
             // Collect content until </testcase> (may span multiple lines)
@@ -2050,6 +2055,40 @@ mod tests {
         assert!(
             !result["ok"].as_bool().unwrap_or(true),
             "should fail with empty run_output"
+        );
+    }
+
+    #[test]
+    fn ingest_junit_xml_describe_chain_maps_to_discovery_id() {
+        // tambor-uzp: discovery ids join describe chains with '::'
+        // (file::suite::test) but vitest's junit reporter flattens them
+        // with ' > ' in the name attribute. The ingest join must map
+        // ' > ' -> '::' so describe-nested tests match their store item.
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="tests/a.test.ts" file="tests/a.test.ts">
+    <testcase classname="tests/a.test.ts" name="outer > inner > does the thing" file="tests/a.test.ts" time="0.001">
+    </testcase>
+  </testsuite>
+</testsuites>"#;
+        let cmd = serde_json::json!({
+            "command": "ingest",
+            "params": {"run_output": xml}
+        });
+        let result = super::cmd_ingest(&cmd);
+        assert!(
+            result["ok"].as_bool().unwrap_or(false),
+            "should succeed: {:?}",
+            result
+        );
+
+        let results = &result["result"]["per_test_results"];
+        let arr = results.as_array().unwrap();
+        assert_eq!(arr.len(), 1, "should have 1 test result");
+        assert_eq!(
+            arr[0]["test_id"].as_str().unwrap(),
+            "tests/a.test.ts::outer::inner::does the thing",
+            "describe chain must be join-encoded as :: to match discovery ids"
         );
     }
 
