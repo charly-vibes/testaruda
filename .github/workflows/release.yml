@@ -178,7 +178,9 @@ jobs:
       # binary (exec loop); install it from THIS tag's own source so the
       # quality gate exercises the released toolset, matching ci.yml parity.
       - name: Install testaruda (this tag, DDL-85p recipe dependency)
-        run: cargo install --locked --path .
+        run: |
+          cargo install --locked --path .
+          pip install pytest==9.0.3  # python adapter of the DDL-85p test runner (cf. ddl PR #93)
 
       # Workspace quality gates on the exact commit being published —
       # build jobs compile but never test; a red tag commit must not ship
