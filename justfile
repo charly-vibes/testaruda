@@ -29,14 +29,13 @@ release: build-release
 test:
     #!/usr/bin/env bash
     set -uo pipefail
-    # Init gates on the STORE, not the dir: any command that merely opens
-    # the default store creates an empty .testaruda/ (Store::open is
-    # create_dir_all), and a dir-gate skipped init in CI while the schema
-    # never existed → exec died with "Store has not been initialized"
-    # (testaruda-3x56).
-    if [ ! -d .testaruda ] || [ ! -f .testaruda/store.db ]; then
-      testaruda init || { echo "❌ testaruda init failed" >&2; exit 1; }
-    fi
+    # Always init: Store::open creates the dir AND an empty store.db on any
+    # mere open (e.g. CI's ddl-status smoke step), so neither the dir nor
+    # the file's existence proves a schema — and a skipped init made exec
+    # die with "Store has not been initialized" (testaruda-3x56).
+    # initialize() is idempotent (CREATE IF NOT EXISTS, version-gated,
+    # preserves calibration data).
+    testaruda init || { echo "❌ testaruda init failed" >&2; exit 1; }
     code=0
     testaruda exec || code=$?
     case "$code" in
