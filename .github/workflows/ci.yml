@@ -53,6 +53,8 @@ jobs:
         # on PATH. Installs from this checkout so CI dogfoods the code
         # under test, not a stale release.
         run: cargo install --locked --path .
+      - name: Install pytest (python adapter's runner — same as release.yml)
+        run: pip install pytest==9.0.3
       - name: Install bd (beads, pinned §4)
         run: |
           tmp=$(mktemp -d)
