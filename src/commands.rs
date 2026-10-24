@@ -12,7 +12,7 @@ use miette::miette;
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 
-use testaruda::adapter::{spawn_adapter, AdapterRegistry, TestItem};
+use testaruda::adapter::{spawn_adapter, AdapterRegistry, TestItem, TestRunResult};
 use testaruda::agent::{ChangedUnit, PreEditOutput, SummaryStats};
 use testaruda::{
     component_key, ChangeSet, Engine, SelectedTest, Selection, SelectionContext, Store,
@@ -1368,6 +1368,10 @@ fn prune_selected_tests_without_files(
 /// How many stderr tail lines to print when a runner fails (testaruda-ylyl).
 const RUNNER_STDERR_TAIL_LINES: usize = 5;
 
+/// Cap on failing test names printed in the CI failure report
+/// (testaruda-xb8l); the total is said out loud above the list.
+const RUNNER_FAILING_TEST_LINES: usize = 10;
+
 /// Borrowed view for the CI test-running phase of `select`.
 struct CiRunCtx<'a> {
     store: &'a Store,
@@ -1533,10 +1537,25 @@ fn run_adapter_group(
         &combined,
     );
     eprintln!("  📥 CI: ingesting results...");
-    ingest_ci_results(&mut adapter, ctx.store, &run_output)?;
+    let failing = ingest_ci_results(&mut adapter, ctx.store, &run_output)?;
 
     if output.status.success() {
         return Ok(None);
+    }
+    // Name the failing tests from the ingested results (testaruda-xb8l):
+    // structured and runner-independent — vitest's failing-test summary
+    // lives on stdout, which the stderr tail below never shows.
+    if !failing.is_empty() {
+        eprintln!("  ❌  CI: {} failing test(s):", failing.len());
+        for name in failing.iter().take(RUNNER_FAILING_TEST_LINES) {
+            eprintln!("  ❌  CI:   {name}");
+        }
+        if failing.len() > RUNNER_FAILING_TEST_LINES {
+            eprintln!(
+                "  ❌  CI:   … and {} more",
+                failing.len() - RUNNER_FAILING_TEST_LINES
+            );
+        }
     }
     // Surface the tail of the runner's stderr so the failure is actionable
     // (testaruda-ylyl): "exit code 101" alone hid julia's
@@ -1561,6 +1580,25 @@ fn stderr_tail(stderr: &[u8], max_lines: usize) -> String {
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
     let start = lines.len().saturating_sub(max_lines);
     lines[start..].join("\n")
+}
+
+/// Names of the tests that did not pass in an ingested batch, for the CI
+/// failure report (testaruda-xb8l).
+///
+/// A failed runner's actionable summary must come from the ingested
+/// per-test results — structured, runner-independent — not from wherever
+/// the runner happens to print it: vitest writes its failing-test summary
+/// to STDOUT while the ylyl stderr tail only carried jsdom canvas noise,
+/// so a tambor CI run failed twice with zero failing test names in the
+/// log. failed/error count as failures; skipped is not a failure; the
+/// list is capped (the total is printed by the caller).
+fn failing_test_names(results: &[TestRunResult], max: usize) -> Vec<String> {
+    results
+        .iter()
+        .filter(|t| t.outcome == "failed" || t.outcome == "error")
+        .map(|t| t.test_id.clone())
+        .take(max)
+        .collect()
 }
 
 /// Combine a test runner's stdout/stderr into a single string for adapter ingest.
@@ -1614,7 +1652,8 @@ fn ingest_ci_results(
     adapter: &mut testaruda::adapter::AdapterIO,
     store: &Store,
     combined: &str,
-) -> miette::Result<()> {
+) -> miette::Result<Vec<String>> {
+    let mut failing = Vec::new();
     match adapter.ingest(combined) {
         Ok(ingest_result) => {
             // Store runtime edges
@@ -1663,12 +1702,13 @@ fn ingest_ci_results(
             } else {
                 eprintln!("  ✅ CI: ingested {} test results", store_tests.len());
             }
+            failing = failing_test_names(&ingest_result.per_test_results, usize::MAX);
         }
         Err(e) => {
             eprintln!("  ⚠️  CI: adapter ingest failed: {}", e);
         }
     }
-    Ok(())
+    Ok(failing)
 }
 
 /// Arguments for the `ingest` command.
@@ -2039,6 +2079,15 @@ mod tests {
     use super::*;
     use testaruda::adapter::TestItem;
 
+    fn tr(test_id: &str, outcome: &str) -> TestRunResult {
+        TestRunResult {
+            test_id: test_id.to_string(),
+            outcome: outcome.to_string(),
+            duration_ms: None,
+            error_text: None,
+        }
+    }
+
     /// A failed runner's stderr tail must surface its remediation lines
     /// (testaruda-ylyl): julia's
     ///
@@ -2075,6 +2124,43 @@ line two",
             5,
         );
         assert_eq!(tail, "line one\nline two");
+    }
+
+    /// A failed runner's report must NAME the tests that did not pass
+    /// (testaruda-xb8l): vitest writes its failing-test summary to STDOUT,
+    /// so the stderr tail (ylyl) carried only jsdom canvas noise while 725
+    /// results were ingested — the operator had no failing test name at
+    /// all. The names must come from the ingested per-test results
+    /// (structured, runner-independent), failed/error outcomes only —
+    /// skipped is not a failure — and the list is capped with the total
+    /// said out loud.
+    #[test]
+    fn failing_test_names_lists_failed_and_error_not_skipped() {
+        let results = vec![
+            tr("a::ok", "passed"),
+            tr("a::boom", "failed"),
+            tr("b::wobble", "error"),
+            tr("a::t status=todo", "skipped"),
+        ];
+        let names = failing_test_names(&results, 10);
+        assert_eq!(names, vec!["a::boom".to_string(), "b::wobble".to_string()]);
+    }
+
+    #[test]
+    fn failing_test_names_caps_and_reports_nothing_when_all_pass() {
+        let results: Vec<_> = (0..20)
+            .map(|i| {
+                tr(
+                    &format!("suite::t{i}"),
+                    if i < 15 { "failed" } else { "passed" },
+                )
+            })
+            .collect();
+        let names = failing_test_names(&results, 10);
+        assert_eq!(names.len(), 10, "capped at max");
+        assert_eq!(names[0], "suite::t0");
+        assert!(failing_test_names(&[tr("a::ok", "passed")], 10).is_empty());
+        assert!(failing_test_names(&[], 10).is_empty());
     }
 
     /// A runner whose results land in a file (vitest --outputFile, pytest
