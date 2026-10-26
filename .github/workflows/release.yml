@@ -88,7 +88,7 @@ jobs:
           done
           echo "smoke OK: linux_amd64"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: bins-linux
           path: bins/
@@ -132,7 +132,7 @@ jobs:
           done
           echo "smoke OK: darwin_amd64"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: bins-darwin
           path: bins/
@@ -174,7 +174,7 @@ jobs:
           done
           echo "smoke OK: windows_amd64"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: bins-windows
           path: bins/
