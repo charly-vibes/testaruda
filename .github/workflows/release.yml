@@ -23,8 +23,29 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Fail fast (seconds) when a tag is cut without bumping Cargo.toml —
+  # the v0.5.8 ride built all platforms, created the GH release, then
+  # died at `cargo publish` with 'crate version already exists' because
+  # the tag's Cargo.toml still said 0.5.7 (crates.io is immutable, so
+  # 0.5.8 was burned: GH release exists, crates.io/taps never got it).
+  check-tag:
+    name: Tag version matches Cargo.toml
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tag version == package version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          CARGO_VERSION="$(cargo read-manifest --manifest-path Cargo.toml | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')"
+          if [ "${TAG_VERSION}" != "${CARGO_VERSION}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} but Cargo.toml says ${CARGO_VERSION} — bump the version before tagging (v0.5.8 precedent: crates.io publish fails, 0.5.8 was burned)"
+            exit 1
+          fi
+          echo "tag ${GITHUB_REF_NAME} matches Cargo.toml ${CARGO_VERSION}"
+
   build-linux:
     name: Build Linux
+    needs: check-tag
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -75,6 +96,7 @@ jobs:
 
   build-darwin:
     name: Build macOS
+    needs: check-tag
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -118,6 +140,7 @@ jobs:
 
   build-windows:
     name: Build Windows
+    needs: check-tag
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -159,6 +182,7 @@ jobs:
 
   quality:
     name: Quality gate (workspace, tag commit)
+    needs: check-tag
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -194,7 +218,7 @@ jobs:
 
   publish:
     name: Publish Release
-    needs: [build-linux, build-darwin, build-windows, quality]
+    needs: [check-tag, build-linux, build-darwin, build-windows, quality]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
