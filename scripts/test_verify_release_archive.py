@@ -48,7 +48,9 @@ def sha256_of(path):
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
-    return h.hexdigest()
+    digest = h.hexdigest()
+    assert len(digest) == 64, "sha256 hex digest must be 64 chars"
+    return digest
 
 
 def run_verifier(archive, checksums, platform):
@@ -64,6 +66,7 @@ def run_verifier(archive, checksums, platform):
         text=True,
         cwd=str(REPO),
     )
+    assert archive.exists(), "archive under test must exist before verification"
     return proc.returncode, proc.stderr + proc.stdout
 
 
@@ -78,9 +81,10 @@ class ArchiveFixture:
         if sha is None:
             sha = sha256_of(self.tmp / basename)
         path.write_text(f"{sha}  {basename}\n")
+        assert f"{sha}  {basename}" in path.read_text(), "manifest entry written"
         return path
 
-    def tar_gz(self, basename, members, exec_bits=True, sha=None):
+    def tar_gz(self, basename, members, exec_bits=True):
         """Create a tar.gz whose members have full exec bits by default."""
         path = self.tmp / basename
         with tarfile.open(path, "w:gz") as tar:
@@ -90,9 +94,12 @@ class ArchiveFixture:
                 info.size = 4
                 info.mode = mode
                 tar.addfile(info, io.BytesIO(b"ELF\x00"))
-        return path, self.checksums(basename, sha)
+        assert path.exists(), "archive file must exist after building"
+        with tarfile.open(path, "r:gz") as tar:
+            assert tar.getnames() == list(members), "archive members written verbatim"
+        return path, self.checksums(basename)
 
-    def zip_exe(self, basename, members, exec_bits=True, sha=None):
+    def zip_exe(self, basename, members, exec_bits=True):
         """Create a zip of Windows binaries; external_attr pins exec-ish DOS attr."""
         path = self.tmp / basename
         with zipfile.ZipFile(path, "w") as z:
@@ -101,77 +108,104 @@ class ArchiveFixture:
                 # Windows archives store no POSIX mode; keep a plain entry.
                 zi.external_attr = (stat.S_IXUSR << 16) if exec_bits else 0
                 z.writestr(zi, b"MZ\x00\x00")
-        return path, self.checksums(basename, sha)
+        assert path.exists(), "archive file must exist after building"
+        with zipfile.ZipFile(path) as z:
+            assert z.namelist() == list(members), "archive members written verbatim"
+        return path, self.checksums(basename)
 
 
-class TestCompleteArchivesAccepted(unittest.TestCase):
-    """GREEN cases: complete, correct archives pass on every platform shape."""
+class TestArchiveVerifierContract(unittest.TestCase):
+    """Fixture construction is inlined (no setUp): each subTest builds a
+    synthetic archive and pins the verifier's accept/reject decision."""
 
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.fx = ArchiveFixture(self._tmp.name)
+    def test_complete_archives_accepted(self):
+        """GREEN cases: complete, correct archives pass on every platform."""
+        cases = [
+            (
+                "unix tar.gz with all members, exec bits",
+                lambda fx: fx.tar_gz(ARCHIVE_BASENAME, UNIX_MEMBERS),
+                UNIX_PLATFORM,
+            ),
+            (
+                "windows zip with all .exe members",
+                lambda fx: fx.zip_exe(
+                    f"testaruda_9.9.9_{WINDOWS_PLATFORM}.zip", WINDOWS_MEMBERS
+                ),
+                WINDOWS_PLATFORM,
+            ),
+        ]
+        self.assertEqual(len(cases), 2, "both platform shapes must be covered")
+        for desc, build, platform in cases:
+            with self.subTest(desc):
+                with tempfile.TemporaryDirectory() as tmp:
+                    path, sums = build(ArchiveFixture(tmp))
+                    code, out = run_verifier(path, sums, platform)
+                    self.assertEqual(code, 0, out)
 
-    def tearDown(self):
-        self._tmp.cleanup()
-
-    def test_complete_unix_archive_accepted(self):
-        path, sums = self.fx.tar_gz(ARCHIVE_BASENAME, UNIX_MEMBERS)
-        code, out = run_verifier(path, sums, UNIX_PLATFORM)
-        self.assertEqual(code, 0, out)
-
-    def test_complete_windows_archive_accepted(self):
-        basename = f"testaruda_9.9.9_{WINDOWS_PLATFORM}.zip"
-        path, sums = self.fx.zip_exe(basename, WINDOWS_MEMBERS)
-        code, out = run_verifier(path, sums, WINDOWS_PLATFORM)
-        self.assertEqual(code, 0, out)
-
-
-class TestIncompleteArchivesRejected(unittest.TestCase):
-    """RED cases: every completeness dimension must be enforced."""
-
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.fx = ArchiveFixture(self._tmp.name)
-
-    def tearDown(self):
-        self._tmp.cleanup()
-
-    def test_missing_binary_rejected(self):
-        short = UNIX_MEMBERS[:-1]
-        path, sums = self.fx.tar_gz(ARCHIVE_BASENAME, short)
-        code, out = run_verifier(path, sums, UNIX_PLATFORM)
-        self.assertNotEqual(code, 0, "archive missing a binary must be rejected")
-        self.assertIn("testaruda-adapter-clojure", out)
-
-    def test_engine_only_staging_rejected(self):
-        """Root-only staging (pre-#68 shape) must fail completeness."""
-        path, sums = self.fx.tar_gz(ARCHIVE_BASENAME, ["testaruda"])
-        code, out = run_verifier(path, sums, UNIX_PLATFORM)
-        self.assertNotEqual(code, 0, out)
-
-    def test_non_executable_unix_member_rejected(self):
-        path, sums = self.fx.tar_gz(
-            ARCHIVE_BASENAME, UNIX_MEMBERS, exec_bits=False)
-        code, out = run_verifier(path, sums, UNIX_PLATFORM)
-        self.assertNotEqual(code, 0, "644-mode members must be rejected")
-        self.assertIn("exec", out.lower())
-
-    def test_checksum_mismatch_rejected(self):
-        path, sums = self.fx.tar_gz(ARCHIVE_BASENAME, UNIX_MEMBERS, sha=FAKE_SHA)
-        code, out = run_verifier(path, sums, UNIX_PLATFORM)
-        self.assertNotEqual(code, 0, out)
-
-    def test_checksums_entry_missing_rejected(self):
-        path, sums = self.fx.tar_gz(ARCHIVE_BASENAME, UNIX_MEMBERS)
-        sums.write_text("")  # verifier's own archive absent from the manifest
-        code, out = run_verifier(path, sums, UNIX_PLATFORM)
-        self.assertNotEqual(code, 0, out)
-
-    def test_unknown_platform_rejected(self):
-        path, sums = self.fx.tar_gz(ARCHIVE_BASENAME, UNIX_MEMBERS)
-        code, out = run_verifier(path, sums, "amiga_500")
-        self.assertNotEqual(code, 0, out)
+    def test_incomplete_archives_rejected(self):
+        """RED cases: every completeness dimension must be enforced."""
+        short = [name for name in UNIX_MEMBERS if "adapter" not in name]
+        cases = [
+            (
+                "archive missing a binary",
+                lambda fx: fx.tar_gz(ARCHIVE_BASENAME, short),
+                UNIX_PLATFORM,
+                "testaruda-adapter-clojure",
+            ),
+            (
+                "root-only staging (pre-#68 shape) fails completeness",
+                lambda fx: fx.tar_gz(ARCHIVE_BASENAME, ["testaruda"]),
+                UNIX_PLATFORM,
+                "",
+            ),
+            (
+                "644-mode members rejected",
+                lambda fx: fx.tar_gz(ARCHIVE_BASENAME, UNIX_MEMBERS, exec_bits=False),
+                UNIX_PLATFORM,
+                "exec",
+            ),
+            (
+                "checksum mismatch rejected",
+                lambda fx: _with_fake_sha(fx.tar_gz(ARCHIVE_BASENAME, UNIX_MEMBERS), FAKE_SHA),
+                UNIX_PLATFORM,
+                "",
+            ),
+            (
+                "checksums entry missing rejected",
+                lambda fx: _with_empty_manifest(fx.tar_gz(ARCHIVE_BASENAME, UNIX_MEMBERS)),
+                UNIX_PLATFORM,
+                "",
+            ),
+            (
+                "unknown platform rejected",
+                lambda fx: fx.tar_gz(ARCHIVE_BASENAME, UNIX_MEMBERS),
+                "amiga_500",
+                "",
+            ),
+        ]
+        self.assertEqual(len(cases), 6, "all rejection dimensions must be covered")
+        for desc, build, platform, expected in cases:
+            with self.subTest(desc):
+                with tempfile.TemporaryDirectory() as tmp:
+                    path, sums = build(ArchiveFixture(tmp))
+                    code, out = run_verifier(path, sums, platform)
+                    self.assertNotEqual(code, 0, out)
+                    if expected == "exec":
+                        self.assertIn("exec", out.lower())
+                    elif expected:
+                        self.assertIn(expected, out)
 
 
-if __name__ == "__main__":
-    unittest.main()
+def _with_fake_sha(built, sha):
+    """Overwrite the manifest with a wrong digest for the archive."""
+    path, sums = built
+    basename = path.name
+    sums.write_text(f"{sha}  {basename}\n")
+    return path, sums
+
+
+def _with_empty_manifest(built):
+    """Empty the checksums manifest — verifier's own archive absent."""
+    path, sums = built
+    sums.write_text("")
+    return path, sums

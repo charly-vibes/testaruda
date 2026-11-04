@@ -24,6 +24,10 @@ fn adapter_available() -> bool {
 }
 
 /// Check if Julia itself is available.
+fn julia_toolchain_available() -> bool {
+    julia_available() && adapter_available()
+}
+
 fn julia_available() -> bool {
     Command::new("julia")
         .arg("--version")
@@ -987,15 +991,11 @@ fn julia_adapter_ingest_without_duration() {
 
 #[test]
 fn julia_adapter_error_and_edge_contract() {
-    if !julia_available() || !adapter_available() {
+    if !julia_toolchain_available() {
         return;
     }
     // Scenario 1: malformed JSON must fail with a parse error.
     {
-        if !julia_available() || !adapter_available() {
-            return;
-        }
-
         let mut child = spawn_adapter();
         let resp = send_command(&mut child, "not valid json at all");
         let parsed: serde_json::Value =
@@ -1019,10 +1019,6 @@ fn julia_adapter_error_and_edge_contract() {
 
     // Scenario 2: static-deps without changed_files must fail.
     {
-        if !julia_available() || !adapter_available() {
-            return;
-        }
-
         let mut child = spawn_adapter();
         let resp = send_command(&mut child, r#"{"command":"static-deps","params":{}}"#);
         let parsed: serde_json::Value =
@@ -1048,10 +1044,6 @@ fn julia_adapter_error_and_edge_contract() {
 
     // Scenario 3: run-args with empty selected set.
     {
-        if !julia_available() || !adapter_available() {
-            return;
-        }
-
         let mut child = spawn_adapter();
         let resp = send_command(
             &mut child,
@@ -1080,10 +1072,6 @@ fn julia_adapter_error_and_edge_contract() {
 
     // Scenario 4: missing params must produce a structured error.
     {
-        if !julia_available() || !adapter_available() {
-            return;
-        }
-
         let mut child = spawn_adapter();
         let resp = send_command(&mut child, r#"{"command":"fingerprint","params":{}}"#);
         let parsed: serde_json::Value =

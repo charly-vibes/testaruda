@@ -121,7 +121,7 @@ fn setup_graph(store: &Store, root: &Path) -> [u32; 4] {
     tids
 }
 
-fn run_test<F>(f: F) -> std::path::PathBuf
+fn run_test<F>(f: F) -> (std::path::PathBuf, genesis::fixture::Fixture)
 where
     F: FnOnce(&Store, &Path, &[u32; 4]),
 {
@@ -143,7 +143,7 @@ where
         "fixture graph must register the 4 test items"
     );
     f(&store, root, &tids);
-    root.to_path_buf()
+    (root.to_path_buf(), fixture)
 }
 
 /// Panic-with-context helpers for test code. The file-level debt checks
@@ -438,7 +438,7 @@ fn ordering_scenario_6(store: &Store, root: &Path, tids: &[u32; 4]) {
 
 #[test]
 fn test_ordering_scenarios() {
-    let root = run_test(|store, root, tids| {
+    let (root, _fixture) = run_test(|store, root, tids| {
         ordering_scenario_1(store, root, tids);
         ordering_scenario_2(store, root, tids);
         ordering_scenario_3(store, root, tids);

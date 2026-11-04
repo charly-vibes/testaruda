@@ -754,59 +754,73 @@ enum Runner {
 
 /// Detect the test runner by probing for configuration files.
 fn detect_runner() -> Runner {
-    // Check for vitest config files (preferred)
-    let vitest_configs = ["vitest.config.ts", "vitest.config.js", "vitest.config.mjs"];
-    for config in &vitest_configs {
-        if std::path::Path::new(config).exists() {
-            return Runner::Vitest;
-        }
-    }
-
-    // Check for jest config files
-    let jest_configs = ["jest.config.ts", "jest.config.js", "jest.config.mjs"];
-    for config in &jest_configs {
-        if std::path::Path::new(config).exists() {
-            return Runner::Jest;
-        }
-    }
-
-    // Check for mocha config files
-    let mocha_configs = [
-        ".mocharc.yml",
-        ".mocharc.json",
-        ".mocharc.js",
-        ".mocharc.yaml",
+    // Config files win (vitest preferred over jest over mocha)
+    let config_candidates: [(&[&str], Runner); 3] = [
+        (
+            &["vitest.config.ts", "vitest.config.js", "vitest.config.mjs"],
+            Runner::Vitest,
+        ),
+        (
+            &["jest.config.ts", "jest.config.js", "jest.config.mjs"],
+            Runner::Jest,
+        ),
+        (
+            &[
+                ".mocharc.yml",
+                ".mocharc.json",
+                ".mocharc.js",
+                ".mocharc.yaml",
+            ],
+            Runner::Mocha,
+        ),
     ];
-    for config in &mocha_configs {
-        if std::path::Path::new(config).exists() {
-            return Runner::Mocha;
+    for (configs, runner) in &config_candidates {
+        if configs.iter().any(|c| std::path::Path::new(c).exists()) {
+            return *runner;
         }
     }
 
-    // Check package.json for vitest or jest in devDependencies
-    if let Ok(content) = std::fs::read_to_string("package.json") {
-        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
-            if let Some(deps) = parsed["devDependencies"].as_object() {
-                if deps.contains_key("vitest") {
-                    return Runner::Vitest;
-                }
-                if deps.contains_key("jest") {
-                    return Runner::Jest;
-                }
-                if deps.contains_key("mocha") {
-                    return Runner::Mocha;
-                }
-                if deps.contains_key("ava") {
-                    return Runner::Ava;
-                }
-                if deps.contains_key("tape") {
-                    return Runner::Tape;
+    // Fall back to devDependencies declared in package.json
+    detect_runner_from_dev_dependencies().unwrap_or(Runner::Unknown)
+}
+
+/// Map the project's devDependencies to a test runner, if any.
+fn detect_runner_from_dev_dependencies() -> Option<Runner> {
+    let content = std::fs::read_to_string("package.json").ok()?;
+    let parsed = serde_json::from_str::<serde_json::Value>(&content).ok()?;
+    let deps = parsed["devDependencies"].as_object()?;
+    for (key, runner) in [
+        ("vitest", Runner::Vitest),
+        ("jest", Runner::Jest),
+        ("mocha", Runner::Mocha),
+        ("ava", Runner::Ava),
+        ("tape", Runner::Tape),
+    ] {
+        if deps.contains_key(key) {
+            return Some(runner);
+        }
+    }
+    None
+}
+
+/// Parse non-XML verbose output: lines ending in " PASSED"/" FAILED"
+/// become per-test results with the matching outcome.
+fn parse_verbose_test_lines(run_output: &str) -> Vec<serde_json::Value> {
+    let mut per_test_results = Vec::new();
+    for line in run_output.lines() {
+        let trimmed = line.trim();
+        for (suffix, outcome) in [(" PASSED", "passed"), (" FAILED", "failed")] {
+            if let Some(test_id) = trimmed.strip_suffix(suffix).map(str::trim) {
+                if !test_id.is_empty() {
+                    per_test_results.push(serde_json::json!({
+                        "test_id": test_id,
+                        "outcome": outcome,
+                    }));
                 }
             }
         }
     }
-
-    Runner::Unknown
+    per_test_results
 }
 
 /// Ingest: parse test runner output (JUnit XML) into runtime edges.
@@ -834,32 +848,7 @@ fn cmd_ingest(cmd: &serde_json::Value) -> serde_json::Value {
 
     // If no JUnit results, try parsing as verbose output
     if per_test_results.is_empty() {
-        for line in run_output.lines() {
-            let trimmed = line.trim();
-            if trimmed.ends_with(" PASSED") {
-                let test_id = trimmed
-                    .strip_suffix(" PASSED")
-                    .map(|s| s.trim().to_string())
-                    .unwrap_or_default();
-                if !test_id.is_empty() {
-                    per_test_results.push(serde_json::json!({
-                        "test_id": test_id,
-                        "outcome": "passed",
-                    }));
-                }
-            } else if trimmed.ends_with(" FAILED") {
-                let test_id = trimmed
-                    .strip_suffix(" FAILED")
-                    .map(|s| s.trim().to_string())
-                    .unwrap_or_default();
-                if !test_id.is_empty() {
-                    per_test_results.push(serde_json::json!({
-                        "test_id": test_id,
-                        "outcome": "failed",
-                    }));
-                }
-            }
-        }
+        per_test_results = parse_verbose_test_lines(run_output);
     }
 
     // Build runtime edges: from test_id to its file path

@@ -28,192 +28,211 @@ fn captures(query: &tree_sitter::Query, tree: &tree_sitter::Tree, src: &[u8]) ->
     }
     names
 }
-
 // ── discover.scm ────────────────────────────────────────────────────────────
 
+/// (description, source, required captures, forbidden captures)
 #[test]
-fn discover_compiles() {
-    let _q = make_query(include_str!("../queries/discover.scm"));
-}
-
-#[test]
-fn discover_finds_simple_deftest() {
-    let src = "(deftest my-test (is (= 1 1)))";
+fn discover_query_contract() {
     let q = make_query(include_str!("../queries/discover.scm"));
-    let tree = parse(src);
-    let caps = captures(&q, &tree, src.as_bytes());
-    assert!(
-        caps.contains(&"test_item".into()),
-        "expected test_item capture, got: {caps:?}"
-    );
-    assert!(
-        caps.contains(&"test_name".into()),
-        "expected test_name capture, got: {caps:?}"
-    );
-}
-
-#[test]
-fn discover_finds_deftest_dash() {
-    let src = "(deftest- private-test (is (= 1 1)))";
-    let q = make_query(include_str!("../queries/discover.scm"));
-    let tree = parse(src);
-    let caps = captures(&q, &tree, src.as_bytes());
-    assert!(caps.contains(&"test_item".into()), "got: {caps:?}");
-    assert!(caps.contains(&"test_name".into()), "got: {caps:?}");
-}
-
-#[test]
-fn discover_ignores_defn() {
-    let src = "(defn my-fn [x] (inc x))";
-    let q = make_query(include_str!("../queries/discover.scm"));
-    let tree = parse(src);
-    let caps = captures(&q, &tree, src.as_bytes());
-    assert!(!caps.contains(&"test_item".into()), "got: {caps:?}");
-}
-
-#[test]
-fn discover_ignores_comment_block() {
-    let q = make_query(include_str!("../queries/discover.scm"));
-    let src = "(comment (deftest should-be-ignored (is (= 1 1))))";
-    let tree = parse(src);
-    let caps = captures(&q, &tree, src.as_bytes());
-    // tree-sitter-clojure does NOT have a special comment node type;
-    // the (comment ...) form is parsed as a regular list. The inner
-    // (deftest ...) IS matched syntactically; filtering by test-path
-    // happens at the adapter level, not in the query.
-    // This test documents that behavior — the test WILL match.
-    assert!(caps.contains(&"test_item".into()), "got: {caps:?}");
-}
-
-#[test]
-fn discover_ignores_deftest_in_string() {
-    let q = make_query(include_str!("../queries/discover.scm"));
-    let src = "(def s \"(deftest fake-test)\")";
-    let tree = parse(src);
-    let caps = captures(&q, &tree, src.as_bytes());
-    assert!(!caps.contains(&"test_item".into()), "got: {caps:?}");
-}
-
-#[test]
-fn discover_ignores_read_cond_discard() {
-    let q = make_query(include_str!("../queries/discover.scm"));
-    let src = "(#_(deftest discarded-test (is (= 1 1))) (deftest kept-test (is (= 2 2))))";
-    let tree = parse(src);
-    let caps = captures(&q, &tree, src.as_bytes());
-    // #_ discards syntactically, but tree-sitter parses the inner form as a child
-    // of the anon_comment/disp_discard node. The (deftest ...) inside may or may not
-    // match depending on the grammar's treatment of #_.
-    // At minimum, kept-test should always be found.
-    assert!(
-        caps.contains(&"test_name".into()),
-        "expected kept-test to be found, got: {caps:?}"
-    );
+    let cases: [(&str, &str, &[&str], &[&str]); 6] = [
+        (
+            "simple deftest yields item and name",
+            "(deftest my-test (is (= 1 1)))",
+            &["test_item", "test_name"],
+            &[],
+        ),
+        (
+            "deftest- private yields item and name",
+            "(deftest- private-test (is (= 1 1)))",
+            &["test_item", "test_name"],
+            &[],
+        ),
+        (
+            "defn is not a test",
+            "(defn my-fn [x] (inc x))",
+            &[],
+            &["test_item"],
+        ),
+        (
+            "comment block still matches — tree-sitter-clojure has no comment node; (comment ...) is a regular list, so the inner deftest matches syntactically. Filtering by test-path happens at the adapter level, not in the query. This row documents that behavior.",
+            "(comment (deftest should-be-ignored (is (= 1 1))))",
+            &["test_item"],
+            &[],
+        ),
+        (
+            "deftest inside a string must not match",
+            "(def s \"(deftest fake-test)\")",
+            &[],
+            &["test_item"],
+        ),
+        (
+            "read-cond discard: at minimum kept-test must be found (#_ discards syntactically; the inner form may still match depending on grammar treatment of #_)",
+            "(#_(deftest discarded-test (is (= 1 1))) (deftest kept-test (is (= 2 2))))",
+            &["test_name"],
+            &[],
+        ),
+    ];
+    for (desc, src, required, forbidden) in cases {
+        let tree = parse(src);
+        let caps = captures(&q, &tree, src.as_bytes());
+        for r in required {
+            assert!(
+                caps.contains(&r.to_string()),
+                "{desc}: expected {r:?}, got: {caps:?}"
+            );
+        }
+        for f in forbidden {
+            assert!(
+                !caps.contains(&f.to_string()),
+                "{desc}: {f:?} must not fire, got: {caps:?}"
+            );
+        }
+    }
 }
 
 // ── ns.scm ──────────────────────────────────────────────────────────────────
 
 #[test]
-fn ns_compiles() {
-    let _q = make_query(include_str!("../queries/ns.scm"));
-}
-
-#[test]
-fn ns_finds_namespace_name() {
+fn ns_query_contract() {
     let q = make_query(include_str!("../queries/ns.scm"));
-    let src = "(ns my-project.core)";
-    let tree = parse(src);
-    let caps = captures(&q, &tree, src.as_bytes());
-    assert!(caps.contains(&"namespace_name".into()), "got: {caps:?}");
-}
-
-#[test]
-fn ns_finds_complex_ns_with_metadata() {
-    let q = make_query(include_str!("../queries/ns.scm"));
-    let src = "(ns ^{:doc \"A docstring\"} my-project.core\n  (:require [clojure.string :as str]))";
-    let tree = parse(src);
-    let caps = captures(&q, &tree, src.as_bytes());
-    assert!(caps.contains(&"namespace_name".into()), "got: {caps:?}");
-}
-
-#[test]
-fn ns_ignores_nested_ns() {
-    let q = make_query(include_str!("../queries/ns.scm"));
-    // ns symbol inside a string should not match
-    let src = "(def some-ns \"(ns fake.ns)\")";
-    let tree = parse(src);
-    let caps = captures(&q, &tree, src.as_bytes());
-    assert!(caps.is_empty(), "got: {caps:?}");
+    let cases: [(&str, &str, &[&str], &[&str]); 3] = [
+        (
+            "simple ns yields namespace_name",
+            "(ns my-project.core)",
+            &["namespace_name"],
+            &[],
+        ),
+        (
+            "ns with docstring metadata and requires yields namespace_name",
+            "(ns ^{:doc \"A docstring\"} my-project.core\n  (:require [clojure.string :as str]))",
+            &["namespace_name"],
+            &[],
+        ),
+        (
+            "ns symbol inside a string must not match",
+            "(def some-ns \"(ns fake.ns)\")",
+            &[],
+            &["namespace_name"],
+        ),
+    ];
+    for (desc, src, required, forbidden) in cases {
+        let tree = parse(src);
+        let caps = captures(&q, &tree, src.as_bytes());
+        for r in required {
+            assert!(
+                caps.contains(&r.to_string()),
+                "{desc}: expected {r:?}, got: {caps:?}"
+            );
+        }
+        for f in forbidden {
+            assert!(
+                !caps.contains(&f.to_string()),
+                "{desc}: {f:?} must not fire, got: {caps:?}"
+            );
+        }
+    }
+    // the in-string case must yield NO captures at all
+    let tree = parse("(def some-ns \"(ns fake.ns)\")");
+    let caps = captures(&q, &tree, "(def some-ns \"(ns fake.ns)\")".as_bytes());
+    assert!(caps.is_empty(), "in-string ns must produce no captures: {caps:?}");
 }
 
 // ── deps.scm ────────────────────────────────────────────────────────────────
 
 #[test]
-fn deps_compiles() {
-    let _q = make_query(include_str!("../queries/deps.scm"));
+fn deps_query_contract() {
+    let q = make_query(include_str!("../queries/deps.scm"));
+    let cases: [(&str, &str, &[&str], &[&str]); 10] = [
+        (
+            "require with vector yields form and entry",
+            "(ns my-project.core\n  (:require [clojure.string :as str]))",
+            &["dep_form", "dep_entry"],
+            &[],
+        ),
+        (
+            "bare-symbol require yields entry",
+            "(ns my-project.core\n  (:require clojure.string))",
+            &["dep_entry"],
+            &[],
+        ),
+        (
+            ":use yields entry",
+            "(ns my-project.core\n  (:use clojure.test))",
+            &["dep_entry"],
+            &[],
+        ),
+        (
+            ":import yields entry",
+            "(ns my-project.core\n  (:import java.util.Date))",
+            &["dep_entry"],
+            &[],
+        ),
+        (
+            "multiple requires each yield an entry",
+            "(ns my-project.core\n  (:require [clojure.string :as str]\n             [clojure.java.io :as io]))",
+            &["dep_entry"],
+            &[],
+        ),
+        (
+            ":refer require yields entry",
+            "(ns my-project.test\n  (:require [clojure.test :refer [deftest is]]))",
+            &["dep_entry"],
+            &[],
+        ),
+        (
+            ":refer :all require yields entry",
+            "(ns my-project.test\n  (:require [clojure.test :refer :all]))",
+            &["dep_entry"],
+            &[],
+        ),
+        (
+            "line comments are tokens, not CST nodes — nothing matches",
+            ";; (:require [some.lib])\n(ns my-project.core)",
+            &[],
+            &["dep_entry"],
+        ),
+        (
+            "read-cond discard: #_ is dis_expr — the wrapped form IS still parsed as a child and WILL match; test-path filtering at the adapter level handles real filtering. This row documents the syntactic behavior.",
+            "(#_(:require [discarded.lib]))",
+            &["dep_entry"],
+            &[],
+        ),
+        (
+            "require mention inside a string must not match",
+            "(ns my-project.core\n  (str \":require [some.lib]\"))",
+            &[],
+            &["dep_entry"],
+        ),
+    ];
+    for (desc, src, required, forbidden) in cases {
+        let tree = parse(src);
+        let caps = captures(&q, &tree, src.as_bytes());
+        for r in required {
+            assert!(
+                caps.contains(&r.to_string()),
+                "{desc}: expected {r:?}, got: {caps:?}"
+            );
+        }
+        for f in forbidden {
+            assert!(
+                !caps.contains(&f.to_string()),
+                "{desc}: {f:?} must not fire, got: {caps:?}"
+            );
+        }
+    }
 }
 
 #[test]
-fn deps_finds_require_vec() {
-    let q = make_query(include_str!("../queries/deps.scm"));
-    let src = "(ns my-project.core\n  (:require [clojure.string :as str]))";
-    let tree = parse(src);
-    let caps = captures(&q, &tree, src.as_bytes());
-    assert!(caps.contains(&"dep_form".into()), "got: {caps:?}");
-    assert!(caps.contains(&"dep_entry".into()), "got: {caps:?}");
-}
-
-#[test]
-fn deps_finds_require_bare_symbol() {
-    let q = make_query(include_str!("../queries/deps.scm"));
-    let src = "(ns my-project.core\n  (:require clojure.string))";
-    let tree = parse(src);
-    let caps = captures(&q, &tree, src.as_bytes());
-    assert!(caps.contains(&"dep_entry".into()), "got: {caps:?}");
-}
-
-#[test]
-fn deps_finds_use() {
-    let q = make_query(include_str!("../queries/deps.scm"));
-    let src = "(ns my-project.core\n  (:use clojure.test))";
-    let tree = parse(src);
-    let caps = captures(&q, &tree, src.as_bytes());
-    assert!(caps.contains(&"dep_entry".into()), "got: {caps:?}");
-}
-
-#[test]
-fn deps_finds_import() {
-    let q = make_query(include_str!("../queries/deps.scm"));
-    let src = "(ns my-project.core\n  (:import java.util.Date))";
-    let tree = parse(src);
-    let caps = captures(&q, &tree, src.as_bytes());
-    assert!(caps.contains(&"dep_entry".into()), "got: {caps:?}");
-}
-
-#[test]
-fn deps_finds_multiple_requires() {
-    let q = make_query(include_str!("../queries/deps.scm"));
-    let src = "(ns my-project.core\n  (:require [clojure.string :as str]\n             [clojure.java.io :as io]))";
-    let tree = parse(src);
-    let caps = captures(&q, &tree, src.as_bytes());
-    assert!(caps.contains(&"dep_entry".into()), "got: {caps:?}");
-}
-
-#[test]
-fn deps_finds_require_with_refer() {
-    let q = make_query(include_str!("../queries/deps.scm"));
-    let src = "(ns my-project.test\n  (:require [clojure.test :refer [deftest is]]))";
-    let tree = parse(src);
-    let caps = captures(&q, &tree, src.as_bytes());
-    assert!(caps.contains(&"dep_entry".into()), "got: {caps:?}");
-}
-
-#[test]
-fn deps_finds_require_with_refer_all() {
-    let q = make_query(include_str!("../queries/deps.scm"));
-    let src = "(ns my-project.test\n  (:require [clojure.test :refer :all]))";
-    let tree = parse(src);
-    let caps = captures(&q, &tree, src.as_bytes());
-    assert!(caps.contains(&"dep_entry".into()), "got: {caps:?}");
+fn queries_compile() {
+    // All three .scm queries must compile against the bundled grammar.
+    for (name, scm) in [
+        ("deps", include_str!("../queries/deps.scm")),
+        ("ns", include_str!("../queries/ns.scm")),
+        ("discover", include_str!("../queries/discover.scm")),
+    ] {
+        let q = make_query(scm);
+        assert!(!q.capture_names().is_empty(), "{name}: query has no captures");
+    }
 }
 
 #[test]
@@ -230,39 +249,4 @@ fn deps_finds_toplevel_require() {
         entry_count, 3,
         "expected 3 dep_entry captures from top-level require, got: {caps:?}"
     );
-}
-
-#[test]
-fn deps_ignores_comment() {
-    let q = make_query(include_str!("../queries/deps.scm"));
-    let src = ";; (:require [some.lib])\n(ns my-project.core)";
-    let tree = parse(src);
-    let caps = captures(&q, &tree, src.as_bytes());
-    // line comments are tokens, not CST nodes, so nothing matches
-    assert!(!caps.contains(&"dep_entry".into()), "got: {caps:?}");
-}
-
-#[test]
-fn deps_ignores_read_cond_discard() {
-    let q = make_query(include_str!("../queries/deps.scm"));
-    let src = "(#_(:require [discarded.lib]))";
-    let tree = parse(src);
-    let caps = captures(&q, &tree, src.as_bytes());
-    // #_ is `dis_expr` in tree-sitter-clojure — the wrapped form IS
-    // still parsed as a child of that node and WILL match. Test-path
-    // filtering at the adapter level (not the query) handles this.
-    // This test documents the syntactic behavior.
-    assert!(
-        caps.contains(&"dep_entry".into()),
-        "the child of #_ IS still parsed by tree-sitter; got: {caps:?}"
-    );
-}
-
-#[test]
-fn deps_ignores_dep_in_string() {
-    let q = make_query(include_str!("../queries/deps.scm"));
-    let src = "(ns my-project.core\n  (str \":require [some.lib]\"))";
-    let tree = parse(src);
-    let caps = captures(&q, &tree, src.as_bytes());
-    assert!(!caps.contains(&"dep_entry".into()), "got: {caps:?}");
 }

@@ -95,18 +95,22 @@ def _yaml_step_blocks(job_block: str) -> list[str]:
     return chunks
 
 
+def _step_label(chunk: str) -> str | None:
+    """Step name if present, else the action of a uses-only step."""
+    m = re.search(r"- name:\s*(.+)", chunk)
+    if m:
+        return m.group(1).strip()
+    m = re.search(r"- uses:\s*(\S+)", chunk)
+    return m.group(1) if m else None
+
+
 def _yaml_step_names(job_block: str) -> list[str]:
     """Ordered step names of a job block (uses-only steps get their action)."""
-    names = []
-    for chunk in _yaml_step_blocks(job_block):
-        m = re.search(r"- name:\s*(.+)", chunk)
-        if m:
-            names.append(m.group(1).strip())
-        else:
-            m = re.search(r"- uses:\s*(\S+)", chunk)
-            if m:
-                names.append(m.group(1))
-    return names
+    return [
+        label
+        for chunk in _yaml_step_blocks(job_block)
+        if (label := _step_label(chunk)) is not None
+    ]
 
 
 class PublicationGateContract(unittest.TestCase):
@@ -216,48 +220,81 @@ class PublicationGateSimulation(unittest.TestCase):
         upstream = {job: "success" for job in self.NEEDS}
         self.assertEqual(self.conclude_publish(upstream), "success")
 
-    def test_failed_quality_job_skips_publication(self):
-        upstream = {job: "success" for job in self.NEEDS}
-        upstream["quality"] = "failure"
-        self.assert_publish_not_published(upstream)
+    def test_any_non_success_upstream_job_blocks_publication(self):
+        # Every NEEDS job must be success/skipped-for-reasons before publish:
+        # a failure, a skip, or a cancellation anywhere upstream must keep
+        # the publish job from publishing.
+        cases = [
+            ("quality failure", {"quality": "failure"}),
+            ("build-windows failure", {"build-windows": "failure"}),
+            ("quality skipped", {"quality": "skipped"}),
+            ("build-darwin cancelled", {"build-darwin": "cancelled"}),
+        ]
+        self.assertEqual(
+            len(cases), 4, "all four upstream-failure shapes must be covered"
+        )
+        for desc, override in cases:
+            with self.subTest(desc):
+                upstream = {job: "success" for job in self.NEEDS}
+                upstream.update(override)
+                self.assert_publish_not_published(upstream)
 
-    def test_failed_build_job_skips_publication(self):
-        upstream = {job: "success" for job in self.NEEDS}
-        upstream["build-windows"] = "failure"
-        self.assert_publish_not_published(upstream)
 
-    def test_skipped_quality_job_skips_publication(self):
-        upstream = {job: "success" for job in self.NEEDS}
-        upstream["quality"] = "skipped"
-        self.assert_publish_not_published(upstream)
+def _is_recipe_header(line: str, name: str) -> bool:
+    """True when `line` declares the recipe `name` (with or without deps)."""
+    return bool(
+        re.match(rf"^{re.escape(name)}:\s*(#.*)?$", line)
+        or re.match(rf"^{re.escape(name)}:\s+(\S.*)?$", line)
+    )
 
-    def test_cancelled_run_cancels_publication(self):
-        upstream = {job: "success" for job in self.NEEDS}
-        upstream["build-darwin"] = "cancelled"
-        self.assert_publish_not_published(upstream)
+
+def _consume_recipe_line(
+    line: str, name: str, in_recipe: bool, body: list[str]
+) -> tuple[bool, bool, list[str] | None]:
+    """Fold one justfile line into the recipe scan.
+
+    Returns (in_recipe, finished, deps) — deps only when a recipe header
+    for `name` was just consumed; finished when the next recipe starts.
+    """
+    if _is_recipe_header(line, name):
+        return True, False, _header_deps(line)
+    if not in_recipe:
+        return in_recipe, False, None
+    return _consume_body_line(line, in_recipe, body)
+
+
+def _header_deps(line: str) -> list[str]:
+    raw = line.split(":", 1)[1].strip() if ":" in line else ""
+    return [d for d in re.split(r"\s+", raw) if d]
+
+
+def _consume_body_line(line: str, in_recipe: bool, body: list[str]) -> tuple[bool, bool, None]:
+    if line and not line[0].isspace():
+        return in_recipe, True, None  # next recipe (or comment block) started
+    body.append(line)
+    return in_recipe, False, None
+
+
+def _recipe_body_and_deps(name: str) -> tuple[str, list[str]]:
+    """Body of recipe `name` plus its dependency names, from the justfile."""
+    body: list[str] = []
+    deps: list[str] = []
+    in_recipe = False
+    for line in JUSTFILE.splitlines():
+        in_recipe, finished, header_deps = _consume_recipe_line(line, name, in_recipe, body)
+        if header_deps is not None:
+            deps = header_deps
+        if finished:
+            break
+    return "\n".join(body), deps
 
 
 def _recipe_body(name: str) -> str:
     """Return the body of a justfile recipe, resolving alias recipes."""
-    lines = JUSTFILE.splitlines()
     for _ in range(4):  # alias chains are shallow; bail out rather than loop
-        body: list[str] = []
-        deps: list[str] = []
-        in_recipe = False
-        for line in lines:
-            if re.match(rf"^{re.escape(name)}:\s*(#.*)?$", line) or re.match(
-                rf"^{re.escape(name)}:\s+(\S.*)?$", line
-            ):
-                in_recipe = True
-                deps = re.split(r"\s+", line.split(":", 1)[1].strip()) if ":" in line else []
-                deps = [d for d in deps if d]
-                continue
-            if in_recipe:
-                if line and not line[0].isspace():
-                    break  # next recipe (or comment block) started
-                body.append(line)
+        body, deps = _recipe_body_and_deps(name)
         if any(line.strip() for line in body):
-            return "\n".join(body)
+            return body
         assert deps, f"recipe `{name}` not found or empty in justfile"
         name = deps[0]
     raise AssertionError(f"alias chain for recipe too deep at `{name}`")

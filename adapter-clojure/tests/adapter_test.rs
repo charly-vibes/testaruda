@@ -43,77 +43,50 @@ impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
 }
 
 #[test]
-fn handshake_returns_ok() {
+fn handshake_contract() {
+    // One handshake round-trip asserting the full wire contract: ok flag,
+    // name/version strings, protocol version, file granularity, languages
+    // and capability flags.
     let resp = send_command(r#"{"command":"handshake"}"#);
     assert_eq!(resp["ok"], true, "handshake should succeed: {resp}");
-}
-
-#[test]
-fn handshake_languages_is_clojure() {
-    let resp = send_command(r#"{"command":"handshake"}"#);
-    let langs = resp["result"]["languages"].as_array().unwrap_or_panic();
-    let clojure_names: Vec<&str> = langs.iter().filter_map(|v| v.as_str()).collect();
-    assert!(clojure_names.contains(&"clojure"), "got: {langs:?}");
-}
-
-#[test]
-fn handshake_granularity_is_file() {
-    let resp = send_command(r#"{"command":"handshake"}"#);
+    let result = &resp["result"];
+    assert!(result["name"].is_string(), "name missing: {resp}");
+    assert!(result["version"].is_string(), "version missing: {resp}");
+    assert_eq!(result["protocol"], 1, "protocol should be 1: {resp}");
     assert_eq!(
-        resp["result"]["granularity"], "file",
+        result["granularity"],
+        "file",
         "granularity should be file: {resp}"
     );
-}
-
-#[test]
-fn handshake_capabilities_correct() {
-    let resp = send_command(r#"{"command":"handshake"}"#);
-    let caps = &resp["result"]["capabilities"];
+    let langs = result["languages"].as_array().unwrap_or_panic();
+    let clojure_names: Vec<&str> = langs.iter().filter_map(|v| v.as_str()).collect();
+    assert!(clojure_names.contains(&"clojure"), "got: {langs:?}");
+    let caps = &result["capabilities"];
     assert_eq!(caps["symbol_model_complete"], false);
     assert_eq!(caps["fingerprinting"], true);
     assert_eq!(caps["runtime_edges"], false);
 }
 
 #[test]
-fn handshake_protocol_version() {
-    let resp = send_command(r#"{"command":"handshake"}"#);
-    assert_eq!(resp["result"]["protocol"], 1, "protocol should be 1");
-}
+fn command_error_contract() {
+    // Discover succeeds on an empty workspace; unknown commands and
+    // malformed JSON must fail with a descriptive error string.
+    let resp = send_command(r#"{"command":"discover"}"#);
+    assert_eq!(resp["ok"], true, "discover should succeed: {resp}");
 
-#[test]
-fn handshake_has_name_and_version() {
-    let resp = send_command(r#"{"command":"handshake"}"#);
-    assert!(resp["result"]["name"].is_string(), "name missing: {resp}");
-    assert!(
-        resp["result"]["version"].is_string(),
-        "version missing: {resp}"
-    );
-}
-
-#[test]
-fn unknown_command_returns_error() {
     let resp = send_command(r#"{"command":"bogus"}"#);
     assert_eq!(resp["ok"], false, "bogus command should fail: {resp}");
     assert!(
         resp["error"].as_str().unwrap_or("").contains("unknown"),
         "should mention 'unknown': {resp}"
     );
-}
 
-#[test]
-fn invalid_json_returns_error() {
     let resp = send_command("not json");
     assert_eq!(resp["ok"], false, "invalid json should fail: {resp}");
     assert!(
         resp["error"].as_str().unwrap_or("").contains("invalid"),
         "should mention 'invalid': {resp}"
     );
-}
-
-#[test]
-fn discover_returns_results() {
-    let resp = send_command(r#"{"command":"discover"}"#);
-    assert_eq!(resp["ok"], true, "discover should succeed: {resp}");
 }
 
 #[test]

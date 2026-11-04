@@ -1,21 +1,18 @@
-"""Tests for validate-imports.py's Python import parsing (testaruda-rpqs).
+"""Tests for validate-imports's Python import parsing (testaruda-rpqs).
 
-The script's filename contains a dash, so it's loaded via importlib.
+The implementation lives in the validate_imports package (split out of
+the dash-named executable shim for the 300-line script gate); the shim
+re-exports the parse functions this module asserts on.
 
 Run: python3 -m pytest scripts/test_validate_imports.py
 """
 
-import importlib.util
 import os
 import sys
 
-import pytest
+sys.path.insert(0, os.path.dirname(__file__))
 
-_SCRIPT = os.path.join(os.path.dirname(__file__), "validate-imports.py")
-_spec = importlib.util.spec_from_file_location("validate_imports", _SCRIPT)
-vi = importlib.util.module_from_spec(_spec)
-sys.modules["validate_imports"] = vi
-_spec.loader.exec_module(vi)
+import validate_imports as vi  # noqa: E402
 
 
 class TestRelativeImportResolution:

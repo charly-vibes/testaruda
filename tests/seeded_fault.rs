@@ -140,7 +140,7 @@ fn setup_graph(store: &Store, root: &Path) -> (Vec<u32>, [u32; 4]) {
     (cids, tids)
 }
 
-fn run_test<F>(f: F) -> std::path::PathBuf
+fn run_test<F>(f: F) -> (std::path::PathBuf, genesis::fixture::Fixture)
 where
     F: FnOnce(&Store, &Path, &[u32], &[u32; 4]),
 {
@@ -161,7 +161,7 @@ where
         "fixture graph must register components and test items"
     );
     f(&store, root, &cids, &tids);
-    root.to_path_buf()
+    (root.to_path_buf(), fixture)
 }
 
 /// Panic-with-context helpers for test code. The file-level debt checks
@@ -200,7 +200,7 @@ impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
 #[test]
 fn test_seeded_fault_soundness_and_precision() {
     // Run all scenarios in a single test to avoid cwd conflicts
-    let root = run_test(|store, root, _cids, tids| {
+    let (root, _fixture) = run_test(|store, root, _cids, tids| {
         // Scenario 1: change session.py → test_session (static) + test_totp (runtime)
         {
             std::fs::write(

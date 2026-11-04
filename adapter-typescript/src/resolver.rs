@@ -396,21 +396,7 @@ impl ImportResolver {
             }
 
             if in_string {
-                result.push(c as char);
-                // Handle escape sequences
-                if c == b'\\' {
-                    // Push the next character too
-                    if i + 1 < len {
-                        i += 1;
-                        result.push(bytes[i] as char);
-                    }
-                    i += 1;
-                    continue;
-                }
-                if c == b'"' {
-                    in_string = false;
-                }
-                i += 1;
+                i = Self::copy_string_body(&bytes, i, len, &mut result, &mut in_string);
                 continue;
             }
 
@@ -441,6 +427,31 @@ impl ImportResolver {
         }
 
         result
+    }
+
+    /// Copy one in-string byte (handling escape pairs) and advance the
+    /// cursor; flips `in_string` at the closing quote.
+    fn copy_string_body(
+        bytes: &[u8],
+        mut i: usize,
+        len: usize,
+        result: &mut String,
+        in_string: &mut bool,
+    ) -> usize {
+        let c = bytes[i];
+        result.push(c as char);
+        // Handle escape sequences — push the next character too
+        if c == b'\\' {
+            if i + 1 < len {
+                i += 1;
+                result.push(bytes[i] as char);
+            }
+            return i + 1;
+        }
+        if c == b'"' {
+            *in_string = false;
+        }
+        i + 1
     }
 }
 

@@ -85,44 +85,55 @@ def read_checksums(path):
 
 def verify(archive, checksums_path, platform):
     """Return a list of defect strings; empty means the archive is good."""
-    defects = []
     if platform not in PLATFORMS:
         return [f"unknown platform '{platform}' (known: {', '.join(PLATFORMS)})"]
 
     suffix, scheme = PLATFORMS[platform]
+    defects = []
     if not archive.name.endswith(suffix):
         defects.append(
             f"archive suffix mismatch: expected *.{suffix} for {platform}")
-    member_names = {name + (".exe" if scheme == "windows" else "")
-                    for name in ADVERTISED_BINARIES}
-
     if not archive.exists():
         defects.append(f"archive not found: {archive}")
         return defects
 
     members = dict(tar_members(archive) if suffix == "tar.gz"
                    else zip_members(archive))
+    member_names = {name + (".exe" if scheme == "windows" else "")
+                    for name in ADVERTISED_BINARIES}
 
+    defects += _member_defects(members, member_names, suffix)
+    defects += _checksum_defects(archive, checksums_path)
+    return defects
+
+
+def _member_defects(members, member_names, suffix):
+    """Missing binaries, missing exec bits, and unexpected extra members."""
+    defects = []
     for expected in sorted(member_names):
         if expected not in members:
             defects.append(f"missing binary: {expected}")
         elif suffix == "tar.gz" and not members[expected]:
             defects.append(f"missing exec bit: {expected}")
-
     extras = sorted(set(members) - member_names)
     if extras:
         defects.append(f"unexpected members: {', '.join(extras)}")
+    return defects
 
+
+def _checksum_defects(archive, checksums_path):
+    """Manifest coverage and digest agreement for the archive."""
+    defects = []
     entries = read_checksums(checksums_path)
     expected_sha = entries.get(archive.name)
     if expected_sha is None:
         defects.append(f"checksums.txt has no entry for {archive.name}")
-    else:
-        actual = sha256_of(archive)
-        if actual != expected_sha:
-            defects.append(
-                f"checksum mismatch for {archive.name}: "
-                f"expected {expected_sha}, got {actual}")
+        return defects
+    actual = sha256_of(archive)
+    if actual != expected_sha:
+        defects.append(
+            f"checksum mismatch for {archive.name}: "
+            f"expected {expected_sha}, got {actual}")
     return defects
 
 
