@@ -388,28 +388,20 @@ fn assert_monorepo_discover(package_subdir: &str, expected_count: usize) {
 }
 
 #[test]
-fn julia_adapter_monorepo_discover_per_package_a() {
-    if !julia_available() || !adapter_available() {
-        return;
-    }
-    assert_monorepo_discover("pkg_a", 3);
-}
-
-#[test]
-fn julia_adapter_monorepo_discover_per_package_b() {
-    if !julia_available() || !adapter_available() {
-        return;
-    }
-    assert_monorepo_discover("pkg_b", 2);
-}
-
-#[test]
-fn julia_adapter_monorepo_discover_per_package_c_no_tests() {
+fn julia_adapter_monorepo_discover_per_package() {
     if !julia_available() || !adapter_available() {
         return;
     }
     // pkg_c has a Project.toml but no test/ directory — verifies empty-package handling
-    assert_monorepo_discover("pkg_c", 0);
+    let cases = [("pkg_a", 3), ("pkg_b", 2), ("pkg_c", 0)];
+    assert_eq!(
+        cases.len(),
+        3,
+        "all three monorepo packages must be exercised"
+    );
+    for (pkg, expected) in cases {
+        assert_monorepo_discover(pkg, expected);
+    }
 }
 
 #[test]
@@ -801,33 +793,6 @@ fn julia_adapter_full_pipeline() {
 // ============================================================================
 
 #[test]
-fn julia_adapter_malformed_json() {
-    if !julia_available() || !adapter_available() {
-        return;
-    }
-
-    let mut child = spawn_adapter();
-    let resp = send_command(&mut child, "not valid json at all");
-    let parsed: serde_json::Value =
-        serde_json::from_str(&resp).require("response should be valid JSON");
-
-    assert!(
-        !parsed["ok"].as_bool().unwrap_or(true),
-        "malformed JSON should fail"
-    );
-    let err = parsed["error"].to_string();
-    assert!(
-        err.to_lowercase().contains("malformed json")
-            || err.to_lowercase().contains("json parsing error"),
-        "error should mention JSON parsing: {}",
-        err
-    );
-
-    child.kill().ok();
-    child.wait().ok();
-}
-
-#[test]
 fn julia_adapter_discover_empty_dir() {
     if !julia_available() || !adapter_available() {
         return;
@@ -852,35 +817,6 @@ fn julia_adapter_discover_empty_dir() {
         .as_array()
         .require("result should be an array");
     assert!(nodes.is_empty(), "empty dir should have no tests");
-
-    child.kill().ok();
-    child.wait().ok();
-}
-
-#[test]
-fn julia_adapter_static_deps_no_changed_files() {
-    if !julia_available() || !adapter_available() {
-        return;
-    }
-
-    let mut child = spawn_adapter();
-    let resp = send_command(&mut child, r#"{"command":"static-deps","params":{}}"#);
-    let parsed: serde_json::Value =
-        serde_json::from_str(&resp).require("static-deps response should be valid JSON");
-
-    assert!(
-        !parsed["ok"].as_bool().unwrap_or(true),
-        "missing changed_files should fail"
-    );
-    let err = parsed["error"]["message"]
-        .as_str()
-        .unwrap_or("")
-        .to_lowercase();
-    assert!(
-        err.contains("changed_files") || err.contains("missing"),
-        "error should mention missing changed_files: {}",
-        err
-    );
 
     child.kill().ok();
     child.wait().ok();
@@ -1050,62 +986,124 @@ fn julia_adapter_ingest_without_duration() {
 }
 
 #[test]
-fn julia_adapter_run_args_empty_selected() {
+fn julia_adapter_error_and_edge_contract() {
     if !julia_available() || !adapter_available() {
         return;
     }
+    // Scenario 1: malformed JSON must fail with a parse error.
+    {
+        if !julia_available() || !adapter_available() {
+            return;
+        }
 
-    let mut child = spawn_adapter();
-    let resp = send_command(
-        &mut child,
-        r#"{"command":"run-args","params":{"selected":[]}}"#,
-    );
-    let parsed: serde_json::Value =
-        serde_json::from_str(&resp).require("run-args response should be valid JSON");
+        let mut child = spawn_adapter();
+        let resp = send_command(&mut child, "not valid json at all");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&resp).require("response should be valid JSON");
 
-    assert!(
-        !parsed["ok"].as_bool().unwrap_or(true),
-        "empty selected should fail"
-    );
-    let err = parsed["error"]["message"]
-        .as_str()
-        .unwrap_or("")
-        .to_lowercase();
-    assert!(
-        err.contains("empty") || err.contains("missing"),
-        "error should mention empty/missing selected: {}",
-        err
-    );
+        assert!(
+            !parsed["ok"].as_bool().unwrap_or(true),
+            "malformed JSON should fail"
+        );
+        let err = parsed["error"].to_string();
+        assert!(
+            err.to_lowercase().contains("malformed json")
+                || err.to_lowercase().contains("json parsing error"),
+            "error should mention JSON parsing: {}",
+            err
+        );
 
-    child.kill().ok();
-    child.wait().ok();
-}
-
-#[test]
-fn julia_adapter_missing_params_structure() {
-    if !julia_available() || !adapter_available() {
-        return;
+        child.kill().ok();
+        child.wait().ok();
     }
 
-    let mut child = spawn_adapter();
-    let resp = send_command(&mut child, r#"{"command":"fingerprint","params":{}}"#);
-    let parsed: serde_json::Value =
-        serde_json::from_str(&resp).require("response should be valid JSON");
+    // Scenario 2: static-deps without changed_files must fail.
+    {
+        if !julia_available() || !adapter_available() {
+            return;
+        }
 
-    assert!(
-        !parsed["ok"].as_bool().unwrap_or(true),
-        "fingerprint without files should fail"
-    );
-    let err = parsed["error"]["message"]
-        .as_str()
-        .unwrap_or("")
-        .to_lowercase();
-    assert!(
-        err.contains("files") || err.contains("missing"),
-        "error should mention missing files: {}",
-        err
-    );
+        let mut child = spawn_adapter();
+        let resp = send_command(&mut child, r#"{"command":"static-deps","params":{}}"#);
+        let parsed: serde_json::Value =
+            serde_json::from_str(&resp).require("static-deps response should be valid JSON");
 
-    child.kill().ok();
-    child.wait().ok();
+        assert!(
+            !parsed["ok"].as_bool().unwrap_or(true),
+            "missing changed_files should fail"
+        );
+        let err = parsed["error"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .to_lowercase();
+        assert!(
+            err.contains("changed_files") || err.contains("missing"),
+            "error should mention missing changed_files: {}",
+            err
+        );
+
+        child.kill().ok();
+        child.wait().ok();
+    }
+
+    // Scenario 3: run-args with empty selected set.
+    {
+        if !julia_available() || !adapter_available() {
+            return;
+        }
+
+        let mut child = spawn_adapter();
+        let resp = send_command(
+            &mut child,
+            r#"{"command":"run-args","params":{"selected":[]}}"#,
+        );
+        let parsed: serde_json::Value =
+            serde_json::from_str(&resp).require("run-args response should be valid JSON");
+
+        assert!(
+            !parsed["ok"].as_bool().unwrap_or(true),
+            "empty selected should fail"
+        );
+        let err = parsed["error"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .to_lowercase();
+        assert!(
+            err.contains("empty") || err.contains("missing"),
+            "error should mention empty/missing selected: {}",
+            err
+        );
+
+        child.kill().ok();
+        child.wait().ok();
+    }
+
+    // Scenario 4: missing params must produce a structured error.
+    {
+        if !julia_available() || !adapter_available() {
+            return;
+        }
+
+        let mut child = spawn_adapter();
+        let resp = send_command(&mut child, r#"{"command":"fingerprint","params":{}}"#);
+        let parsed: serde_json::Value =
+            serde_json::from_str(&resp).require("response should be valid JSON");
+
+        assert!(
+            !parsed["ok"].as_bool().unwrap_or(true),
+            "fingerprint without files should fail"
+        );
+        let err = parsed["error"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .to_lowercase();
+        assert!(
+            err.contains("files") || err.contains("missing"),
+            "error should mention missing files: {}",
+            err
+        );
+
+        child.kill().ok();
+        child.wait().ok();
+    }
 }

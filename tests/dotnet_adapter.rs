@@ -69,47 +69,24 @@ default = "testaruda-adapter-rust"
 // ===== Registry resolution tests =====
 
 #[test]
-fn dotnet_extension_resolves_cs() {
-    let mut reg = testaruda::adapter::AdapterRegistry::new();
-    reg.register(".cs", "titi testaruda-adapter");
-    assert_eq!(
-        reg.resolve("src/Program.cs"),
-        Some("titi testaruda-adapter")
-    );
-}
-
-#[test]
-fn dotnet_extension_resolves_fs() {
-    let mut reg = testaruda::adapter::AdapterRegistry::new();
-    reg.register(".fs", "titi testaruda-adapter");
-    assert_eq!(
-        reg.resolve("src/Library.fs"),
-        Some("titi testaruda-adapter")
-    );
-}
-
-#[test]
-fn dotnet_extension_resolves_vb() {
-    let mut reg = testaruda::adapter::AdapterRegistry::new();
-    reg.register(".vb", "titi testaruda-adapter");
-    assert_eq!(reg.resolve("src/Module.vb"), Some("titi testaruda-adapter"));
-}
-
-#[test]
-fn dotnet_extension_resolves_csproj() {
-    let mut reg = testaruda::adapter::AdapterRegistry::new();
-    reg.register(".csproj", "titi testaruda-adapter");
-    assert_eq!(
-        reg.resolve("src/MyApp.csproj"),
-        Some("titi testaruda-adapter")
-    );
-}
-
-#[test]
-fn dotnet_extension_resolves_sln() {
-    let mut reg = testaruda::adapter::AdapterRegistry::new();
-    reg.register(".sln", "titi testaruda-adapter");
-    assert_eq!(reg.resolve("MyApp.sln"), Some("titi testaruda-adapter"));
+fn dotnet_extension_resolves_supported_extensions() {
+    // every .NET-flavored extension this repo routes to the titi adapter
+    let cases = [
+        (".cs", "src/Program.cs"),
+        (".fs", "src/Library.fs"),
+        (".vb", "src/Module.vb"),
+        (".csproj", "src/MyApp.csproj"),
+        (".sln", "MyApp.sln"),
+    ];
+    for (ext, path) in cases {
+        let mut reg = testaruda::adapter::AdapterRegistry::new();
+        reg.register(ext, "titi testaruda-adapter");
+        assert_eq!(
+            reg.resolve(path),
+            Some("titi testaruda-adapter"),
+            "{ext} must resolve to the titi adapter"
+        );
+    }
 }
 
 // ===== Adapter protocol tests (gated on titi installed) =====
@@ -290,7 +267,8 @@ fn titi_adapter_handshake_then_discover() {
 }
 
 #[test]
-fn dotnet_extension_resolves_slnx() {
+fn dotnet_extension_resolves_newer_slnx_format() {
+    // .slnx (XML solution format) resolves like the classic .sln
     let mut reg = testaruda::adapter::AdapterRegistry::new();
     reg.register(".slnx", "titi testaruda-adapter");
     assert_eq!(reg.resolve("MyApp.slnx"), Some("titi testaruda-adapter"));

@@ -188,41 +188,31 @@ impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
 }
 
 #[test]
-fn readiness_execution_missing_adapter() {
-    let plan = readiness_execution_case("adapter", 1, "no adapter binary");
+fn readiness_execution_contract() {
+    // (kind, adapter exit code, stderr fragment, plan field, expected)
     // Select-time spawn deficit on the changed file: the conservative
     // component fallback (testaruda-0bwk, TIA-ADAPT-012) selects all three
-    // component tests; the execution-readiness contract (exit code, healthy
-    // group still runs and ingests) is asserted inside the helper.
-    assert_eq!(plan["data"]["selected_count"], 3);
-}
-#[test]
-fn readiness_execution_run_args_error() {
-    let plan = readiness_execution_case("error", 1, "run args");
-    // Execution-time failure: selection evidence is untouched — the
-    // always-run pair (faulty, healthy; spare has history).
-    assert_eq!(plan["data"]["selected_count"], 2);
-}
-#[test]
-fn readiness_execution_empty_argv() {
-    let plan = readiness_execution_case("empty", 1, "empty runner");
-    assert_eq!(plan["data"]["selected_count"], 2);
-}
-#[test]
-fn readiness_execution_missing_runner() {
-    let plan = readiness_execution_case("runner", 1, "failed to run tests");
-    assert_eq!(plan["data"]["selected_count"], 2);
-}
-#[test]
-fn readiness_execution_success() {
-    let plan = readiness_execution_case("ok", 0, "ingesting results");
-    // Shadow mode reports the full-run outcome code in the plan.
-    assert_eq!(plan["data"]["exit_code"], 10);
-}
-#[test]
-fn readiness_execution_runner_failure() {
-    let plan = readiness_execution_case("failed", 7, "test runner failed with exit code 7");
-    assert_eq!(plan["data"]["selected_count"], 2);
+    // component tests; execution-time failures leave the always-run pair
+    // (faulty, healthy; spare has history).
+    let cases = [
+        ("adapter", 1, "no adapter binary", "selected_count", 3),
+        ("error", 1, "run args", "selected_count", 2),
+        ("empty", 1, "empty runner", "selected_count", 2),
+        ("runner", 1, "failed to run tests", "selected_count", 2),
+        (
+            "failed",
+            7,
+            "test runner failed with exit code 7",
+            "selected_count",
+            2,
+        ),
+        // Shadow mode reports the full-run outcome code in the plan.
+        ("ok", 0, "ingesting results", "exit_code", 10),
+    ];
+    for (kind, code, frag, field, expected) in cases {
+        let plan = readiness_execution_case(kind, code, frag);
+        assert_eq!(plan["data"][field], expected, "{kind}: {field} mismatch");
+    }
 }
 
 /// testaruda-8trl: stale items discovered before a directory joined
@@ -452,107 +442,42 @@ for line in sys.stdin:
     );
 }
 
-/// Test that `testaruda select --json` exits with the outcome-derived code
-/// (not 0) when no tests are selected (exit code 20).
+/// `testaruda select` must exit with the outcome-derived code (not 0) when
+/// no tests are selected (exit code 20) in every output mode, and still
+/// print its machine-readable payload despite the non-zero exit.
 #[test]
-fn json_mode_exits_with_no_tests_code() {
-    let project = setup_project();
-
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
-        .args(["select", "--json", "--files", "nonexistent.py"])
-        .current_dir(project.path())
-        .output()
-        .require("testaruda select --json failed");
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    // The JSON output should contain the correct exit code
-    assert!(
-        stdout.contains("\"exit_code\": 20"),
-        "JSON output should have exit_code: 20\nstatus: {:?}\nstdout: {}\nstderr: {}",
-        output.status,
-        stdout,
-        stderr
-    );
-
-    // The process exit code should match the outcome code, not 0
-    assert_eq!(
-        output.status.code(),
-        Some(20),
-        "JSON mode should exit with outcome-derived code (20), not 0.\nstderr: {}\nstdout: {}",
-        stderr,
-        stdout,
-    );
-}
-
-/// Test that `testaruda select --agent` exits with the outcome-derived code
-/// (not 0) when no tests are selected (exit code 20) — testaruda-9lbm.
-/// Agent mode is a machine-readable JSON contract: the process status must
-/// carry the CI decision like JSON plan mode does (testaruda-fnyi).
-#[test]
-fn agent_mode_exits_with_no_tests_code() {
-    let project = setup_project();
-
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
-        .args(["select", "--agent", "--files", "nonexistent.py"])
-        .current_dir(project.path())
-        .output()
-        .require("testaruda select --agent failed");
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    // The process exit code must match the outcome code (20), not 0
-    assert_eq!(
-        output.status.code(),
-        Some(20),
-        "Agent mode should exit with outcome-derived code (20), not 0.\nstderr: {}\nstdout: {}",
-        stderr,
-        stdout,
-    );
-
-    // Valid agent JSON must still be printed despite the non-zero exit
-    assert!(
-        !stdout.trim().is_empty(),
-        "Agent mode should still print its JSON payload.\nstderr: {}",
-        stderr
-    );
-}
-
-/// Test that `testaruda select --pre-edit` exits with the outcome-derived
-/// code (not 0) when no tests are selected (exit code 20) — testaruda-ljeg.
-/// Pre-edit mode is also a machine-readable contract: the process status
-/// must carry the CI decision like agent and JSON plan modes do.
-#[test]
-fn pre_edit_mode_exits_with_no_tests_code() {
-    let project = setup_project();
-
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
-        .args(["select", "--pre-edit", "--files", "nonexistent.py"])
-        .current_dir(project.path())
-        .output()
-        .require("testaruda select --pre-edit failed");
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    // The process exit code must match the outcome code (20), not 0
-    assert_eq!(
-        output.status.code(),
-        Some(20),
-        "Pre-edit mode should exit with outcome-derived code (20), not 0.\nstderr: {}\nstdout: {}",
-        stderr,
-        stdout,
-    );
-
-    // Valid pre-edit JSON must still be printed despite the non-zero exit
-    assert!(
-        stdout.contains("testaruda-pre-edit-v1"),
-        "Pre-edit mode should still print its JSON payload.\nstdout: {}\nstderr: {}",
-        stdout,
-        stderr
-    );
+fn select_modes_exit_with_no_tests_code() {
+    // (flag, required stdout marker — None means "any non-empty payload")
+    let cases: [(&str, Option<&str>); 3] = [
+        ("--json", Some("\"exit_code\": 20")),
+        ("--agent", None),
+        ("--pre-edit", Some("testaruda-pre-edit-v1")),
+    ];
+    for (flag, needle) in cases {
+        let project = setup_project();
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
+            .args(["select", flag, "--files", "nonexistent.py"])
+            .current_dir(project.path())
+            .output()
+            .require("testaruda select failed");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            output.status.code(),
+            Some(20),
+            "{flag} should exit with outcome-derived code (20).\nstderr: {stderr}\nstdout: {stdout}"
+        );
+        match needle {
+            Some(n) => assert!(
+                stdout.contains(n),
+                "{flag} stdout should contain {n:?}.\nstdout: {stdout}\nstderr: {stderr}"
+            ),
+            None => assert!(
+                !stdout.trim().is_empty(),
+                "{flag} should still print its payload.\nstderr: {stderr}"
+            ),
+        }
+    }
 }
 
 /// Test that `testaruda select --base/--head` detects changes in a revision
@@ -846,62 +771,49 @@ for line in sys.stdin:
 /// Unknown file kind (no adapter registered for `.xyz`) with no known edges:
 /// TIA-CHG-007 requires a fallback signal for the affected component.
 #[test]
-fn readiness_incomplete_unknown_kind() {
-    let (plan, _) = readiness_incomplete_case("ok", "source.xyz", 10, "unknown file kind");
-    assert!(plan["data"]["reason"]
-        .as_str()
-        .unwrap_or("")
-        .contains("unknown file kind"));
-}
-
-/// Adapter reports the changed file unresolved (TIA-SAFE-004): dependents
-/// must be conservatively force-included via a component fallback.
-#[test]
-fn readiness_incomplete_unresolved_report() {
-    let (plan, _) = readiness_incomplete_case(
-        "unresolved",
-        "source.foo",
-        10,
-        "reported the file unresolved",
-    );
-    assert!(plan["data"]["reason"]
-        .as_str()
-        .unwrap_or("")
-        .contains("reported the file unresolved"));
-}
-
-/// Adapter binary missing: TIA-ADAPT-012 requires the fallback mechanism,
-/// not a log-only warning with an empty selection.
-#[test]
-fn readiness_incomplete_missing_binary() {
-    let (plan, _) =
-        readiness_incomplete_case("missing", "source.foo", 10, "Incomplete adapter evidence");
-    assert!(plan["data"]["reason"]
-        .as_str()
-        .unwrap_or("")
-        .contains("unavailable or failed"));
-}
-
-/// Adapter dies at startup (handshake never completes): same fallback contract.
-#[test]
-fn readiness_incomplete_startup_failure() {
-    let (plan, _) =
-        readiness_incomplete_case("startup", "source.foo", 10, "Incomplete adapter evidence");
-    assert!(plan["data"]["reason"]
-        .as_str()
-        .unwrap_or("")
-        .contains("unavailable or failed"));
-}
-
-/// Adapter emits a malformed static-deps response: same fallback contract.
-#[test]
-fn readiness_incomplete_malformed_response() {
-    let (plan, _) =
-        readiness_incomplete_case("malformed", "source.foo", 10, "Incomplete adapter evidence");
-    assert!(plan["data"]["reason"]
-        .as_str()
-        .unwrap_or("")
-        .contains("unavailable or failed"));
+fn readiness_incomplete_contract() {
+    // (kind, changed file, adapter exit code, adapter stderr, expected reason)
+    // Adapter reports the changed file unresolved (TIA-SAFE-004): dependents
+    // must be conservatively force-included via a component fallback. A
+    // missing/dying/malformed adapter (TIA-ADAPT-012) requires the fallback
+    // mechanism, not a log-only warning with an empty selection.
+    let cases = [
+        ("ok", "source.xyz", "unknown file kind", "unknown file kind"),
+        (
+            "unresolved",
+            "source.foo",
+            "reported the file unresolved",
+            "reported the file unresolved",
+        ),
+        (
+            "missing",
+            "source.foo",
+            "Incomplete adapter evidence",
+            "unavailable or failed",
+        ),
+        (
+            "startup",
+            "source.foo",
+            "Incomplete adapter evidence",
+            "unavailable or failed",
+        ),
+        (
+            "malformed",
+            "source.foo",
+            "Incomplete adapter evidence",
+            "unavailable or failed",
+        ),
+    ];
+    for (kind, file, adapter_err, expected_reason) in cases {
+        let (plan, _) = readiness_incomplete_case(kind, file, 10, adapter_err);
+        assert!(
+            plan["data"]["reason"]
+                .as_str()
+                .unwrap_or("")
+                .contains(expected_reason),
+            "{kind}: reason must mention {expected_reason:?}"
+        );
+    }
 }
 
 // ===== Selection idempotence — baseline advancement (testaruda-yvyb) =====
@@ -989,88 +901,11 @@ fn assert_fallback_selected(code: i32, plan: &serde_json::Value, select: usize) 
 
 /// Known change: a repeat select-only request must not lose the affected
 /// tests (the fingerprint baseline must not advance during selection).
-#[test]
-fn readiness_baseline_known_change() {
-    let project = readiness_baseline_setup("ok", "source.xyz", true);
-    let (code, plan, stderr) = run_select(&project, &["--files", "source.xyz"]);
-    assert_fallback_selected(code, &plan, 1);
-    let (code2, plan2, _) = run_select(&project, &["--files", "source.xyz"]);
-    assert_fallback_selected(code2, &plan2, 2);
-    // The preseeded stale baseline must survive both select-only requests.
-    let conn =
-        rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap_or_panic();
-    let fp: String = conn
-        .query_row(
-            "SELECT fingerprint FROM content_units WHERE path = 'source.xyz'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap_or_panic();
-    assert_eq!(
-        fp, "stale-fingerprint",
-        "select-only must not advance the baseline"
-    );
-    drop(stderr);
-}
-
 /// Cold start: a file unknown to the store stays classified (unresolved)
 /// across repeat select-only requests.
-#[test]
-fn readiness_baseline_cold_start() {
-    let project = readiness_baseline_setup("ok", "source.xyz", false);
-    let (code, plan, _) = run_select(&project, &["--files", "source.xyz"]);
-    assert_fallback_selected(code, &plan, 1);
-    let (code2, plan2, _) = run_select(&project, &["--files", "source.xyz"]);
-    assert_fallback_selected(code2, &plan2, 2);
-    // Cold-start baseline: still "unknown" after both select-only requests.
-    let conn =
-        rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap_or_panic();
-    let fp: String = conn
-        .query_row(
-            "SELECT fingerprint FROM content_units WHERE path = 'source.xyz'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap_or_panic();
-    assert_eq!(fp, "unknown", "cold-start baseline must stay unknown");
-}
-
 /// Failed execution: after a CI run whose faulty group fails, a repeat select
 /// must still classify and select the change (no baseline advancement on
 /// failed execution).
-#[test]
-fn readiness_baseline_failed_execution() {
-    let project = readiness_baseline_setup("run-fails", "source.xyz", true);
-    let (code, plan, _) = run_select(&project, &["--ci", "--files", "source.xyz"]);
-    assert_eq!(
-        code, 1,
-        "the faulty group's run-args error must fail the run"
-    );
-    assert_eq!(plan["data"]["selected_count"], 3);
-    // All groups process before exit (kkno): the healthy group still ran.
-    assert!(
-        project.path().join("executed").exists(),
-        "healthy group must execute"
-    );
-    // Repeat select-only request: classification preserved.
-    let (code2, plan2, _) = run_select(&project, &["--files", "source.xyz"]);
-    assert_fallback_selected(code2, &plan2, 2);
-    // The failed run must not have advanced the baseline either.
-    let conn =
-        rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap_or_panic();
-    let fp: String = conn
-        .query_row(
-            "SELECT fingerprint FROM content_units WHERE path = 'source.xyz'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap_or_panic();
-    assert_eq!(
-        fp, "stale-fingerprint",
-        "failed execution must not advance the baseline"
-    );
-}
-
 // ===== Confidence floor over real component memberships (testaruda-2bxl) =====
 //
 // TIA-SAFE-002/003: the confidence fallback must consult ACTUAL component
@@ -1141,51 +976,135 @@ fn selected_test_ids(plan: &serde_json::Value) -> Vec<u64> {
 
 /// Below-threshold component: the fallback must select the WHOLE component
 /// (t1 + the edge-less t4/t8), not just the reachability-selected t1.
-#[test]
-fn readiness_confidence_below_threshold() {
-    let project = readiness_confidence_setup();
-    let plan = run_confidence_select(&project, "source.a");
-    let mut ids = selected_test_ids(&plan);
-    ids.sort();
-    // t6 (id 8) is always-run and joins every selection; the fallback must
-    // add the whole 'default' component: t1 (1) + edge-less t4 (2), t8 (3).
-    assert_eq!(
-        ids,
-        vec![1, 2, 3, 8],
-        "whole below-threshold component must fall back"
-    );
-}
-
 /// Above-threshold component: only the reachability-selected tests run —
 /// the edge-less t5/t7 must NOT be force-included.
-#[test]
-fn readiness_confidence_above_threshold() {
-    let project = readiness_confidence_setup();
-    let plan = run_confidence_select(&project, "source.b");
-    let mut ids = selected_test_ids(&plan);
-    ids.sort();
-    // Only the reachability-selected t2 (4), t3 (5) + always-run t6 (8) —
-    // edge-less t5 (6) must NOT be force-included.
-    assert_eq!(
-        ids,
-        vec![4, 5, 8],
-        "above-threshold component must not fall back"
-    );
-}
-
 /// Always-run-only component (TIA-SAFE-002 exception): t6 is always-run;
 /// the component must NOT fall back to include its other members.
 #[test]
-fn readiness_confidence_always_run_only() {
-    let project = readiness_confidence_setup();
-    let plan = run_confidence_select(&project, "source.c");
-    let mut ids = selected_test_ids(&plan);
-    ids.sort();
-    // Only the always-run t6 (8): 'sparse' must NOT fall back to include
-    // its history-carrying edge-less member t7 (7) (TIA-SAFE-002 exception).
-    assert_eq!(
-        ids,
-        vec![8],
-        "always-run-only component must not trigger fallback"
-    );
+fn readiness_baseline_contract() {
+    // Scenario 1: preseeded stale baseline must survive select-only requests.
+    {
+        let project = readiness_baseline_setup("ok", "source.xyz", true);
+        let (code, plan, stderr) = run_select(&project, &["--files", "source.xyz"]);
+        assert_fallback_selected(code, &plan, 1);
+        let (code2, plan2, _) = run_select(&project, &["--files", "source.xyz"]);
+        assert_fallback_selected(code2, &plan2, 2);
+        // The preseeded stale baseline must survive both select-only requests.
+        let conn = rusqlite::Connection::open(project.path().join(".testaruda/store.db"))
+            .unwrap_or_panic();
+        let fp: String = conn
+            .query_row(
+                "SELECT fingerprint FROM content_units WHERE path = 'source.xyz'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or_panic();
+        assert_eq!(
+            fp, "stale-fingerprint",
+            "select-only must not advance the baseline"
+        );
+        drop(stderr);
+    }
+
+    // Scenario 2: cold start — baseline still "unknown" after both requests.
+    {
+        let project = readiness_baseline_setup("ok", "source.xyz", false);
+        let (code, plan, _) = run_select(&project, &["--files", "source.xyz"]);
+        assert_fallback_selected(code, &plan, 1);
+        let (code2, plan2, _) = run_select(&project, &["--files", "source.xyz"]);
+        assert_fallback_selected(code2, &plan2, 2);
+        // Cold-start baseline: still "unknown" after both select-only requests.
+        let conn = rusqlite::Connection::open(project.path().join(".testaruda/store.db"))
+            .unwrap_or_panic();
+        let fp: String = conn
+            .query_row(
+                "SELECT fingerprint FROM content_units WHERE path = 'source.xyz'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or_panic();
+        assert_eq!(fp, "unknown", "cold-start baseline must stay unknown");
+    }
+
+    // Scenario 3: all groups process before exit, and a failed execution
+    // must not advance the baseline either.
+    {
+        let project = readiness_baseline_setup("run-fails", "source.xyz", true);
+        let (code, plan, _) = run_select(&project, &["--ci", "--files", "source.xyz"]);
+        assert_eq!(
+            code, 1,
+            "the faulty group's run-args error must fail the run"
+        );
+        assert_eq!(plan["data"]["selected_count"], 3);
+        // All groups process before exit (kkno): the healthy group still ran.
+        assert!(
+            project.path().join("executed").exists(),
+            "healthy group must execute"
+        );
+        // Repeat select-only request: classification preserved.
+        let (code2, plan2, _) = run_select(&project, &["--files", "source.xyz"]);
+        assert_fallback_selected(code2, &plan2, 2);
+        // The failed run must not have advanced the baseline either.
+        let conn = rusqlite::Connection::open(project.path().join(".testaruda/store.db"))
+            .unwrap_or_panic();
+        let fp: String = conn
+            .query_row(
+                "SELECT fingerprint FROM content_units WHERE path = 'source.xyz'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or_panic();
+        assert_eq!(
+            fp, "stale-fingerprint",
+            "failed execution must not advance the baseline"
+        );
+    }
+}
+
+#[test]
+fn readiness_confidence_contract() {
+    // Scenario 1: below threshold: selection must refuse low-confidence evidence
+    {
+        let project = readiness_confidence_setup();
+        let plan = run_confidence_select(&project, "source.a");
+        let mut ids = selected_test_ids(&plan);
+        ids.sort();
+        // t6 (id 8) is always-run and joins every selection; the fallback must
+        // add the whole 'default' component: t1 (1) + edge-less t4 (2), t8 (3).
+        assert_eq!(
+            ids,
+            vec![1, 2, 3, 8],
+            "whole below-threshold component must fall back"
+        );
+    }
+
+    // // Scenario 2: above threshold: evidence is trusted
+    {
+        let project = readiness_confidence_setup();
+        let plan = run_confidence_select(&project, "source.b");
+        let mut ids = selected_test_ids(&plan);
+        ids.sort();
+        // Only the reachability-selected t2 (4), t3 (5) + always-run t6 (8) —
+        // edge-less t5 (6) must NOT be force-included.
+        assert_eq!(
+            ids,
+            vec![4, 5, 8],
+            "above-threshold component must not fall back"
+        );
+    }
+
+    // // Scenario 3: always-run pairs still execute when confidence gates the rest
+    {
+        let project = readiness_confidence_setup();
+        let plan = run_confidence_select(&project, "source.c");
+        let mut ids = selected_test_ids(&plan);
+        ids.sort();
+        // Only the always-run t6 (8): 'sparse' must NOT fall back to include
+        // its history-carrying edge-less member t7 (7) (TIA-SAFE-002 exception).
+        assert_eq!(
+            ids,
+            vec![8],
+            "always-run-only component must not trigger fallback"
+        );
+    }
 }
