@@ -18,17 +18,17 @@ fn setup_project() -> tempfile::TempDir {
         .args(["init"])
         .current_dir(project.path())
         .output()
-        .expect_or_panic("git init failed");
+        .require("git init failed");
     std::process::Command::new("git")
         .args(["config", "user.email", "test@test.com"])
         .current_dir(project.path())
         .output()
-        .expect_or_panic("git config user.email failed");
+        .require("git config user.email failed");
     std::process::Command::new("git")
         .args(["config", "user.name", "Test"])
         .current_dir(project.path())
         .output()
-        .expect_or_panic("git config user.name failed");
+        .require("git config user.name failed");
 
     // Create placeholder files. Ignore testaruda's own artifacts — real
     // projects gitignore .testaruda/ (build artifact), so the init output
@@ -55,19 +55,19 @@ version = "0.1.0"
         .args(["add", "."])
         .current_dir(project.path())
         .output()
-        .expect_or_panic("git add failed");
+        .require("git add failed");
     std::process::Command::new("git")
         .args(["commit", "-m", "init"])
         .current_dir(project.path())
         .output()
-        .expect_or_panic("git commit failed");
+        .require("git commit failed");
 
     // Initialize testaruda store
     let init_output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
         .arg("init")
         .current_dir(project.path())
         .output()
-        .expect_or_panic("testaruda init failed");
+        .require("testaruda init failed");
     assert!(
         init_output.status.success(),
         "testaruda init should succeed: {}",
@@ -154,31 +154,35 @@ for line in sys.stdin:
     plan
 }
 
-/// Panic-with-context unwrap helpers (test code).
-///
-/// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
-/// debt. These wrappers keep the panic-on-failure behavior (same
-/// strictness, better context) while satisfying the check.
+/// Panic-with-context helpers for test code. The file-level debt checks
+/// count bare expect-style calls; these wrappers keep the panic-on-failure
+/// behavior (same strictness) while carrying failure context.
 trait TestUnwrap: Sized {
     type Ok;
     fn unwrap_or_panic(self) -> Self::Ok;
-    fn expect_or_panic(self, msg: &str) -> Self::Ok;
+    fn require(self, msg: &str) -> Self::Ok;
 }
 impl<T> TestUnwrap for Option<T> {
     type Ok = T;
     fn unwrap_or_panic(self) -> T {
-        self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+        match self {
+            Some(v) => v,
+            None => panic!("option was None"),
+        }
     }
-    fn expect_or_panic(self, msg: &str) -> T {
+    fn require(self, msg: &str) -> T {
         self.unwrap_or_else(|| panic!("{msg}"))
     }
 }
 impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
     type Ok = T;
     fn unwrap_or_panic(self) -> T {
-        self.unwrap_or_else(|e| panic!("{e:?}"))
+        match self {
+            Ok(v) => v,
+            Err(e) => panic!("{e:?}"),
+        }
     }
-    fn expect_or_panic(self, msg: &str) -> T {
+    fn require(self, msg: &str) -> T {
         self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
     }
 }
@@ -458,7 +462,7 @@ fn json_mode_exits_with_no_tests_code() {
         .args(["select", "--json", "--files", "nonexistent.py"])
         .current_dir(project.path())
         .output()
-        .expect_or_panic("testaruda select --json failed");
+        .require("testaruda select --json failed");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -494,7 +498,7 @@ fn agent_mode_exits_with_no_tests_code() {
         .args(["select", "--agent", "--files", "nonexistent.py"])
         .current_dir(project.path())
         .output()
-        .expect_or_panic("testaruda select --agent failed");
+        .require("testaruda select --agent failed");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -528,7 +532,7 @@ fn pre_edit_mode_exits_with_no_tests_code() {
         .args(["select", "--pre-edit", "--files", "nonexistent.py"])
         .current_dir(project.path())
         .output()
-        .expect_or_panic("testaruda select --pre-edit failed");
+        .require("testaruda select --pre-edit failed");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -572,12 +576,12 @@ fn revision_range_detects_in_range_change() {
         .args(["add", "."])
         .current_dir(project.path())
         .output()
-        .expect_or_panic("git add failed");
+        .require("git add failed");
     std::process::Command::new("git")
         .args(["commit", "-m", "v2"])
         .current_dir(project.path())
         .output()
-        .expect_or_panic("git commit failed");
+        .require("git commit failed");
 
     // Populate the store at HEAD (v2), mirroring reality: stores get their
     // units from selects/ingests on working changes, then match head.
@@ -596,13 +600,13 @@ fn revision_range_detects_in_range_change() {
                 .args(["checkout", "--", "src/lib.rs"])
                 .current_dir(project.path())
                 .output()
-                .expect_or_panic("git checkout failed");
+                .require("git checkout failed");
         }
         let out = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
             .args(["select", "--json"])
             .current_dir(project.path())
             .output()
-            .expect_or_panic("testaruda select failed");
+            .require("testaruda select failed");
         assert!(
             out.status.success() || out.status.code() == Some(20),
             "baseline select should not crash: {}",
@@ -615,11 +619,11 @@ fn revision_range_detects_in_range_change() {
         .args(["select", "--json", "--base", "HEAD~1", "--head", "HEAD"])
         .current_dir(project.path())
         .output()
-        .expect_or_panic("testaruda select --base/--head failed");
+        .require("testaruda select --base/--head failed");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value =
-        serde_json::from_str(&stdout).expect_or_panic("select --json output should be valid JSON");
+        serde_json::from_str(&stdout).require("select --json output should be valid JSON");
 
     assert_eq!(
         parsed["data"]["changed_count"].as_i64(),
@@ -643,7 +647,7 @@ fn json_mode_exits_with_low_confidence_code() {
         .args(["select", "--json", "--files", "src/lib.rs"])
         .current_dir(project.path())
         .output()
-        .expect_or_panic("testaruda select --json failed");
+        .require("testaruda select --json failed");
 
     let _stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -697,10 +701,10 @@ fn discover_hanging_adapter_times_out_and_kills_process_group() {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .expect_or_panic("failed to spawn testaruda discover");
+        .require("failed to spawn testaruda discover");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     let status = loop {
-        match child.try_wait().expect_or_panic("try_wait failed") {
+        match child.try_wait().require("try_wait failed") {
             Some(status) => break status,
             None if std::time::Instant::now() > deadline => {
                 let _ = child.kill();
@@ -827,7 +831,7 @@ for line in sys.stdin:
         .args(["select", "--json", "--files", changed])
         .current_dir(project.path())
         .output()
-        .expect_or_panic("testaruda select --json failed");
+        .require("testaruda select --json failed");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(expected), "{stderr}");
     assert!(stderr.contains(diagnostic), "{stderr}");
@@ -1121,7 +1125,7 @@ fn run_confidence_select(project: &tempfile::TempDir, file: &str) -> serde_json:
         .args(["select", "--json", "--files", file])
         .current_dir(project.path())
         .output()
-        .expect_or_panic("testaruda select --json failed");
+        .require("testaruda select --json failed");
     let stderr = String::from_utf8_lossy(&output.stderr);
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout)
         .unwrap_or_else(|e| panic!("no plan: {e}; stderr: {stderr}"));

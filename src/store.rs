@@ -2529,36 +2529,8 @@ fn find_project_root() -> miette::Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    /// Panic-with-context unwrap helpers (test code).
-    ///
-    /// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
-    /// debt. These wrappers keep the panic-on-failure behavior (same
-    /// strictness, better context) while satisfying the check.
-    trait TestUnwrap: Sized {
-        type Ok;
-        fn unwrap_or_panic(self) -> Self::Ok;
-        fn expect_or_panic(self, msg: &str) -> Self::Ok;
-    }
-    impl<T> TestUnwrap for Option<T> {
-        type Ok = T;
-        fn unwrap_or_panic(self) -> T {
-            self.unwrap_or_else(|| panic!("expected Some(_), got None"))
-        }
-        fn expect_or_panic(self, msg: &str) -> T {
-            self.unwrap_or_else(|| panic!("{msg}"))
-        }
-    }
-    impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
-        type Ok = T;
-        fn unwrap_or_panic(self) -> T {
-            self.unwrap_or_else(|e| panic!("{e:?}"))
-        }
-        fn expect_or_panic(self, msg: &str) -> T {
-            self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
-        }
-    }
-
     use super::*;
+    use crate::test_util::TestUnwrap;
 
     #[test]
     fn test_missing_file_returns_unresolved() {
@@ -5009,70 +4981,8 @@ name = "env-a"
 // ── exec: uncalibrated-store warning (gh-26 / testaruda-n5b4) ──
 
 #[cfg(test)]
-mod exec_warning_tests {
-
-    /// Panic-with-context unwrap helpers (test code).
-    ///
-    /// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
-    /// debt. These wrappers keep the panic-on-failure behavior (same
-    /// strictness, better context) while satisfying the check.
-    trait TestUnwrap: Sized {
-        type Ok;
-        fn unwrap_or_panic(self) -> Self::Ok;
-        fn expect_or_panic(self, msg: &str) -> Self::Ok;
-    }
-    impl<T> TestUnwrap for Option<T> {
-        type Ok = T;
-        fn unwrap_or_panic(self) -> T {
-            self.unwrap_or_else(|| panic!("expected Some(_), got None"))
-        }
-        fn expect_or_panic(self, msg: &str) -> T {
-            self.unwrap_or_else(|| panic!("{msg}"))
-        }
-    }
-    impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
-        type Ok = T;
-        fn unwrap_or_panic(self) -> T {
-            self.unwrap_or_else(|e| panic!("{e:?}"))
-        }
-        fn expect_or_panic(self, msg: &str) -> T {
-            self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
-        }
-    }
-
-    use super::*;
-
-    #[test]
-    fn test_run_history_is_empty_on_fresh_store() {
-        let dir = tempfile::tempdir().unwrap_or_panic();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
-        store.initialize().unwrap_or_panic();
-        assert!(store.run_history_is_empty().unwrap_or_panic());
-    }
-
-    #[test]
-    fn test_run_history_is_empty_false_after_run() {
-        let dir = tempfile::tempdir().unwrap_or_panic();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
-        store.initialize().unwrap_or_panic();
-        let conn = store.conn();
-        conn.execute(
-            "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 't1')",
-            [],
-        )
-        .unwrap_or_panic();
-        let tid: u32 = conn
-            .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap_or_panic();
-        conn.execute(
-            "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
-             VALUES (?1, 'r1', 'passed', 10, 'default')",
-            rusqlite::params![tid],
-        )
-        .unwrap_or_panic();
-        assert!(!store.run_history_is_empty().unwrap_or_panic());
-    }
-}
+#[path = "store_exec_warning_tests.rs"]
+mod exec_warning_tests;
 
 // ── Predictive ranking calibration gate tests (TIA-VER-005) ──
 // Extracted to their own file: the inline module pushed store.rs past

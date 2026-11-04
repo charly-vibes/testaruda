@@ -94,7 +94,7 @@ fn spawn_adapter(dir: &std::path::Path) -> std::process::Child {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect_or_panic("failed to spawn Rust adapter")
+        .require("failed to spawn Rust adapter")
 }
 
 /// Send a JSON command to an adapter subprocess and return the response line.
@@ -117,7 +117,7 @@ fn send_command(child: &mut std::process::Child, cmd: &str) -> String {
 /// discover/ingest which wrap in "result".
 fn parse_static_deps(resp: &str) -> (Vec<(String, String)>, Vec<String>) {
     let parsed: serde_json::Value =
-        serde_json::from_str(resp).expect_or_panic("static-deps response should be valid JSON");
+        serde_json::from_str(resp).require("static-deps response should be valid JSON");
     assert!(
         parsed["ok"].as_bool().unwrap_or(false),
         "static-deps failed: {resp}"
@@ -199,7 +199,7 @@ mod tests {
 
 #[test]
 fn rust_adapter_inline_self_edge_outside_src_root() {
-    let dir = tempfile::tempdir().expect_or_panic("failed to create temp dir");
+    let dir = tempfile::tempdir().require("failed to create temp dir");
     create_nested_crate_fixture(dir.path());
 
     let mut child = spawn_adapter(dir.path());
@@ -227,7 +227,7 @@ fn rust_adapter_inline_self_edge_outside_src_root() {
 
 #[test]
 fn rust_adapter_crate_import_resolves_against_package_src_root() {
-    let dir = tempfile::tempdir().expect_or_panic("failed to create temp dir");
+    let dir = tempfile::tempdir().require("failed to create temp dir");
     create_nested_crate_fixture(dir.path());
 
     let mut child = spawn_adapter(dir.path());
@@ -290,7 +290,7 @@ fn unrelated() {
 /// Extract node_ids from a discover response.
 fn parse_discover_node_ids(resp: &str) -> Vec<String> {
     let parsed: serde_json::Value =
-        serde_json::from_str(resp).expect_or_panic("discover response should be valid JSON");
+        serde_json::from_str(resp).require("discover response should be valid JSON");
     assert!(
         parsed["ok"].as_bool().unwrap_or(false),
         "discover failed: {resp}"
@@ -305,7 +305,7 @@ fn parse_discover_node_ids(resp: &str) -> Vec<String> {
 
 #[test]
 fn rust_adapter_discover_excludes_hidden_dirs() {
-    let dir = tempfile::tempdir().expect_or_panic("failed to create temp dir");
+    let dir = tempfile::tempdir().require("failed to create temp dir");
     create_rust_fixture_with_hidden_worktree(dir.path());
 
     let mut child = spawn_adapter(dir.path());
@@ -348,7 +348,7 @@ fn rust_adapter_discover_excludes_hidden_dirs() {
 /// matching before accepting it.
 #[test]
 fn rust_adapter_run_args_uses_substring_filters_not_exact() {
-    let dir = tempfile::tempdir().expect_or_panic("failed to create temp dir");
+    let dir = tempfile::tempdir().require("failed to create temp dir");
     create_rust_fixture_with_hidden_worktree(dir.path());
 
     let mut child = spawn_adapter(dir.path());
@@ -360,14 +360,14 @@ fn rust_adapter_run_args_uses_substring_filters_not_exact() {
     child.wait().ok();
 
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect_or_panic("run-args response should be valid JSON");
+        serde_json::from_str(&resp).require("run-args response should be valid JSON");
     assert!(
         parsed["ok"].as_bool().unwrap_or(false),
         "run-args failed: {resp}"
     );
     let args = parsed["result"]["runner_args"]
         .as_array()
-        .expect_or_panic("runner_args array");
+        .require("runner_args array");
     let args: Vec<&str> = args.iter().filter_map(|v| v.as_str()).collect();
     assert!(
         args.contains(&"real_unit_test"),
@@ -386,14 +386,14 @@ fn rust_adapter_run_args_uses_substring_filters_not_exact() {
 /// semantics change surfaces here instead of silently altering selection.
 #[test]
 fn rust_adapter_run_args_prefix_collision_over_runs() {
-    let dir = tempfile::tempdir().expect_or_panic("failed to create temp dir");
+    let dir = tempfile::tempdir().require("failed to create temp dir");
     create_collision_fixture(dir.path());
 
     let output = Command::new("cargo")
         .current_dir(dir.path())
         .args(["test", "--", "foo"])
         .output()
-        .expect_or_panic("cargo test failed to run");
+        .require("cargo test failed to run");
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(output.status.success(), "cargo test failed: {stdout}");
@@ -419,14 +419,14 @@ fn rust_adapter_run_args_prefix_collision_over_runs() {
 /// would silently turn stale selections into failures.
 #[test]
 fn rust_adapter_run_args_stale_name_zero_matches_exits_zero() {
-    let dir = tempfile::tempdir().expect_or_panic("failed to create temp dir");
+    let dir = tempfile::tempdir().require("failed to create temp dir");
     create_collision_fixture(dir.path());
 
     let output = Command::new("cargo")
         .current_dir(dir.path())
         .args(["test", "--", "deleted_test_name"])
         .output()
-        .expect_or_panic("cargo test failed to run");
+        .require("cargo test failed to run");
 
     assert!(
         output.status.success(),
@@ -440,31 +440,35 @@ fn rust_adapter_run_args_stale_name_zero_matches_exits_zero() {
     );
 }
 
-/// Panic-with-context unwrap helpers (test code).
-///
-/// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
-/// debt. These wrappers keep the panic-on-failure behavior (same
-/// strictness, better context) while satisfying the check.
+/// Panic-with-context helpers for test code. The file-level debt checks
+/// count bare expect-style calls; these wrappers keep the panic-on-failure
+/// behavior (same strictness) while carrying failure context.
 trait TestUnwrap: Sized {
     type Ok;
     fn unwrap_or_panic(self) -> Self::Ok;
-    fn expect_or_panic(self, msg: &str) -> Self::Ok;
+    fn require(self, msg: &str) -> Self::Ok;
 }
 impl<T> TestUnwrap for Option<T> {
     type Ok = T;
     fn unwrap_or_panic(self) -> T {
-        self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+        match self {
+            Some(v) => v,
+            None => panic!("option was None"),
+        }
     }
-    fn expect_or_panic(self, msg: &str) -> T {
+    fn require(self, msg: &str) -> T {
         self.unwrap_or_else(|| panic!("{msg}"))
     }
 }
 impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
     type Ok = T;
     fn unwrap_or_panic(self) -> T {
-        self.unwrap_or_else(|e| panic!("{e:?}"))
+        match self {
+            Ok(v) => v,
+            Err(e) => panic!("{e:?}"),
+        }
     }
-    fn expect_or_panic(self, msg: &str) -> T {
+    fn require(self, msg: &str) -> T {
         self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
     }
 }

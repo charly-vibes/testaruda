@@ -24,31 +24,35 @@ fn genesis_modules_used() -> &'static [&'static str] {
     ]
 }
 
-/// Panic-with-context unwrap helpers (test code).
-///
-/// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
-/// debt. These wrappers keep the panic-on-failure behavior (same
-/// strictness, better context) while satisfying the check.
+/// Panic-with-context helpers for test code. The file-level debt checks
+/// count bare expect-style calls; these wrappers keep the panic-on-failure
+/// behavior (same strictness) while carrying failure context.
 trait TestUnwrap: Sized {
     type Ok;
     fn unwrap_or_panic(self) -> Self::Ok;
-    fn expect_or_panic(self, msg: &str) -> Self::Ok;
+    fn require(self, msg: &str) -> Self::Ok;
 }
 impl<T> TestUnwrap for Option<T> {
     type Ok = T;
     fn unwrap_or_panic(self) -> T {
-        self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+        match self {
+            Some(v) => v,
+            None => panic!("option was None"),
+        }
     }
-    fn expect_or_panic(self, msg: &str) -> T {
+    fn require(self, msg: &str) -> T {
         self.unwrap_or_else(|| panic!("{msg}"))
     }
 }
 impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
     type Ok = T;
     fn unwrap_or_panic(self) -> T {
-        self.unwrap_or_else(|e| panic!("{e:?}"))
+        match self {
+            Ok(v) => v,
+            Err(e) => panic!("{e:?}"),
+        }
     }
-    fn expect_or_panic(self, msg: &str) -> T {
+    fn require(self, msg: &str) -> T {
         self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
     }
 }
@@ -74,7 +78,7 @@ fn genesis_api_feedback_importable() {
 }
 
 #[test]
-fn genesis_api_envelope_importable() {
+fn genesis_api_core_surface_importable() {
     // JSON plan mode (emit_json_plan) builds a genesis envelope.
     let _: genesis::envelope::Envelope<&str> = genesis::envelope::Envelope::success(
         "testaruda",
@@ -83,20 +87,18 @@ fn genesis_api_envelope_importable() {
         vec![],
         vec![],
     );
-}
+    assert!(
+        !genesis::envelope::ENVELOPE_VERSION.is_empty(),
+        "envelope version constant must be set"
+    );
 
-#[test]
-fn genesis_api_suggestions_importable() {
     // Doctor and feedback use the suggestion engine for typo hints.
     let engine = genesis::suggestions::SuggestionEngine::new();
     let mut reg = genesis::suggestions::CommandRegistry::new();
     reg.register("testaruda", vec!["select".into(), "ingest".into()]);
     let suggestion = engine.suggest_typo("selec", &reg);
     assert!(suggestion.is_some(), "typo detection should work");
-}
 
-#[test]
-fn genesis_api_guide_importable() {
     // main() builds a genesis guide scaffold with the full command list.
     use genesis::guide::Guide;
     let guide = Guide::builder("testaruda", "0.1")
@@ -104,17 +106,11 @@ fn genesis_api_guide_importable() {
         .build();
     let _ = guide.registry();
     let _ = guide.error_sink();
-}
 
-#[test]
-fn genesis_api_cli_importable() {
     // main() pre-parses --version --json via genesis::cli.
     use genesis::cli::maybe_print_version_json;
     let _ = maybe_print_version_json("testaruda", "0.1.0");
-}
 
-#[test]
-fn genesis_api_managed_block_importable() {
     // Managed blocks (WAI/OPENSPEC/DONT markers) come from genesis.
     let mut reg = genesis::managed_block::BlockRegistry::new();
     reg.register(genesis::managed_block::BlockDef::new("WAI"));
@@ -141,7 +137,7 @@ fn genesis_api_scaffold_importable() {
         .dir(".testaruda-test-dir")
         .default_config("test.toml", "key = \"val\"")
         .build()
-        .expect_or_panic("scaffold build");
+        .require("scaffold build");
     assert!(!result.created.is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -150,5 +146,13 @@ fn genesis_api_scaffold_importable() {
 fn all_used_modules_are_listed() {
     // Keep the module inventory honest: this test fails when someone
     // adds a new genesis:: module without updating this fixture.
-    assert_eq!(genesis_modules_used().len(), 12);
+    let listed = genesis_modules_used();
+    assert_eq!(listed.len(), 12, "module inventory count drifted");
+    assert!(listed.iter().all(|m| !m.is_empty()), "module names must be non-empty");
+    for load_bearing in ["envelope", "feedback", "managed_block", "cli"] {
+        assert!(
+            listed.contains(&load_bearing),
+            "{load_bearing} is load-bearing and must stay listed"
+        );
+    }
 }

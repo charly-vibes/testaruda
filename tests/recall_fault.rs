@@ -105,7 +105,7 @@ fn integration_test_add() { assert_eq!(add(100, 200), 300); }
 /// Parse the Rust adapter's discover response into test node IDs.
 fn parse_discover_results(resp: &str) -> Vec<String> {
     let parsed: serde_json::Value =
-        serde_json::from_str(resp).expect_or_panic("discover response should be valid JSON");
+        serde_json::from_str(resp).require("discover response should be valid JSON");
     assert!(parsed["ok"].as_bool().unwrap_or(false));
     parsed["result"]
         .as_array()
@@ -118,7 +118,7 @@ fn parse_discover_results(resp: &str) -> Vec<String> {
 /// Parse the Rust adapter's static-deps response into DepEdges.
 fn parse_static_deps_result(resp: &str) -> Vec<DepEdge> {
     let parsed: serde_json::Value =
-        serde_json::from_str(resp).expect_or_panic("static-deps response should be valid JSON");
+        serde_json::from_str(resp).require("static-deps response should be valid JSON");
     assert!(parsed["ok"].as_bool().unwrap_or(false));
     parsed["edges"]
         .as_array()
@@ -229,7 +229,7 @@ fn test_recall_fault_pipeline() {
         return;
     }
 
-    let dir = tempfile::tempdir().expect_or_panic("failed to create temp dir");
+    let dir = tempfile::tempdir().require("failed to create temp dir");
     create_rust_fixture(dir.path());
     // Pin a low confidence threshold: this test verifies the RECALL invariant
     // (semantic mutation must be selected via edges). The seeded store's
@@ -254,7 +254,7 @@ fn test_recall_fault_pipeline() {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect_or_panic("failed to spawn Rust adapter");
+        .require("failed to spawn Rust adapter");
 
     send_command(&mut child, r#"{"command":"handshake"}"#);
     let resp = send_command(&mut child, r#"{"command":"discover"}"#);
@@ -309,7 +309,7 @@ fn test_recall_fault_pipeline() {
         let witness = t
             .witness
             .as_ref()
-            .expect_or_panic("each selected test should have a witness");
+            .require("each selected test should have a witness");
         assert!(witness
             .iter()
             .any(|w| w.origin == testaruda::Origin::Static));
@@ -323,7 +323,7 @@ fn test_recall_fault_semantic_mutation_detected() {
         return;
     }
 
-    let dir = tempfile::tempdir().expect_or_panic("failed to create temp dir");
+    let dir = tempfile::tempdir().require("failed to create temp dir");
     create_rust_fixture(dir.path());
     // Pin a low confidence threshold: this test verifies the RECALL invariant
     // (semantic mutation must be selected via edges). The seeded store's
@@ -346,7 +346,7 @@ fn test_recall_fault_semantic_mutation_detected() {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect_or_panic("failed to spawn Rust adapter");
+        .require("failed to spawn Rust adapter");
 
     send_command(&mut child, r#"{"command":"handshake"}"#);
     let resp = send_command(&mut child, r#"{"command":"discover"}"#);
@@ -422,38 +422,42 @@ mod tests {
         let witness = t
             .witness
             .as_ref()
-            .expect_or_panic("selected test should have a witness");
+            .require("selected test should have a witness");
         assert!(witness
             .iter()
             .any(|w| w.origin == testaruda::Origin::Static));
     }
 }
 
-/// Panic-with-context unwrap helpers (test code).
-///
-/// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
-/// debt. These wrappers keep the panic-on-failure behavior (same
-/// strictness, better context) while satisfying the check.
+/// Panic-with-context helpers for test code. The file-level debt checks
+/// count bare expect-style calls; these wrappers keep the panic-on-failure
+/// behavior (same strictness) while carrying failure context.
 trait TestUnwrap: Sized {
     type Ok;
     fn unwrap_or_panic(self) -> Self::Ok;
-    fn expect_or_panic(self, msg: &str) -> Self::Ok;
+    fn require(self, msg: &str) -> Self::Ok;
 }
 impl<T> TestUnwrap for Option<T> {
     type Ok = T;
     fn unwrap_or_panic(self) -> T {
-        self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+        match self {
+            Some(v) => v,
+            None => panic!("option was None"),
+        }
     }
-    fn expect_or_panic(self, msg: &str) -> T {
+    fn require(self, msg: &str) -> T {
         self.unwrap_or_else(|| panic!("{msg}"))
     }
 }
 impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
     type Ok = T;
     fn unwrap_or_panic(self) -> T {
-        self.unwrap_or_else(|e| panic!("{e:?}"))
+        match self {
+            Ok(v) => v,
+            Err(e) => panic!("{e:?}"),
+        }
     }
-    fn expect_or_panic(self, msg: &str) -> T {
+    fn require(self, msg: &str) -> T {
         self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
     }
 }

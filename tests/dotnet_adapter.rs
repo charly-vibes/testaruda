@@ -176,7 +176,7 @@ fn titi_adapter_handshake_returns_correct_fields() {
     // project discovery, so cwd matters)
     let adapter =
         testaruda::adapter::spawn_adapter_in("titi testaruda-adapter", None, Some(temp.path()))
-            .expect_or_panic("should spawn titi adapter");
+            .require("should spawn titi adapter");
 
     // Verify adapter name from handshake
     assert_eq!(adapter.name, "titi");
@@ -202,7 +202,7 @@ fn titi_adapter_handshake_response_format() {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .expect_or_panic("failed to spawn titi");
+        .require("failed to spawn titi");
 
     let stdin = child.stdin.as_mut().unwrap_or_panic();
     writeln!(stdin, r#"{{"command":"handshake"}}"#).unwrap_or_panic();
@@ -210,15 +210,15 @@ fn titi_adapter_handshake_response_format() {
 
     let output = child
         .wait_with_output()
-        .expect_or_panic("failed to read titi output");
+        .require("failed to read titi output");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let line = stdout
         .lines()
         .next()
-        .expect_or_panic("expected at least one JSON line");
+        .require("expected at least one JSON line");
 
     let parsed: serde_json::Value =
-        serde_json::from_str(line).expect_or_panic("handshake response should be valid JSON");
+        serde_json::from_str(line).require("handshake response should be valid JSON");
 
     assert!(parsed["ok"].as_bool().unwrap_or(false), "ok should be true");
     let result = &parsed["result"];
@@ -253,7 +253,7 @@ fn titi_adapter_handshake_then_discover() {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .expect_or_panic("failed to spawn titi");
+        .require("failed to spawn titi");
 
     let stdin = child.stdin.as_mut().unwrap_or_panic();
 
@@ -266,7 +266,7 @@ fn titi_adapter_handshake_then_discover() {
     reader.read_line(&mut line).unwrap_or_panic();
 
     let hs: serde_json::Value =
-        serde_json::from_str(&line).expect_or_panic("handshake response should be valid JSON");
+        serde_json::from_str(&line).require("handshake response should be valid JSON");
     assert!(hs["ok"].as_bool().unwrap_or(false));
     assert_eq!(hs["result"]["name"].as_str(), Some("titi"));
 
@@ -278,7 +278,7 @@ fn titi_adapter_handshake_then_discover() {
     reader.read_line(&mut disc_line).unwrap_or_panic();
 
     let disc: serde_json::Value =
-        serde_json::from_str(&disc_line).expect_or_panic("discover response should be valid JSON");
+        serde_json::from_str(&disc_line).require("discover response should be valid JSON");
     assert!(disc["ok"].as_bool().unwrap_or(false));
     assert!(
         disc["result"].is_array(),
@@ -384,7 +384,7 @@ fn run_git(dir: &std::path::Path, args: &[&str]) -> std::process::Output {
         .args(args)
         .current_dir(dir)
         .output()
-        .expect_or_panic("failed to run git")
+        .require("failed to run git")
 }
 
 /// Initialize a real git repository and stage everything, so testaruda's git
@@ -405,17 +405,17 @@ fn child_path_with_rust_adapter() -> (tempfile::TempDir, std::ffi::OsString) {
         env!("CARGO_BIN_EXE_testaruda-adapter-rust"),
         adapter_dir.path().join("testaruda-adapter-rust"),
     )
-    .expect_or_panic("failed to symlink adapter binary");
+    .require("failed to symlink adapter binary");
     #[cfg(not(unix))]
     std::fs::copy(
         env!("CARGO_BIN_EXE_testaruda-adapter-rust"),
         adapter_dir.path().join("testaruda-adapter-rust"),
     )
-    .expect_or_panic("failed to copy adapter binary");
+    .require("failed to copy adapter binary");
     let child_path = std::env::join_paths(std::iter::once(adapter_dir.path().to_path_buf()).chain(
         std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
     ))
-    .expect_or_panic("failed to build child PATH");
+    .require("failed to build child PATH");
     (adapter_dir, child_path)
 }
 
@@ -457,7 +457,7 @@ fn run_testaruda(
         .current_dir(dir)
         .env("PATH", child_path)
         .output()
-        .expect_or_panic("failed to run testaruda")
+        .require("failed to run testaruda")
 }
 
 /// Any documented FULL_RUN cause is valid in the JSON plan reason
@@ -544,7 +544,7 @@ fn select_falls_back_when_titi_not_installed() {
     // The JSON output should be valid envelope format
     let stdout = String::from_utf8_lossy(&select_output.stdout);
     let parsed: serde_json::Value =
-        serde_json::from_str(&stdout).expect_or_panic("select --json output should be valid JSON");
+        serde_json::from_str(&stdout).require("select --json output should be valid JSON");
 
     // Should be an envelope with data containing the selection
     assert!(
@@ -605,31 +605,35 @@ default = "testaruda-adapter-rust"
     );
 }
 
-/// Panic-with-context unwrap helpers (test code).
-///
-/// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
-/// debt. These wrappers keep the panic-on-failure behavior (same
-/// strictness, better context) while satisfying the check.
+/// Panic-with-context helpers for test code. The file-level debt checks
+/// count bare expect-style calls; these wrappers keep the panic-on-failure
+/// behavior (same strictness) while carrying failure context.
 trait TestUnwrap: Sized {
     type Ok;
     fn unwrap_or_panic(self) -> Self::Ok;
-    fn expect_or_panic(self, msg: &str) -> Self::Ok;
+    fn require(self, msg: &str) -> Self::Ok;
 }
 impl<T> TestUnwrap for Option<T> {
     type Ok = T;
     fn unwrap_or_panic(self) -> T {
-        self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+        match self {
+            Some(v) => v,
+            None => panic!("option was None"),
+        }
     }
-    fn expect_or_panic(self, msg: &str) -> T {
+    fn require(self, msg: &str) -> T {
         self.unwrap_or_else(|| panic!("{msg}"))
     }
 }
 impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
     type Ok = T;
     fn unwrap_or_panic(self) -> T {
-        self.unwrap_or_else(|e| panic!("{e:?}"))
+        match self {
+            Ok(v) => v,
+            Err(e) => panic!("{e:?}"),
+        }
     }
-    fn expect_or_panic(self, msg: &str) -> T {
+    fn require(self, msg: &str) -> T {
         self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
     }
 }

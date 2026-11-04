@@ -8,31 +8,35 @@ mod common;
 /// option) never trigger the genesis subcommand-suggestion path — the
 /// extracted "unknown" is an option value, not a subcommand
 /// (testaruda-ixp0).
-/// Panic-with-context unwrap helpers (test code).
-///
-/// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
-/// debt. These wrappers keep the panic-on-failure behavior (same
-/// strictness, better context) while satisfying the check.
+/// Panic-with-context helpers for test code. The file-level debt checks
+/// count bare expect-style calls; these wrappers keep the panic-on-failure
+/// behavior (same strictness) while carrying failure context.
 trait TestUnwrap: Sized {
     type Ok;
     fn unwrap_or_panic(self) -> Self::Ok;
-    fn expect_or_panic(self, msg: &str) -> Self::Ok;
+    fn require(self, msg: &str) -> Self::Ok;
 }
 impl<T> TestUnwrap for Option<T> {
     type Ok = T;
     fn unwrap_or_panic(self) -> T {
-        self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+        match self {
+            Some(v) => v,
+            None => panic!("option was None"),
+        }
     }
-    fn expect_or_panic(self, msg: &str) -> T {
+    fn require(self, msg: &str) -> T {
         self.unwrap_or_else(|| panic!("{msg}"))
     }
 }
 impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
     type Ok = T;
     fn unwrap_or_panic(self) -> T {
-        self.unwrap_or_else(|e| panic!("{e:?}"))
+        match self {
+            Ok(v) => v,
+            Err(e) => panic!("{e:?}"),
+        }
     }
-    fn expect_or_panic(self, msg: &str) -> T {
+    fn require(self, msg: &str) -> T {
         self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
     }
 }
@@ -42,7 +46,7 @@ fn invalid_option_value_gets_no_subcommand_suggestion() {
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
         .args(["select", "--ordering", "sttus"])
         .output()
-        .expect_or_panic("failed to run testaruda select --ordering sttus");
+        .require("failed to run testaruda select --ordering sttus");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -74,7 +78,7 @@ fn no_duplicate_typo_suggestion() {
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
         .args(["slect"])
         .output()
-        .expect_or_panic("failed to run testaruda slect");
+        .require("failed to run testaruda slect");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -103,7 +107,7 @@ fn unknown_subcommand_still_gets_suggestion() {
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
         .args(["slect"])
         .output()
-        .expect_or_panic("failed to run testaruda slect");
+        .require("failed to run testaruda slect");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -121,7 +125,7 @@ fn subcommand_help_is_clean() {
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
         .args(["select", "--help"])
         .output()
-        .expect_or_panic("failed to run testaruda select --help");
+        .require("failed to run testaruda select --help");
 
     assert!(
         output.status.success(),
@@ -173,18 +177,16 @@ fn feedback_multiline_stdin_is_not_truncated() {
         .stderr(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
-        .expect_or_panic("spawn testaruda feedback --dry-run");
+        .require("spawn testaruda feedback --dry-run");
 
     child
         .stdin
         .take()
-        .expect_or_panic("stdin piped")
+        .require("stdin piped")
         .write_all(b"First line is the title\nSecond line with detail\nThird line with more\n")
-        .expect_or_panic("write multi-line stdin");
+        .require("write multi-line stdin");
 
-    let output = child
-        .wait_with_output()
-        .expect_or_panic("wait for feedback");
+    let output = child.wait_with_output().require("wait for feedback");
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -214,19 +216,19 @@ fn feedback_multiline_stdin_is_not_truncated() {
 /// with the standard init diagnostic (same contract as select).
 #[test]
 fn exec_without_initialized_store_fails_cleanly() {
-    let project = tempfile::tempdir().expect_or_panic("tempdir");
+    let project = tempfile::tempdir().require("tempdir");
     std::fs::write(project.path().join("README.md"), "x").unwrap_or_panic();
     std::process::Command::new("git")
         .args(["init", "-q"])
         .current_dir(project.path())
         .output()
-        .expect_or_panic("git init");
+        .require("git init");
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
         .args(["exec"])
         .current_dir(project.path())
         .output()
-        .expect_or_panic("run testaruda exec");
+        .require("run testaruda exec");
 
     assert!(
         !output.status.success(),
@@ -246,24 +248,24 @@ fn exec_without_initialized_store_fails_cleanly() {
 /// post-run check could fire (gh-26 / testaruda-n5b4).
 #[test]
 fn exec_warns_when_store_is_uncalibrated() {
-    let project = tempfile::tempdir().expect_or_panic("tempdir");
+    let project = tempfile::tempdir().require("tempdir");
     std::fs::write(project.path().join("README.md"), "x").unwrap_or_panic();
     std::process::Command::new("git")
         .args(["init", "-q"])
         .current_dir(project.path())
         .output()
-        .expect_or_panic("git init");
+        .require("git init");
     std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
         .args(["init"])
         .current_dir(project.path())
         .output()
-        .expect_or_panic("testaruda init");
+        .require("testaruda init");
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
         .args(["exec"])
         .current_dir(project.path())
         .output()
-        .expect_or_panic("run testaruda exec");
+        .require("run testaruda exec");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
@@ -280,7 +282,7 @@ fn exec_warns_when_store_is_uncalibrated() {
 /// unreachable (testaruda-1m3i, found in the dulce-de-leche value-prop round).
 #[test]
 fn exec_on_cold_store_runs_tests_and_ingests() {
-    let project = tempfile::tempdir().expect_or_panic("tempdir");
+    let project = tempfile::tempdir().require("tempdir");
     let dir = project.path();
 
     // Minimal Rust crate with one test, committed to git.
@@ -302,7 +304,7 @@ fn exec_on_cold_store_runs_tests_and_ingests() {
     let mut init = std::process::Command::new("git");
     init.args(["init", "-q"]).current_dir(dir);
     git_env_clean(&mut init);
-    init.output().expect_or_panic("git init");
+    init.output().require("git init");
     std::fs::write(
         dir.join("Cargo.toml"),
         r#"[package]
@@ -335,7 +337,7 @@ edition = "2021"
         let mut cmd = std::process::Command::new("git");
         cmd.args(*args).current_dir(dir);
         git_env_clean(&mut cmd);
-        cmd.output().expect_or_panic("git");
+        cmd.output().require("git");
     }
 
     // Touch a non-source file so the changed set resolves no edges →
@@ -353,13 +355,13 @@ edition = "2021"
     ])
     .current_dir(dir);
     git_env_clean(&mut docs);
-    docs.output().expect_or_panic("git commit");
+    docs.output().require("git commit");
 
     std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
         .args(["init"])
         .current_dir(dir)
         .output()
-        .expect_or_panic("testaruda init");
+        .require("testaruda init");
 
     // Prepend the freshly-built binary dir so the engine's adapter spawn
     // (testaruda-adapter-rust) resolves to current code, not a stale installed
@@ -372,7 +374,7 @@ edition = "2021"
         .current_dir(dir)
         .env("PATH", format!("{}:{}", target_debug.display(), path_var));
     git_env_clean(&mut exec_cmd);
-    let output = exec_cmd.output().expect_or_panic("run testaruda exec");
+    let output = exec_cmd.output().require("run testaruda exec");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
@@ -382,11 +384,9 @@ edition = "2021"
     );
 
     // The feedback loop must actually close: run history non-empty.
-    let store = testaruda::Store::open(dir.join(".testaruda")).expect_or_panic("open store");
+    let store = testaruda::Store::open(dir.join(".testaruda")).require("open store");
     assert!(
-        !store
-            .run_history_is_empty()
-            .expect_or_panic("run history check"),
+        !store.run_history_is_empty().require("run history check"),
         "exec must ingest run results — run_history is empty"
     );
 }

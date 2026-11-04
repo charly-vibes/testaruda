@@ -24,6 +24,9 @@
 //! testaruda ingest        # Ingest run results to update the model
 //! ```
 
+#[cfg(test)]
+pub(crate) mod test_util;
+
 pub mod adapter;
 mod change;
 mod cli;

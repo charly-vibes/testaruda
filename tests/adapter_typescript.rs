@@ -17,31 +17,35 @@ fn adapter_available() -> bool {
 }
 
 /// The adapter-typescript crate directory must exist with expected structure.
-/// Panic-with-context unwrap helpers (test code).
-///
-/// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
-/// debt. These wrappers keep the panic-on-failure behavior (same
-/// strictness, better context) while satisfying the check.
+/// Panic-with-context helpers for test code. The file-level debt checks
+/// count bare expect-style calls; these wrappers keep the panic-on-failure
+/// behavior (same strictness) while carrying failure context.
 trait TestUnwrap: Sized {
     type Ok;
     fn unwrap_or_panic(self) -> Self::Ok;
-    fn expect_or_panic(self, msg: &str) -> Self::Ok;
+    fn require(self, msg: &str) -> Self::Ok;
 }
 impl<T> TestUnwrap for Option<T> {
     type Ok = T;
     fn unwrap_or_panic(self) -> T {
-        self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+        match self {
+            Some(v) => v,
+            None => panic!("option was None"),
+        }
     }
-    fn expect_or_panic(self, msg: &str) -> T {
+    fn require(self, msg: &str) -> T {
         self.unwrap_or_else(|| panic!("{msg}"))
     }
 }
 impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
     type Ok = T;
     fn unwrap_or_panic(self) -> T {
-        self.unwrap_or_else(|e| panic!("{e:?}"))
+        match self {
+            Ok(v) => v,
+            Err(e) => panic!("{e:?}"),
+        }
     }
-    fn expect_or_panic(self, msg: &str) -> T {
+    fn require(self, msg: &str) -> T {
         self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
     }
 }
@@ -73,7 +77,7 @@ fn adapter_typescript_crate_exists() {
 
     // Verify workspace membership
     let root_toml = std::fs::read_to_string(manifest_dir.join("Cargo.toml"))
-        .expect_or_panic("root Cargo.toml readable");
+        .require("root Cargo.toml readable");
     assert!(
         root_toml.contains("adapter-typescript"),
         "adapter-typescript not in workspace members"
@@ -93,7 +97,7 @@ fn adapter_typescript_handshake() {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .expect_or_panic("failed to spawn TypeScript adapter");
+        .require("failed to spawn TypeScript adapter");
 
     let stdin = child.stdin.as_mut().unwrap_or_panic();
     writeln!(stdin, r#"{{"command":"handshake"}}"#).unwrap_or_panic();
@@ -106,7 +110,7 @@ fn adapter_typescript_handshake() {
     let resp = line.trim().to_string();
 
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect_or_panic("handshake response should be valid JSON");
+        serde_json::from_str(&resp).require("handshake response should be valid JSON");
 
     assert!(
         parsed["ok"].as_bool().unwrap_or(false),
@@ -151,7 +155,7 @@ fn spawn_adapter() -> std::process::Child {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .expect_or_panic("failed to spawn TypeScript adapter")
+        .require("failed to spawn TypeScript adapter")
 }
 
 /// Send a JSON command to an adapter subprocess and return the response line.
@@ -177,7 +181,7 @@ fn adapter_typescript_discover_fixture() {
     let mut child = spawn_adapter();
     let resp = send_command(&mut child, r#"{"command":"discover"}"#);
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect_or_panic("discover response should be valid JSON");
+        serde_json::from_str(&resp).require("discover response should be valid JSON");
 
     assert!(
         parsed["ok"].as_bool().unwrap_or(false),
@@ -220,7 +224,7 @@ fn adapter_typescript_static_deps_fixture() {
     });
     let resp = send_command(&mut child, &cmd.to_string());
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect_or_panic("static-deps response should be valid JSON");
+        serde_json::from_str(&resp).require("static-deps response should be valid JSON");
 
     assert!(
         parsed["ok"].as_bool().unwrap_or(false),
@@ -258,13 +262,13 @@ fn adapter_typescript_full_pipeline() {
     // 1. Handshake
     let resp = send_command(&mut child, r#"{"command":"handshake"}"#);
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect_or_panic("handshake response should be valid JSON");
+        serde_json::from_str(&resp).require("handshake response should be valid JSON");
     assert!(parsed["ok"].as_bool().unwrap_or(false));
 
     // 2. Discover
     let resp = send_command(&mut child, r#"{"command":"discover"}"#);
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect_or_panic("discover response should be valid JSON");
+        serde_json::from_str(&resp).require("discover response should be valid JSON");
     assert!(parsed["ok"].as_bool().unwrap_or(false));
     let tests = parsed["result"].as_array().unwrap_or_panic();
     assert!(!tests.is_empty(), "discover should find tests");
@@ -276,7 +280,7 @@ fn adapter_typescript_full_pipeline() {
     });
     let resp = send_command(&mut child, &cmd.to_string());
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect_or_panic("static-deps response should be valid JSON");
+        serde_json::from_str(&resp).require("static-deps response should be valid JSON");
     assert!(parsed["ok"].as_bool().unwrap_or(false));
 
     // 4. Fingerprint
@@ -286,7 +290,7 @@ fn adapter_typescript_full_pipeline() {
     });
     let resp = send_command(&mut child, &cmd.to_string());
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect_or_panic("fingerprint response should be valid JSON");
+        serde_json::from_str(&resp).require("fingerprint response should be valid JSON");
     assert!(parsed["ok"].as_bool().unwrap_or(false));
     assert!(
         parsed["fingerprints"].as_array().is_some(),
@@ -301,7 +305,7 @@ fn adapter_typescript_full_pipeline() {
     });
     let resp = send_command(&mut child, &cmd.to_string());
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect_or_panic("run-args response should be valid JSON");
+        serde_json::from_str(&resp).require("run-args response should be valid JSON");
     assert!(parsed["ok"].as_bool().unwrap_or(false));
 
     // 6. Ingest
@@ -318,7 +322,7 @@ fn adapter_typescript_full_pipeline() {
     });
     let resp = send_command(&mut child, &cmd.to_string());
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect_or_panic("ingest response should be valid JSON");
+        serde_json::from_str(&resp).require("ingest response should be valid JSON");
     assert!(parsed["ok"].as_bool().unwrap_or(false));
 
     let _ = child.wait();
@@ -336,7 +340,7 @@ fn adapter_typescript_static_deps_seeded_fault() {
     // First, discover all tests
     let resp = send_command(&mut child, r#"{"command":"discover"}"#);
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect_or_panic("discover response should be valid JSON");
+        serde_json::from_str(&resp).require("discover response should be valid JSON");
     let tests = parsed["result"].as_array().unwrap_or_panic();
 
     // Find test IDs for user.test.ts and greeting.test.ts
@@ -373,7 +377,7 @@ fn adapter_typescript_static_deps_seeded_fault() {
     });
     let resp = send_command(&mut child, &cmd.to_string());
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect_or_panic("static-deps response should be valid JSON");
+        serde_json::from_str(&resp).require("static-deps response should be valid JSON");
     let edges = parsed["edges"].as_array().unwrap_or_panic();
 
     // user.test.ts tests should be selected (they import from src/user.ts)

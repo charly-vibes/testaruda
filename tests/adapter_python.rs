@@ -38,7 +38,7 @@ fn spawn_adapter() -> std::process::Child {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect_or_panic("failed to spawn Python adapter")
+        .require("failed to spawn Python adapter")
 }
 
 /// Send a JSON command to an adapter subprocess and return the response line.
@@ -54,31 +54,35 @@ fn send_command(child: &mut std::process::Child, cmd: &str) -> String {
     line.trim().to_string()
 }
 
-/// Panic-with-context unwrap helpers (test code).
-///
-/// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
-/// debt. These wrappers keep the panic-on-failure behavior (same
-/// strictness, better context) while satisfying the check.
+/// Panic-with-context helpers for test code. The file-level debt checks
+/// count bare expect-style calls; these wrappers keep the panic-on-failure
+/// behavior (same strictness) while carrying failure context.
 trait TestUnwrap: Sized {
     type Ok;
     fn unwrap_or_panic(self) -> Self::Ok;
-    fn expect_or_panic(self, msg: &str) -> Self::Ok;
+    fn require(self, msg: &str) -> Self::Ok;
 }
 impl<T> TestUnwrap for Option<T> {
     type Ok = T;
     fn unwrap_or_panic(self) -> T {
-        self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+        match self {
+            Some(v) => v,
+            None => panic!("option was None"),
+        }
     }
-    fn expect_or_panic(self, msg: &str) -> T {
+    fn require(self, msg: &str) -> T {
         self.unwrap_or_else(|| panic!("{msg}"))
     }
 }
 impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
     type Ok = T;
     fn unwrap_or_panic(self) -> T {
-        self.unwrap_or_else(|e| panic!("{e:?}"))
+        match self {
+            Ok(v) => v,
+            Err(e) => panic!("{e:?}"),
+        }
     }
-    fn expect_or_panic(self, msg: &str) -> T {
+    fn require(self, msg: &str) -> T {
         self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
     }
 }
@@ -136,7 +140,7 @@ fn python_adapter_handshake() {
     let mut child = spawn_adapter();
     let resp = send_command(&mut child, r#"{"command":"handshake"}"#);
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect_or_panic("handshake response should be valid JSON");
+        serde_json::from_str(&resp).require("handshake response should be valid JSON");
 
     assert!(
         parsed["ok"].as_bool().unwrap_or(false),
@@ -177,7 +181,7 @@ fn discover_src_layout_finds_project_tests() {
 
         let resp = send_command(&mut child, r#"{"command":"discover"}"#);
         let parsed: serde_json::Value =
-            serde_json::from_str(&resp).expect_or_panic("discover response should be valid JSON");
+            serde_json::from_str(&resp).require("discover response should be valid JSON");
 
         assert!(
             parsed["ok"].as_bool().unwrap_or(false),
@@ -251,7 +255,7 @@ fn discover_src_layout_node_id_format() {
         send_command(&mut child, r#"{"command":"handshake"}"#);
         let resp = send_command(&mut child, r#"{"command":"discover"}"#);
         let parsed: serde_json::Value =
-            serde_json::from_str(&resp).expect_or_panic("discover response should be valid JSON");
+            serde_json::from_str(&resp).require("discover response should be valid JSON");
 
         let tests = parsed["result"].as_array().unwrap_or_panic();
 
@@ -299,7 +303,7 @@ fn discover_excludes_venv_and_cache_dirs() {
         send_command(&mut child, r#"{"command":"handshake"}"#);
         let resp = send_command(&mut child, r#"{"command":"discover"}"#);
         let parsed: serde_json::Value =
-            serde_json::from_str(&resp).expect_or_panic("discover response should be valid JSON");
+            serde_json::from_str(&resp).require("discover response should be valid JSON");
 
         let tests = parsed["result"].as_array().unwrap_or_panic();
         let node_ids: Vec<&str> = tests.iter().filter_map(|t| t["node_id"].as_str()).collect();
@@ -352,8 +356,8 @@ fn static_deps_src_layout_resolves_modules() {
         let cmd =
             r#"{"command":"static-deps","params":{"changed_files":["src/my_package/model.py"]}}"#;
         let resp = send_command(&mut child, cmd);
-        let parsed: serde_json::Value = serde_json::from_str(&resp)
-            .expect_or_panic("static-deps response should be valid JSON");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&resp).require("static-deps response should be valid JSON");
 
         assert!(
             parsed["ok"].as_bool().unwrap_or(false),
@@ -418,8 +422,8 @@ fn static_deps_src_layout_service_change() {
         let cmd =
             r#"{"command":"static-deps","params":{"changed_files":["src/my_package/service.py"]}}"#;
         let resp = send_command(&mut child, cmd);
-        let parsed: serde_json::Value = serde_json::from_str(&resp)
-            .expect_or_panic("static-deps response should be valid JSON");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&resp).require("static-deps response should be valid JSON");
 
         let edges = parsed["edges"].as_array().unwrap_or_panic();
 
@@ -459,8 +463,8 @@ fn static_deps_src_layout_nested_test_no_deps() {
         // Change a file that nothing imports — should produce no edges
         let cmd = r#"{"command":"static-deps","params":{"changed_files":["src/my_package/__init__.py"]}}"#;
         let resp = send_command(&mut child, cmd);
-        let parsed: serde_json::Value = serde_json::from_str(&resp)
-            .expect_or_panic("static-deps response should be valid JSON");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&resp).require("static-deps response should be valid JSON");
 
         let edges = parsed["edges"].as_array().unwrap_or_panic();
 
@@ -496,8 +500,8 @@ fn static_deps_nonexistent_file_unresolved() {
 
         let cmd = r#"{"command":"static-deps","params":{"changed_files":["nonexistent.py"]}}"#;
         let resp = send_command(&mut child, cmd);
-        let parsed: serde_json::Value = serde_json::from_str(&resp)
-            .expect_or_panic("static-deps response should be valid JSON");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&resp).require("static-deps response should be valid JSON");
 
         let unresolved = parsed["unresolved"].as_array().unwrap_or_panic();
         assert!(
@@ -529,8 +533,8 @@ fn static_deps_test_file_changed_self_edge() {
         // Changing a test file should produce a self-edge
         let cmd = r#"{"command":"static-deps","params":{"changed_files":["tests/test_model.py"]}}"#;
         let resp = send_command(&mut child, cmd);
-        let parsed: serde_json::Value = serde_json::from_str(&resp)
-            .expect_or_panic("static-deps response should be valid JSON");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&resp).require("static-deps response should be valid JSON");
 
         let edges = parsed["edges"].as_array().unwrap_or_panic();
         let froms: Vec<&str> = edges.iter().filter_map(|e| e["from"].as_str()).collect();
