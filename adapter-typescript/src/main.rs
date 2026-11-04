@@ -395,45 +395,10 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
     let project_root = std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf());
     let resolver = resolver::ImportResolver::new(&project_root);
 
-    // Build a map: resolved file path -> list of (test_node_id, test_file)
-    // For each test file, parse its imports and resolve them to concrete file paths.
-    let mut source_to_tests: HashMap<PathBuf, Vec<(String, String)>> = HashMap::new();
+    // Map resolved file path -> list of (test_node_id, test_file) by parsing
+    // each test file's imports and resolving them to concrete file paths.
     let mut visited = HashSet::new();
-
-    for (node_id, file) in &test_files {
-        if let Ok(content) = std::fs::read_to_string(file) {
-            let ext = file.rsplit_once('.').map(|(_, e)| e).unwrap_or("");
-            let imports = parse_imports_from_source(&content, ext);
-            let test_dir = Path::new(file)
-                .parent()
-                .unwrap_or(&project_root)
-                .to_path_buf();
-
-            for imp in imports {
-                // Resolve the import path to find concrete file(s)
-                // First try direct resolution
-                let resolved = resolver.resolve(&test_dir, &imp);
-
-                if let Some(path) = resolved.resolved {
-                    source_to_tests
-                        .entry(path)
-                        .or_default()
-                        .push((node_id.clone(), file.clone()));
-                } else {
-                    // For unresolved imports from test files, try with re-export
-                    // following (handles barrel file re-exports)
-                    let re_exported =
-                        resolver.resolve_with_re_exports(&test_dir, &imp, &mut visited);
-                    for r_path in re_exported {
-                        source_to_tests
-                            .entry(r_path)
-                            .or_default()
-                            .push((node_id.clone(), file.clone()));
-                    }
-                }
-            }
-        }
-    }
+    let source_to_tests = collect_test_imports(&test_files, &project_root, &resolver, &mut visited);
 
     // Normalize changed files to canonical paths for matching
     // The resolver now returns canonical (absolute) paths, so direct lookup
@@ -492,6 +457,72 @@ fn cmd_static_deps(cmd: &serde_json::Value) -> serde_json::Value {
         "unresolved": unresolved,
         "symbol_edges": [],
     })
+}
+
+/// For each test file, parse its imports and resolve them to concrete file
+/// paths, mapping source path -> contributing (node_id, test_file) pairs.
+fn collect_test_imports(
+    test_files: &[(String, String)],
+    project_root: &Path,
+    resolver: &resolver::ImportResolver,
+    visited: &mut HashSet<PathBuf>,
+) -> HashMap<PathBuf, Vec<(String, String)>> {
+    let mut source_to_tests: HashMap<PathBuf, Vec<(String, String)>> = HashMap::new();
+    for (node_id, file) in test_files {
+        let Ok(content) = std::fs::read_to_string(file) else {
+            continue;
+        };
+        let ext = file.rsplit_once('.').map(|(_, e)| e).unwrap_or("");
+        let imports = parse_imports_from_source(&content, ext);
+        let test_dir = Path::new(file)
+            .parent()
+            .unwrap_or(project_root)
+            .to_path_buf();
+        for imp in imports {
+            record_import(
+                &mut source_to_tests,
+                resolver,
+                &test_dir,
+                &imp,
+                node_id,
+                file,
+                visited,
+            );
+        }
+    }
+    source_to_tests
+}
+
+/// Resolve one import (directly first, then through barrel re-exports) and
+/// attribute it to the owning test.
+#[allow(clippy::too_many_arguments)]
+fn record_import(
+    source_to_tests: &mut HashMap<PathBuf, Vec<(String, String)>>,
+    resolver: &resolver::ImportResolver,
+    test_dir: &Path,
+    imp: &str,
+    node_id: &str,
+    file: &str,
+    visited: &mut HashSet<PathBuf>,
+) {
+    // Resolve the import path to find concrete file(s) — direct first.
+    let resolved = resolver.resolve(test_dir, imp);
+    if let Some(path) = resolved.resolved {
+        source_to_tests
+            .entry(path)
+            .or_default()
+            .push((node_id.to_string(), file.to_string()));
+    } else {
+        // For unresolved imports from test files, try with re-export
+        // following (handles barrel file re-exports)
+        let re_exported = resolver.resolve_with_re_exports(test_dir, imp, visited);
+        for r_path in re_exported {
+            source_to_tests
+                .entry(r_path)
+                .or_default()
+                .push((node_id.to_string(), file.to_string()));
+        }
+    }
 }
 
 /// Parse import sources from a TypeScript source file using imports.scm.

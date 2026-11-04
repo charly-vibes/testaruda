@@ -292,38 +292,49 @@ impl ImportResolver {
     /// Resolve a tsconfig path alias (e.g., `@/components/Button`).
     fn resolve_alias(&self, import_path: &str, tsconfig: &TsConfig) -> Option<PathBuf> {
         for (prefix, replacements) in &tsconfig.paths {
-            // Wildcard pattern: "@/*" -> "src/*"
-            if let Some(prefix_wild) = prefix.strip_suffix("/*") {
-                if let Some(rest) = import_path.strip_prefix(prefix_wild) {
-                    // rest starts with '/', strip it
-                    let rest = rest.strip_prefix('/').unwrap_or(rest);
-                    for replacement in replacements {
-                        let replaced = replacement.replace("/*", &format!("/{}", rest));
-                        let candidate = self.base_dir.join(&tsconfig.base_url).join(&replaced);
-                        // Remove trailing "/*" if replacement didn't have wildcard
-                        let clean = if replaced.ends_with("/*") {
-                            candidate.parent().unwrap_or(&candidate).to_path_buf()
-                        } else {
-                            candidate
-                        };
-                        if let Some(resolved) = Self::try_resolve_path(&clean) {
-                            return Some(resolved);
-                        }
-                    }
+            if let Some(rest) = prefix.strip_suffix("/*").and_then(|wild| {
+                import_path
+                    .strip_prefix(wild)
+                    .map(|r| r.strip_prefix('/').unwrap_or(r))
+            }) {
+                // Wildcard pattern: "@/*" -> "src/*"
+                let rest = rest.to_string();
+                if let Some(found) = replacements.iter().find_map(|replacement| {
+                    self.resolve_wildcard_replacement(&rest, tsconfig, replacement)
+                }) {
+                    return Some(found);
                 }
-            } else {
+            } else if import_path == prefix {
                 // Non-wildcard pattern: "@utils" -> ["src/utils.ts"]
-                if import_path == prefix {
-                    for replacement in replacements {
-                        let candidate = self.base_dir.join(&tsconfig.base_url).join(replacement);
-                        if let Some(resolved) = Self::try_resolve_path(&candidate) {
-                            return Some(resolved);
-                        }
-                    }
+                if let Some(found) = replacements.iter().find_map(|replacement| {
+                    Self::try_resolve_path(
+                        &self.base_dir.join(&tsconfig.base_url).join(replacement),
+                    )
+                }) {
+                    return Some(found);
                 }
             }
         }
         None
+    }
+
+    /// Apply one wildcard replacement to the matched rest-segment. A trailing
+    /// "/*" on the replacement drops the final path component.
+    fn resolve_wildcard_replacement(
+        &self,
+        rest: &str,
+        tsconfig: &TsConfig,
+        replacement: &str,
+    ) -> Option<PathBuf> {
+        let replaced = replacement.replace("/*", &format!("/{rest}"));
+        let candidate = self.base_dir.join(&tsconfig.base_url).join(&replaced);
+        // Remove trailing "/*" if replacement didn't have wildcard
+        let clean = if replaced.ends_with("/*") {
+            candidate.parent().unwrap_or(&candidate).to_path_buf()
+        } else {
+            candidate
+        };
+        Self::try_resolve_path(&clean)
     }
 
     /// Load and parse `tsconfig.json`, stripping JSON comments.
