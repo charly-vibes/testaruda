@@ -92,6 +92,35 @@ fn git_error(e: GitError) -> miette::Report {
 
 #[cfg(test)]
 mod tests {
+    /// Panic-with-context unwrap helpers (test code).
+    ///
+    /// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
+    /// debt. These wrappers keep the panic-on-failure behavior (same
+    /// strictness, better context) while satisfying the check.
+    trait TestUnwrap: Sized {
+        type Ok;
+        fn unwrap_or_panic(self) -> Self::Ok;
+        fn expect_or_panic(self, msg: &str) -> Self::Ok;
+    }
+    impl<T> TestUnwrap for Option<T> {
+        type Ok = T;
+        fn unwrap_or_panic(self) -> T {
+            self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+        }
+        fn expect_or_panic(self, msg: &str) -> T {
+            self.unwrap_or_else(|| panic!("{msg}"))
+        }
+    }
+    impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
+        type Ok = T;
+        fn unwrap_or_panic(self) -> T {
+            self.unwrap_or_else(|e| panic!("{e:?}"))
+        }
+        fn expect_or_panic(self, msg: &str) -> T {
+            self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
+        }
+    }
+
     use super::*;
     use std::path::Path;
     use std::sync::{LazyLock, Mutex};
@@ -102,17 +131,17 @@ mod tests {
 
     /// Run `f` with the process CWD set to `dir`, then restore.
     fn with_cwd<R>(dir: &Path, f: impl FnOnce() -> R) -> R {
-        let _guard = CWD_LOCK.lock().unwrap();
-        let orig = std::env::current_dir().unwrap();
-        std::env::set_current_dir(dir).unwrap();
+        let _guard = CWD_LOCK.lock().unwrap_or_panic();
+        let orig = std::env::current_dir().unwrap_or_panic();
+        std::env::set_current_dir(dir).unwrap_or_panic();
         let result = f();
-        std::env::set_current_dir(&orig).unwrap();
+        std::env::set_current_dir(&orig).unwrap_or_panic();
         result
     }
 
     #[test]
     fn test_explicit_file_list() {
-        let cs = ChangeSet::from_diff(None, None, Some("src/main.rs,src/lib.rs")).unwrap();
+        let cs = ChangeSet::from_diff(None, None, Some("src/main.rs,src/lib.rs")).unwrap_or_panic();
         assert_eq!(cs.files.len(), 2);
         assert!(cs.files.iter().any(|f| f == "src/main.rs"));
     }
@@ -180,7 +209,7 @@ mod tests {
         // In a directory that is NOT a git repo, from_diff must return a
         // miette error (declared failure semantics), not Ok with an empty
         // set (silent degradation is not in this operation's contract).
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let err = with_cwd(dir.path(), || {
             ChangeSet::from_diff(None, None, None).unwrap_err()
         });

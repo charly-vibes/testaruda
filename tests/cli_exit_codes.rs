@@ -11,24 +11,24 @@ mod common;
 /// Spawned children get `current_dir` explicitly — no process-cwd mutation
 /// (testaruda-pzh6).
 fn setup_project() -> tempfile::TempDir {
-    let project = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap_or_panic();
 
     // Initialize git repo
     std::process::Command::new("git")
         .args(["init"])
         .current_dir(project.path())
         .output()
-        .expect("git init failed");
+        .expect_or_panic("git init failed");
     std::process::Command::new("git")
         .args(["config", "user.email", "test@test.com"])
         .current_dir(project.path())
         .output()
-        .expect("git config user.email failed");
+        .expect_or_panic("git config user.email failed");
     std::process::Command::new("git")
         .args(["config", "user.name", "Test"])
         .current_dir(project.path())
         .output()
-        .expect("git config user.name failed");
+        .expect_or_panic("git config user.name failed");
 
     // Create placeholder files. Ignore testaruda's own artifacts — real
     // projects gitignore .testaruda/ (build artifact), so the init output
@@ -37,7 +37,7 @@ fn setup_project() -> tempfile::TempDir {
         project.path().join(".gitignore"),
         ".testaruda/\n.genesis/\n",
     )
-    .unwrap();
+    .unwrap_or_panic();
     std::fs::write(
         project.path().join("Cargo.toml"),
         r#"[package]
@@ -45,29 +45,29 @@ name = "test"
 version = "0.1.0"
 "#,
     )
-    .unwrap();
+    .unwrap_or_panic();
     let src = project.path().join("src");
-    std::fs::create_dir_all(&src).unwrap();
-    std::fs::write(src.join("lib.rs"), "pub fn hello() -> &str { \"hello\" }").unwrap();
+    std::fs::create_dir_all(&src).unwrap_or_panic();
+    std::fs::write(src.join("lib.rs"), "pub fn hello() -> &str { \"hello\" }").unwrap_or_panic();
 
     // Commit so git operations work
     std::process::Command::new("git")
         .args(["add", "."])
         .current_dir(project.path())
         .output()
-        .expect("git add failed");
+        .expect_or_panic("git add failed");
     std::process::Command::new("git")
         .args(["commit", "-m", "init"])
         .current_dir(project.path())
         .output()
-        .expect("git commit failed");
+        .expect_or_panic("git commit failed");
 
     // Initialize testaruda store
     let init_output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
         .arg("init")
         .current_dir(project.path())
         .output()
-        .expect("testaruda init failed");
+        .expect_or_panic("testaruda init failed");
     assert!(
         init_output.status.success(),
         "testaruda init should succeed: {}",
@@ -109,7 +109,7 @@ for line in sys.stdin:
         ids = ['faulty'] if name == 'faulty' else ['healthy', 'spare']
         result = [dict(node_id=i, suite_kind='test', file=i) for i in ids]
     print(json.dumps(dict(ok=True, result=result)), flush=True)
-"#).unwrap();
+"#).unwrap_or_panic();
     let good = format!("python3 {} healthy ok", adapter.display());
     let bad = if failure == "adapter" {
         "./absent-adapter".to_string()
@@ -118,19 +118,23 @@ for line in sys.stdin:
     };
     std::fs::write(project.path().join("testaruda.toml"), format!(
         "confidence_threshold = 0.0\n[adapters.extensions]\n\".foo\" = {bad:?}\n\".bar\" = {good:?}\n"
-    )).unwrap();
-    std::fs::write(project.path().join("source.foo"), "change").unwrap();
-    let conn = rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap();
+    )).unwrap_or_panic();
+    std::fs::write(project.path().join("source.foo"), "change").unwrap_or_panic();
+    let conn =
+        rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap_or_panic();
     conn.execute_batch("INSERT INTO test_items(component, adapter, node_id) VALUES
         ('default','faulty','faulty'), ('default','healthy','healthy'), ('default','healthy','spare');
         INSERT INTO run_history(test_item_id,run_id,outcome,environment)
-        VALUES(3,'previous','passed','default');").unwrap();
+        VALUES(3,'previous','passed','default');").unwrap_or_panic();
     let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"));
     command.args(["select", "--safe", "--json", "--files", "source.foo"]);
     if failure == "ok" {
         command.arg("--shadow");
     }
-    let output = command.current_dir(project.path()).output().unwrap();
+    let output = command
+        .current_dir(project.path())
+        .output()
+        .unwrap_or_panic();
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(expected), "{stderr}");
     assert!(stderr.contains(diagnostic), "{stderr}");
@@ -144,10 +148,39 @@ for line in sys.stdin:
             [],
             |row| row.get(0),
         )
-        .unwrap();
+        .unwrap_or_panic();
     assert!(ingested > 0, "healthy group's results must be ingested");
-    let plan: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let plan: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_panic();
     plan
+}
+
+/// Panic-with-context unwrap helpers (test code).
+///
+/// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
+/// debt. These wrappers keep the panic-on-failure behavior (same
+/// strictness, better context) while satisfying the check.
+trait TestUnwrap: Sized {
+    type Ok;
+    fn unwrap_or_panic(self) -> Self::Ok;
+    fn expect_or_panic(self, msg: &str) -> Self::Ok;
+}
+impl<T> TestUnwrap for Option<T> {
+    type Ok = T;
+    fn unwrap_or_panic(self) -> T {
+        self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+    }
+    fn expect_or_panic(self, msg: &str) -> T {
+        self.unwrap_or_else(|| panic!("{msg}"))
+    }
+}
+impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
+    type Ok = T;
+    fn unwrap_or_panic(self) -> T {
+        self.unwrap_or_else(|e| panic!("{e:?}"))
+    }
+    fn expect_or_panic(self, msg: &str) -> T {
+        self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
+    }
 }
 
 #[test]
@@ -223,41 +256,42 @@ for line in sys.stdin:
         # to have something to drop.
         result = [dict(node_id='tests/fixtures/python-src-layout/tests/test_model.py', suite_kind='test', file='tests/fixtures/python-src-layout/tests/test_model.py'), dict(node_id='normal.py', suite_kind='test', file='normal.py')]
     print(json.dumps(dict(ok=True, result=result)), flush=True)
-"#).unwrap();
+"#).unwrap_or_panic();
     let good = format!("python3 {} healthy", adapter.display());
     std::fs::write(project.path().join("testaruda.toml"), format!(
         "confidence_threshold = 0.0\n[adapters.extensions]\n\".bar\" = {good:?}\n\n[discover]\nexclude = [\"fixtures\"]\n"
-    )).unwrap();
-    std::fs::write(project.path().join("source.bar"), "change").unwrap();
+    )).unwrap_or_panic();
+    std::fs::write(project.path().join("source.bar"), "change").unwrap_or_panic();
     // The items' files exist on disk — only the *directory* joined
     // [discover].exclude after discovery, so the stale-path prune (gh-71)
     // must not remove them.
     let fixture_dir = project
         .path()
         .join("tests/fixtures/python-src-layout/tests");
-    std::fs::create_dir_all(&fixture_dir).unwrap();
+    std::fs::create_dir_all(&fixture_dir).unwrap_or_panic();
     std::fs::write(
         fixture_dir.join("test_model.py"),
         "def test_model(): pass\n",
     )
-    .unwrap();
+    .unwrap_or_panic();
     std::fs::write(
         project.path().join("normal.py"),
         "def test_normal(): pass\n",
     )
-    .unwrap();
-    let conn = rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap();
+    .unwrap_or_panic();
+    let conn =
+        rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap_or_panic();
     conn.execute_batch(
         "INSERT INTO test_items(component, adapter, node_id) VALUES
         ('default','healthy','tests/fixtures/python-src-layout/tests/test_model.py'),
         ('default','healthy','normal.py');",
     )
-    .unwrap();
+    .unwrap_or_panic();
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
         .args(["select", "--safe", "--json", "--files", "source.bar"])
         .current_dir(project.path())
         .output()
-        .unwrap();
+        .unwrap_or_panic();
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(0), "{}", stderr);
     assert!(
@@ -300,25 +334,26 @@ for line in sys.stdin:
         print(json.dumps(dict(fingerprints=[])), flush=True)
         continue
     print(json.dumps(dict(ok=True, result=result)), flush=True)
-"#).unwrap();
+"#).unwrap_or_panic();
     let good = format!("python3 {} healthy", adapter.display());
     std::fs::write(
         project.path().join("testaruda.toml"),
         format!("confidence_threshold = 0.0\n[adapters.extensions]\n\".bar\" = {good:?}\n"),
     )
-    .unwrap();
-    std::fs::write(project.path().join("source.bar"), "change").unwrap();
-    let conn = rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap();
+    .unwrap_or_panic();
+    std::fs::write(project.path().join("source.bar"), "change").unwrap_or_panic();
+    let conn =
+        rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap_or_panic();
     conn.execute_batch(
         "INSERT INTO test_items(component, adapter, node_id) VALUES
         ('default','healthy','normal.py'), ('default','healthy','stale.py');",
     )
-    .unwrap();
+    .unwrap_or_panic();
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
         .args(["select", "--safe", "--json", "--files", "source.bar"])
         .current_dir(project.path())
         .output()
-        .unwrap();
+        .unwrap_or_panic();
     let stderr = String::from_utf8_lossy(&output.stderr);
     let pruned: i64 = conn
         .query_row(
@@ -326,7 +361,7 @@ for line in sys.stdin:
             [],
             |row| row.get(0),
         )
-        .unwrap();
+        .unwrap_or_panic();
     assert_eq!(pruned, 0, "stale item must be pruned. stderr: {}", stderr);
     let kept: i64 = conn
         .query_row(
@@ -334,7 +369,7 @@ for line in sys.stdin:
             [],
             |row| row.get(0),
         )
-        .unwrap();
+        .unwrap_or_panic();
     assert_eq!(
         kept, 1,
         "still-present item must survive. stderr: {}",
@@ -372,32 +407,33 @@ for line in sys.stdin:
         # Real adapters still collect excluded-path items (8trl premise).
         result = [dict(node_id='tests/fixtures/python-src-layout/tests/test_model.py', suite_kind='test', file='tests/fixtures/python-src-layout/tests/test_model.py')]
     print(json.dumps(dict(ok=True, result=result)), flush=True)
-"#).unwrap();
+"#).unwrap_or_panic();
     let good = format!("python3 {} healthy", adapter.display());
     std::fs::write(project.path().join("testaruda.toml"), format!(
         "confidence_threshold = 0.0\n[adapters.extensions]\n\".bar\" = {good:?}\n\n[discover]\nexclude = [\"fixtures\"]\n"
-    )).unwrap();
-    std::fs::write(project.path().join("source.bar"), "change").unwrap();
+    )).unwrap_or_panic();
+    std::fs::write(project.path().join("source.bar"), "change").unwrap_or_panic();
     let fixture_dir = project
         .path()
         .join("tests/fixtures/python-src-layout/tests");
-    std::fs::create_dir_all(&fixture_dir).unwrap();
+    std::fs::create_dir_all(&fixture_dir).unwrap_or_panic();
     std::fs::write(
         fixture_dir.join("test_model.py"),
         "def test_model(): pass\n",
     )
-    .unwrap();
-    let conn = rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap();
+    .unwrap_or_panic();
+    let conn =
+        rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap_or_panic();
     conn.execute_batch(
         "INSERT INTO test_items(component, adapter, node_id) VALUES
         ('default','healthy','tests/fixtures/python-src-layout/tests/test_model.py');",
     )
-    .unwrap();
+    .unwrap_or_panic();
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
         .args(["select", "--safe", "--json", "--files", "source.bar"])
         .current_dir(project.path())
         .output()
-        .unwrap();
+        .unwrap_or_panic();
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(0), "{}", stderr);
     assert!(
@@ -422,7 +458,7 @@ fn json_mode_exits_with_no_tests_code() {
         .args(["select", "--json", "--files", "nonexistent.py"])
         .current_dir(project.path())
         .output()
-        .expect("testaruda select --json failed");
+        .expect_or_panic("testaruda select --json failed");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -458,7 +494,7 @@ fn agent_mode_exits_with_no_tests_code() {
         .args(["select", "--agent", "--files", "nonexistent.py"])
         .current_dir(project.path())
         .output()
-        .expect("testaruda select --agent failed");
+        .expect_or_panic("testaruda select --agent failed");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -492,7 +528,7 @@ fn pre_edit_mode_exits_with_no_tests_code() {
         .args(["select", "--pre-edit", "--files", "nonexistent.py"])
         .current_dir(project.path())
         .output()
-        .expect("testaruda select --pre-edit failed");
+        .expect_or_panic("testaruda select --pre-edit failed");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -531,17 +567,17 @@ fn revision_range_detects_in_range_change() {
         project.path().join("src/lib.rs"),
         "pub fn hello() -> &str { \"hello v2\" }",
     )
-    .unwrap();
+    .unwrap_or_panic();
     std::process::Command::new("git")
         .args(["add", "."])
         .current_dir(project.path())
         .output()
-        .expect("git add failed");
+        .expect_or_panic("git add failed");
     std::process::Command::new("git")
         .args(["commit", "-m", "v2"])
         .current_dir(project.path())
         .output()
-        .expect("git commit failed");
+        .expect_or_panic("git commit failed");
 
     // Populate the store at HEAD (v2), mirroring reality: stores get their
     // units from selects/ingests on working changes, then match head.
@@ -553,20 +589,20 @@ fn revision_range_detects_in_range_change() {
                 project.path().join("src/lib.rs"),
                 "pub fn hello() -> &str { \"working tree edit\" }",
             )
-            .unwrap();
+            .unwrap_or_panic();
         }
         if i == 1 {
             std::process::Command::new("git")
                 .args(["checkout", "--", "src/lib.rs"])
                 .current_dir(project.path())
                 .output()
-                .expect("git checkout failed");
+                .expect_or_panic("git checkout failed");
         }
         let out = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
             .args(["select", "--json"])
             .current_dir(project.path())
             .output()
-            .expect("testaruda select failed");
+            .expect_or_panic("testaruda select failed");
         assert!(
             out.status.success() || out.status.code() == Some(20),
             "baseline select should not crash: {}",
@@ -579,11 +615,11 @@ fn revision_range_detects_in_range_change() {
         .args(["select", "--json", "--base", "HEAD~1", "--head", "HEAD"])
         .current_dir(project.path())
         .output()
-        .expect("testaruda select --base/--head failed");
+        .expect_or_panic("testaruda select --base/--head failed");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value =
-        serde_json::from_str(&stdout).expect("select --json output should be valid JSON");
+        serde_json::from_str(&stdout).expect_or_panic("select --json output should be valid JSON");
 
     assert_eq!(
         parsed["data"]["changed_count"].as_i64(),
@@ -607,7 +643,7 @@ fn json_mode_exits_with_low_confidence_code() {
         .args(["select", "--json", "--files", "src/lib.rs"])
         .current_dir(project.path())
         .output()
-        .expect("testaruda select --json failed");
+        .expect_or_panic("testaruda select --json failed");
 
     let _stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -644,13 +680,13 @@ fn discover_hanging_adapter_times_out_and_kills_process_group() {
         &hang,
         "import subprocess, time\nsubprocess.Popen(['sleep', '424243'])\ntime.sleep(30)\n",
     )
-    .unwrap();
+    .unwrap_or_panic();
     std::fs::write(
         project.path().join("testaruda.toml"),
         "[adapters]\ntimeout_ms = 300\n[adapters.extensions]\n\".foo\" = \"python3 hang.py\"\n",
     )
-    .unwrap();
-    std::fs::write(project.path().join("source.foo"), "fn main() {}\n").unwrap();
+    .unwrap_or_panic();
+    std::fs::write(project.path().join("source.foo"), "fn main() {}\n").unwrap_or_panic();
 
     // Bounded run: spawn + poll instead of output(), so a regression back to
     // the unbounded wait fails this test with a diagnosis instead of hanging
@@ -661,10 +697,10 @@ fn discover_hanging_adapter_times_out_and_kills_process_group() {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .expect("failed to spawn testaruda discover");
+        .expect_or_panic("failed to spawn testaruda discover");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     let status = loop {
-        match child.try_wait().expect("try_wait failed") {
+        match child.try_wait().expect_or_panic("try_wait failed") {
             Some(status) => break status,
             None if std::time::Instant::now() > deadline => {
                 let _ = child.kill();
@@ -761,7 +797,7 @@ for line in sys.stdin:
         print(json.dumps(dict(fingerprints=[])), flush=True)
         continue
     print(json.dumps(dict(ok=True, result=result)), flush=True)
-"#).unwrap();
+"#).unwrap_or_panic();
     // Both extension slots use the same script; mode picks the failure.
     // "missing" points the `.foo` slot at a binary that does not exist.
     let faulty = if mode == "missing" {
@@ -772,29 +808,30 @@ for line in sys.stdin:
     let healthy = format!("python3 {} healthy {}", adapter.display(), mode);
     std::fs::write(project.path().join("testaruda.toml"), format!(
         "confidence_threshold = 0.0\n[adapters.extensions]\n\".foo\" = {faulty:?}\n\".bar\" = {healthy:?}\n"
-    )).unwrap();
-    std::fs::write(project.path().join("source.foo"), "change").unwrap();
-    std::fs::write(project.path().join("source.bar"), "original").unwrap();
+    )).unwrap_or_panic();
+    std::fs::write(project.path().join("source.foo"), "change").unwrap_or_panic();
+    std::fs::write(project.path().join("source.bar"), "original").unwrap_or_panic();
     if changed == "source.xyz" {
-        std::fs::write(project.path().join("source.xyz"), "change").unwrap();
+        std::fs::write(project.path().join("source.xyz"), "change").unwrap_or_panic();
     }
     // Warm store: all three items have run history (no always-run members).
-    let conn = rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap();
+    let conn =
+        rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap_or_panic();
     conn.execute_batch("INSERT INTO test_items(component, adapter, node_id) VALUES
         ('default','faulty','faulty'), ('default','healthy','healthy'), ('default','healthy','spare');
         INSERT INTO run_history(test_item_id,run_id,outcome,environment) VALUES
         (1,'prev','passed','default'), (2,'prev','passed','default'), (3,'prev','passed','default');")
-        .unwrap();
+        .unwrap_or_panic();
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
         .args(["select", "--json", "--files", changed])
         .current_dir(project.path())
         .output()
-        .expect("testaruda select --json failed");
+        .expect_or_panic("testaruda select --json failed");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(expected), "{stderr}");
     assert!(stderr.contains(diagnostic), "{stderr}");
-    let plan: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let plan: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_panic();
     assert_eq!(
         plan["data"]["selected_count"], 3,
         "component fallback must select all component tests\n{stderr}"
@@ -895,14 +932,15 @@ for line in sys.stdin:
     elif cmd == 'ingest':
         result = dict(per_test_results=[dict(test_id=name, outcome='passed' if mode != 'runner-fails' else 'failed')])
     print(json.dumps(dict(ok=True, result=result)), flush=True)
-"#).unwrap();
+"#).unwrap_or_panic();
     let faulty = format!("python3 {} faulty {}", adapter.display(), mode);
     let healthy = format!("python3 {} healthy {}", adapter.display(), mode);
     std::fs::write(project.path().join("testaruda.toml"), format!(
         "confidence_threshold = 0.0\n[adapters.extensions]\n\".foo\" = {faulty:?}\n\".bar\" = {healthy:?}\n"
-    )).unwrap();
-    std::fs::write(project.path().join(changed), "changed-content").unwrap();
-    let conn = rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap();
+    )).unwrap_or_panic();
+    std::fs::write(project.path().join(changed), "changed-content").unwrap_or_panic();
+    let conn =
+        rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap_or_panic();
     if preseed_old_fp {
         // The file is KNOWN to the store with a stale fingerprint: the next
         // select must classify it as changed, and a repeat must too.
@@ -911,13 +949,13 @@ for line in sys.stdin:
              ('default', ?1, NULL, 'source', 'stale-fingerprint')",
             rusqlite::params![changed],
         )
-        .unwrap();
+        .unwrap_or_panic();
     }
     conn.execute_batch("INSERT INTO test_items(component, adapter, node_id) VALUES
         ('default','faulty','faulty'), ('default','healthy','healthy'), ('default','healthy','spare');
         INSERT INTO run_history(test_item_id,run_id,outcome,environment) VALUES
         (1,'prev','passed','default'), (2,'prev','passed','default'), (3,'prev','passed','default');")
-        .unwrap();
+        .unwrap_or_panic();
     project
 }
 
@@ -927,7 +965,7 @@ fn run_select(project: &tempfile::TempDir, args: &[&str]) -> (i32, serde_json::V
         .args(["select", "--json"])
         .args(args)
         .current_dir(project.path());
-    let output = command.output().unwrap();
+    let output = command.output().unwrap_or_panic();
     let plan: serde_json::Value =
         serde_json::from_slice(&output.stdout).unwrap_or(serde_json::Value::Null);
     (
@@ -955,14 +993,15 @@ fn readiness_baseline_known_change() {
     let (code2, plan2, _) = run_select(&project, &["--files", "source.xyz"]);
     assert_fallback_selected(code2, &plan2, 2);
     // The preseeded stale baseline must survive both select-only requests.
-    let conn = rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap();
+    let conn =
+        rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap_or_panic();
     let fp: String = conn
         .query_row(
             "SELECT fingerprint FROM content_units WHERE path = 'source.xyz'",
             [],
             |row| row.get(0),
         )
-        .unwrap();
+        .unwrap_or_panic();
     assert_eq!(
         fp, "stale-fingerprint",
         "select-only must not advance the baseline"
@@ -980,14 +1019,15 @@ fn readiness_baseline_cold_start() {
     let (code2, plan2, _) = run_select(&project, &["--files", "source.xyz"]);
     assert_fallback_selected(code2, &plan2, 2);
     // Cold-start baseline: still "unknown" after both select-only requests.
-    let conn = rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap();
+    let conn =
+        rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap_or_panic();
     let fp: String = conn
         .query_row(
             "SELECT fingerprint FROM content_units WHERE path = 'source.xyz'",
             [],
             |row| row.get(0),
         )
-        .unwrap();
+        .unwrap_or_panic();
     assert_eq!(fp, "unknown", "cold-start baseline must stay unknown");
 }
 
@@ -1012,14 +1052,15 @@ fn readiness_baseline_failed_execution() {
     let (code2, plan2, _) = run_select(&project, &["--files", "source.xyz"]);
     assert_fallback_selected(code2, &plan2, 2);
     // The failed run must not have advanced the baseline either.
-    let conn = rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap();
+    let conn =
+        rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap_or_panic();
     let fp: String = conn
         .query_row(
             "SELECT fingerprint FROM content_units WHERE path = 'source.xyz'",
             [],
             |row| row.get(0),
         )
-        .unwrap();
+        .unwrap_or_panic();
     assert_eq!(
         fp, "stale-fingerprint",
         "failed execution must not advance the baseline"
@@ -1047,11 +1088,12 @@ fn readiness_confidence_setup() -> tempfile::TempDir {
         project.path().join("testaruda.toml"),
         "confidence_threshold = 0.5\n[adapters.extensions]\n",
     )
-    .unwrap();
-    std::fs::write(project.path().join("source.a"), "aaa").unwrap();
-    std::fs::write(project.path().join("source.b"), "bbb").unwrap();
-    std::fs::write(project.path().join("source.c"), "ccc").unwrap();
-    let conn = rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap();
+    .unwrap_or_panic();
+    std::fs::write(project.path().join("source.a"), "aaa").unwrap_or_panic();
+    std::fs::write(project.path().join("source.b"), "bbb").unwrap_or_panic();
+    std::fs::write(project.path().join("source.c"), "ccc").unwrap_or_panic();
+    let conn =
+        rusqlite::Connection::open(project.path().join(".testaruda/store.db")).unwrap_or_panic();
     conn.execute_batch(
         "INSERT INTO content_units(component, path, symbol, kind, fingerprint) VALUES
             ('default','source.a',NULL,'source','seed-a'),
@@ -1070,7 +1112,7 @@ fn readiness_confidence_setup() -> tempfile::TempDir {
          INSERT INTO run_history(test_item_id,run_id,outcome,environment)
          SELECT id, 'prev', 'passed', 'default' FROM test_items WHERE id <= 7;",
     )
-    .unwrap();
+    .unwrap_or_panic();
     project
 }
 
@@ -1079,7 +1121,7 @@ fn run_confidence_select(project: &tempfile::TempDir, file: &str) -> serde_json:
         .args(["select", "--json", "--files", file])
         .current_dir(project.path())
         .output()
-        .expect("testaruda select --json failed");
+        .expect_or_panic("testaruda select --json failed");
     let stderr = String::from_utf8_lossy(&output.stderr);
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout)
         .unwrap_or_else(|e| panic!("no plan: {e}; stderr: {stderr}"));

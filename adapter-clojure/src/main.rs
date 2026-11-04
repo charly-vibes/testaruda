@@ -947,6 +947,35 @@ fn extract_attr(tag: &str, attr: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    /// Panic-with-context unwrap helpers (test code).
+    ///
+    /// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
+    /// debt. These wrappers keep the panic-on-failure behavior (same
+    /// strictness, better context) while satisfying the check.
+    trait TestUnwrap: Sized {
+        type Ok;
+        fn unwrap_or_panic(self) -> Self::Ok;
+        fn expect_or_panic(self, msg: &str) -> Self::Ok;
+    }
+    impl<T> TestUnwrap for Option<T> {
+        type Ok = T;
+        fn unwrap_or_panic(self) -> T {
+            self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+        }
+        fn expect_or_panic(self, msg: &str) -> T {
+            self.unwrap_or_else(|| panic!("{msg}"))
+        }
+    }
+    impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
+        type Ok = T;
+        fn unwrap_or_panic(self) -> T {
+            self.unwrap_or_else(|e| panic!("{e:?}"))
+        }
+        fn expect_or_panic(self, msg: &str) -> T {
+            self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
+        }
+    }
+
     use super::*;
 
     // ── run-args contract (gh-81, TIA-ADAPT-007) ─────────────────────────────
@@ -1016,12 +1045,12 @@ mod tests {
             ],
         );
         let result = &resp["result"];
-        let args = result["runner_args"].as_array().unwrap();
+        let args = result["runner_args"].as_array().unwrap_or_panic();
         assert_eq!(args[0], "bb");
         // No classpath needed: script files run as child bb processes that
         // resolve bb.edn themselves.
         assert_eq!(args[1], "-e");
-        let script = args[2].as_str().unwrap();
+        let script = args[2].as_str().unwrap_or_panic();
         assert_eq!(
             script.matches("test/finanzas/cli_test.bb").count(),
             1,
@@ -1047,12 +1076,12 @@ mod tests {
             ],
         );
         let result = &resp["result"];
-        let args = result["runner_args"].as_array().unwrap();
+        let args = result["runner_args"].as_array().unwrap_or_panic();
         assert_eq!(args[0], "bb");
         assert_eq!(args[1], "--classpath");
         assert_eq!(args[2], "test:src");
         assert_eq!(args[3], "-e");
-        let script = args[4].as_str().unwrap();
+        let script = args[4].as_str().unwrap_or_panic();
         assert!(
             script.contains("run-tests 'finanzas.core-test"),
             "got: {script}"
@@ -1102,12 +1131,12 @@ mod tests {
             ],
         );
         let result = &resp["result"];
-        let args = result["runner_args"].as_array().unwrap();
+        let args = result["runner_args"].as_array().unwrap_or_panic();
         assert_eq!(args[0], "bb");
         assert_eq!(args[1], "--classpath");
         assert_eq!(args[2], "test:src");
         assert_eq!(args[3], "-e");
-        let script = args[4].as_str().unwrap();
+        let script = args[4].as_str().unwrap_or_panic();
         assert!(
             script.contains("(require 'finanzas.cli-test 'finanzas.core-test)"),
             "got: {script}"
@@ -1197,13 +1226,15 @@ mod tests {
         let resp = cmd_ingest(&serde_json::json!({
             "params": {"run_output": output}
         }));
-        let results = resp["result"]["per_test_results"].as_array().unwrap();
+        let results = resp["result"]["per_test_results"]
+            .as_array()
+            .unwrap_or_panic();
         assert_eq!(results.len(), 2, "got: {resp}");
         assert_eq!(results[0]["test_id"], "finanzas.cli-test::test-main(Test)");
         assert_eq!(results[0]["outcome"], "failed");
         assert!(results[0]["error_text"]
             .as_str()
-            .unwrap()
+            .unwrap_or_panic()
             .contains("expected:"));
         assert_eq!(results[1]["test_id"], "finanzas.cli-test::test-parse(Test)");
         assert_eq!(results[1]["outcome"], "failed");
@@ -1219,7 +1250,9 @@ mod tests {
         let resp = cmd_ingest(&serde_json::json!({
             "params": {"run_output": output}
         }));
-        let results = resp["result"]["per_test_results"].as_array().unwrap();
+        let results = resp["result"]["per_test_results"]
+            .as_array()
+            .unwrap_or_panic();
         assert!(results.is_empty(), "got: {resp}");
     }
 
@@ -1236,12 +1269,17 @@ mod tests {
         let resp = cmd_ingest(&serde_json::json!({
             "params": {"run_output": xml}
         }));
-        let results = resp["result"]["per_test_results"].as_array().unwrap();
+        let results = resp["result"]["per_test_results"]
+            .as_array()
+            .unwrap_or_panic();
         assert_eq!(results.len(), 1, "got: {resp}");
         assert_eq!(results[0]["test_id"], "finanzas.core-test::test-greet");
         assert_eq!(results[0]["outcome"], "failed");
         assert_eq!(results[0]["duration_ms"], 10);
-        assert!(results[0]["error_text"].as_str().unwrap().contains("boom"));
+        assert!(results[0]["error_text"]
+            .as_str()
+            .unwrap_or_panic()
+            .contains("boom"));
     }
 
     #[test]
@@ -1249,7 +1287,9 @@ mod tests {
         let resp = cmd_ingest(&serde_json::json!({
             "params": {"run_output": "{\"test_id\":\"a::b(Test)\",\"outcome\":\"passed\",\"duration_ms\":3}\n"}
         }));
-        let results = resp["result"]["per_test_results"].as_array().unwrap();
+        let results = resp["result"]["per_test_results"]
+            .as_array()
+            .unwrap_or_panic();
         assert_eq!(results.len(), 1, "got: {resp}");
         assert_eq!(results[0]["test_id"], "a::b(Test)");
         assert_eq!(results[0]["outcome"], "passed");

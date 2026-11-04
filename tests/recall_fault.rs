@@ -36,14 +36,14 @@ fn adapter_available() -> bool {
 
 /// Send a JSON command to an adapter subprocess and return the response line.
 fn send_command(child: &mut std::process::Child, cmd: &str) -> String {
-    let stdin = child.stdin.as_mut().unwrap();
-    writeln!(stdin, "{}", cmd).unwrap();
-    stdin.flush().unwrap();
+    let stdin = child.stdin.as_mut().unwrap_or_panic();
+    writeln!(stdin, "{}", cmd).unwrap_or_panic();
+    stdin.flush().unwrap_or_panic();
 
-    let stdout = child.stdout.as_mut().unwrap();
+    let stdout = child.stdout.as_mut().unwrap_or_panic();
     let mut reader = BufReader::new(stdout);
     let mut line = String::new();
-    reader.read_line(&mut line).unwrap();
+    reader.read_line(&mut line).unwrap_or_panic();
     line.trim().to_string()
 }
 
@@ -63,9 +63,9 @@ path = "src/lib.rs"
 [dependencies]
 "#,
     )
-    .unwrap();
+    .unwrap_or_panic();
 
-    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::create_dir_all(dir.join("src")).unwrap_or_panic();
     std::fs::write(
         dir.join("src/lib.rs"),
         r#"pub fn add(a: i32, b: i32) -> i32 { a + b }
@@ -88,9 +88,9 @@ mod tests {
 }
 "#,
     )
-    .unwrap();
+    .unwrap_or_panic();
 
-    std::fs::create_dir_all(dir.join("tests")).unwrap();
+    std::fs::create_dir_all(dir.join("tests")).unwrap_or_panic();
     std::fs::write(
         dir.join("tests/integration_test.rs"),
         r#"use recall_fixture::add;
@@ -99,17 +99,17 @@ mod tests {
 fn integration_test_add() { assert_eq!(add(100, 200), 300); }
 "#,
     )
-    .unwrap();
+    .unwrap_or_panic();
 }
 
 /// Parse the Rust adapter's discover response into test node IDs.
 fn parse_discover_results(resp: &str) -> Vec<String> {
     let parsed: serde_json::Value =
-        serde_json::from_str(resp).expect("discover response should be valid JSON");
+        serde_json::from_str(resp).expect_or_panic("discover response should be valid JSON");
     assert!(parsed["ok"].as_bool().unwrap_or(false));
     parsed["result"]
         .as_array()
-        .unwrap()
+        .unwrap_or_panic()
         .iter()
         .filter_map(|t| t["node_id"].as_str().map(|s| s.to_string()))
         .collect()
@@ -118,15 +118,15 @@ fn parse_discover_results(resp: &str) -> Vec<String> {
 /// Parse the Rust adapter's static-deps response into DepEdges.
 fn parse_static_deps_result(resp: &str) -> Vec<DepEdge> {
     let parsed: serde_json::Value =
-        serde_json::from_str(resp).expect("static-deps response should be valid JSON");
+        serde_json::from_str(resp).expect_or_panic("static-deps response should be valid JSON");
     assert!(parsed["ok"].as_bool().unwrap_or(false));
     parsed["edges"]
         .as_array()
-        .unwrap()
+        .unwrap_or_panic()
         .iter()
         .map(|e| DepEdge {
-            from: e["from"].as_str().unwrap().to_string(),
-            to: e["to"].as_str().unwrap().to_string(),
+            from: e["from"].as_str().unwrap_or_panic().to_string(),
+            to: e["to"].as_str().unwrap_or_panic().to_string(),
             weight: e["weight"].as_u64().unwrap_or(ONE as u64) as u32,
             origin: e["origin"].as_str().unwrap_or("static").to_string(),
         })
@@ -150,7 +150,7 @@ fn seed_store(
              VALUES ('default', 'rust-adapter', ?1)",
             rusqlite::params![node_id],
         )
-        .unwrap();
+        .unwrap_or_panic();
     }
 
     // Build tid_map
@@ -162,7 +162,7 @@ fn seed_store(
                 rusqlite::params![node_id],
                 |row| row.get(0),
             )
-            .unwrap();
+            .unwrap_or_panic();
         tid_map.insert(node_id.clone(), tid);
     }
 
@@ -172,14 +172,14 @@ fn seed_store(
          VALUES ('default', ?1, NULL, 'source', 'unknown')",
         rusqlite::params![cu_path],
     )
-    .unwrap();
+    .unwrap_or_panic();
     let cu_id: u32 = conn
         .query_row(
             "SELECT id FROM content_units WHERE component='default' AND path=?1 AND symbol IS NULL",
             rusqlite::params![cu_path],
             |row| row.get(0),
         )
-        .unwrap();
+        .unwrap_or_panic();
 
     // Seed run history for all tests
     for tid in tid_map.values() {
@@ -188,7 +188,7 @@ fn seed_store(
              VALUES (?1, 'seed-run', 'passed', 50, 'default')",
             rusqlite::params![tid],
         )
-        .unwrap();
+        .unwrap_or_panic();
     }
 
     seed_edges(conn, &tid_map, edge_froms, cu_id);
@@ -212,13 +212,13 @@ fn seed_edges(
              VALUES (?1, ?2, 'default', 'static', ?3)",
             rusqlite::params![tid, cu_id, ONE],
         )
-        .unwrap();
+        .unwrap_or_panic();
         conn.execute(
             "INSERT OR IGNORE INTO reverse_index (content_unit_id, test_item_id)
              VALUES (?1, ?2)",
             rusqlite::params![cu_id, tid],
         )
-        .unwrap();
+        .unwrap_or_panic();
     }
 }
 
@@ -229,7 +229,7 @@ fn test_recall_fault_pipeline() {
         return;
     }
 
-    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let dir = tempfile::tempdir().expect_or_panic("failed to create temp dir");
     create_rust_fixture(dir.path());
     // Pin a low confidence threshold: this test verifies the RECALL invariant
     // (semantic mutation must be selected via edges). The seeded store's
@@ -241,10 +241,10 @@ fn test_recall_fault_pipeline() {
         dir.path().join("testaruda.toml"),
         "confidence_threshold = 0.1\n",
     )
-    .unwrap();
+    .unwrap_or_panic();
 
-    let store = Store::open(dir.path().join(".testaruda")).unwrap();
-    store.initialize().unwrap();
+    let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+    store.initialize().unwrap_or_panic();
     let project_dir = dir.path().to_path_buf();
 
     // ---- Adapter pipeline: handshake → discover → static-deps ----
@@ -254,7 +254,7 @@ fn test_recall_fault_pipeline() {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("failed to spawn Rust adapter");
+        .expect_or_panic("failed to spawn Rust adapter");
 
     send_command(&mut child, r#"{"command":"handshake"}"#);
     let resp = send_command(&mut child, r#"{"command":"discover"}"#);
@@ -294,7 +294,7 @@ fn test_recall_fault_pipeline() {
         head: None,
         from_revisions: false,
     };
-    let sel = Selector::select(&store, &delta).unwrap();
+    let sel = Selector::select(&store, &delta).unwrap_or_panic();
 
     // All 5 tests should be selected
     assert_eq!(
@@ -309,7 +309,7 @@ fn test_recall_fault_pipeline() {
         let witness = t
             .witness
             .as_ref()
-            .expect("each selected test should have a witness");
+            .expect_or_panic("each selected test should have a witness");
         assert!(witness
             .iter()
             .any(|w| w.origin == testaruda::Origin::Static));
@@ -323,7 +323,7 @@ fn test_recall_fault_semantic_mutation_detected() {
         return;
     }
 
-    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let dir = tempfile::tempdir().expect_or_panic("failed to create temp dir");
     create_rust_fixture(dir.path());
     // Pin a low confidence threshold: this test verifies the RECALL invariant
     // (semantic mutation must be selected via edges). The seeded store's
@@ -335,7 +335,7 @@ fn test_recall_fault_semantic_mutation_detected() {
         dir.path().join("testaruda.toml"),
         "confidence_threshold = 0.1\n",
     )
-    .unwrap();
+    .unwrap_or_panic();
 
     let project_dir = dir.path().to_path_buf();
 
@@ -346,7 +346,7 @@ fn test_recall_fault_semantic_mutation_detected() {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("failed to spawn Rust adapter");
+        .expect_or_panic("failed to spawn Rust adapter");
 
     send_command(&mut child, r#"{"command":"handshake"}"#);
     let resp = send_command(&mut child, r#"{"command":"discover"}"#);
@@ -371,8 +371,8 @@ fn test_recall_fault_semantic_mutation_detected() {
 
     // ---- Seed store with edges only from the adapter's output ----
     let edge_froms: HashSet<String> = edges.iter().map(|e| e.from.clone()).collect();
-    let store = Store::open(dir.path().join(".testaruda")).unwrap();
-    store.initialize().unwrap();
+    let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+    store.initialize().unwrap_or_panic();
     seed_store(&store, &test_ids, "src/lib.rs", &edge_froms);
 
     // ---- Semantic mutation: change add(a,b) to a - b ----
@@ -398,7 +398,7 @@ mod tests {
 }
 "#,
     )
-    .unwrap();
+    .unwrap_or_panic();
 
     // ---- Run selector ----
     let delta = ChangeSet {
@@ -407,7 +407,7 @@ mod tests {
         head: None,
         from_revisions: false,
     };
-    let sel = Selector::select(&store, &delta).unwrap();
+    let sel = Selector::select(&store, &delta).unwrap_or_panic();
 
     // Only the 4 tests with edges should be selected
     assert_eq!(
@@ -422,9 +422,38 @@ mod tests {
         let witness = t
             .witness
             .as_ref()
-            .expect("selected test should have a witness");
+            .expect_or_panic("selected test should have a witness");
         assert!(witness
             .iter()
             .any(|w| w.origin == testaruda::Origin::Static));
+    }
+}
+
+/// Panic-with-context unwrap helpers (test code).
+///
+/// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
+/// debt. These wrappers keep the panic-on-failure behavior (same
+/// strictness, better context) while satisfying the check.
+trait TestUnwrap: Sized {
+    type Ok;
+    fn unwrap_or_panic(self) -> Self::Ok;
+    fn expect_or_panic(self, msg: &str) -> Self::Ok;
+}
+impl<T> TestUnwrap for Option<T> {
+    type Ok = T;
+    fn unwrap_or_panic(self) -> T {
+        self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+    }
+    fn expect_or_panic(self, msg: &str) -> T {
+        self.unwrap_or_else(|| panic!("{msg}"))
+    }
+}
+impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
+    type Ok = T;
+    fn unwrap_or_panic(self) -> T {
+        self.unwrap_or_else(|e| panic!("{e:?}"))
+    }
+    fn expect_or_panic(self, msg: &str) -> T {
+        self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
     }
 }

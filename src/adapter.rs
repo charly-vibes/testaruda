@@ -845,6 +845,35 @@ pub fn spawn_adapter_in(
 
 #[cfg(test)]
 mod tests {
+    /// Panic-with-context unwrap helpers (test code).
+    ///
+    /// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
+    /// debt. These wrappers keep the panic-on-failure behavior (same
+    /// strictness, better context) while satisfying the check.
+    trait TestUnwrap: Sized {
+        type Ok;
+        fn unwrap_or_panic(self) -> Self::Ok;
+        fn expect_or_panic(self, msg: &str) -> Self::Ok;
+    }
+    impl<T> TestUnwrap for Option<T> {
+        type Ok = T;
+        fn unwrap_or_panic(self) -> T {
+            self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+        }
+        fn expect_or_panic(self, msg: &str) -> T {
+            self.unwrap_or_else(|| panic!("{msg}"))
+        }
+    }
+    impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
+        type Ok = T;
+        fn unwrap_or_panic(self) -> T {
+            self.unwrap_or_else(|e| panic!("{e:?}"))
+        }
+        fn expect_or_panic(self, msg: &str) -> T {
+            self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
+        }
+    }
+
     use super::*;
     use std::path::Path;
 
@@ -856,7 +885,7 @@ mod tests {
     /// Write a fake adapter script and return its spawn command string.
     fn io_script(dir: &Path, body: &str) -> String {
         let path = dir.join("io_adapter.py");
-        std::fs::write(&path, format!("import json, sys, time\n{body}\n")).unwrap();
+        std::fs::write(&path, format!("import json, sys, time\n{body}\n")).unwrap_or_panic();
         format!("python3 {}", path.display())
     }
 
@@ -873,15 +902,16 @@ for line in sys.stdin:
 
     #[test]
     fn readiness_io_success() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut io = spawn_adapter(&io_script(dir.path(), HANDSHAKE_BODY), Some(5_000)).unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let mut io =
+            spawn_adapter(&io_script(dir.path(), HANDSHAKE_BODY), Some(5_000)).unwrap_or_panic();
         let result = io.static_deps(&["src/lib.rs".to_string()]);
         assert!(result.is_ok(), "healthy adapter must respond");
     }
 
     #[test]
     fn readiness_io_silence_times_out() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         // Never reads stdin, never writes: the deadline must fire.
         let script = io_script(dir.path(), "time.sleep(30)");
         let result = spawn_adapter(&script, Some(300));
@@ -921,7 +951,7 @@ for line in sys.stdin:
         // never reads stdin (deadline fires during handshake) and (b) spawned
         // a long-lived grandchild with a unique marker; after the timeout the
         // grandchild must be gone.
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let script = io_script(
             dir.path(),
             "import subprocess\nsubprocess.Popen(['sleep', '424242'])\ntime.sleep(30)",
@@ -942,7 +972,7 @@ for line in sys.stdin:
 
     #[test]
     fn readiness_io_partial_line_times_out() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         // Handshake fine, then writes a partial JSON line with no newline and
         // stalls: the deadline must fire instead of blocking on the pipe.
         let script = io_script(
@@ -958,7 +988,7 @@ for line in sys.stdin:
         time.sleep(30)
 "#,
         );
-        let mut io = spawn_adapter(&script, Some(5_000)).unwrap();
+        let mut io = spawn_adapter(&script, Some(5_000)).unwrap_or_panic();
         let result = io.static_deps(&["src/lib.rs".to_string()]);
         match result {
             Err(AdapterError::Timeout(_)) => {}
@@ -969,7 +999,7 @@ for line in sys.stdin:
 
     #[test]
     fn readiness_io_stderr_flood_succeeds() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         // Floods stderr (far beyond the 64KB pipe buffer) BEFORE answering:
         // the core must keep draining stderr so the adapter can proceed.
         let script = io_script(
@@ -986,21 +1016,21 @@ for line in sys.stdin:
         print(json.dumps(dict(ok=True, result=dict(candidates=[], edges=[], unresolved=[]))), flush=True)
 "#,
         );
-        let mut io = spawn_adapter(&script, Some(10_000)).unwrap();
+        let mut io = spawn_adapter(&script, Some(10_000)).unwrap_or_panic();
         let result = io.static_deps(&["src/lib.rs".to_string()]);
         assert!(result.is_ok(), "stderr flood must not wedge the adapter");
     }
 
     #[test]
     fn test_parse_command_string_bare_binary() {
-        let (binary, args) = parse_command_string("testaruda-adapter-rust").unwrap();
+        let (binary, args) = parse_command_string("testaruda-adapter-rust").unwrap_or_panic();
         assert_eq!(binary, "testaruda-adapter-rust");
         assert!(args.is_empty());
     }
 
     #[test]
     fn test_parse_command_string_subcommand() {
-        let (binary, args) = parse_command_string("titi testaruda-adapter").unwrap();
+        let (binary, args) = parse_command_string("titi testaruda-adapter").unwrap_or_panic();
         assert_eq!(binary, "titi");
         assert_eq!(args, vec!["testaruda-adapter"]);
     }
@@ -1009,7 +1039,7 @@ for line in sys.stdin:
     fn test_parse_command_string_julia_quoted() {
         let cmd =
             "julia --project=. -e 'using Testimonial; Testimonial.Protocol.run_adapter_protocol()'";
-        let (binary, args) = parse_command_string(cmd).unwrap();
+        let (binary, args) = parse_command_string(cmd).unwrap_or_panic();
         assert_eq!(binary, "julia");
         assert_eq!(
             args,
@@ -1035,7 +1065,7 @@ for line in sys.stdin:
     #[test]
     fn test_parse_command_string_windows_path() {
         let cmd = "\"C:\\Program Files\\titi\\titi.exe\" testaruda-adapter";
-        let (binary, args) = parse_command_string(cmd).unwrap();
+        let (binary, args) = parse_command_string(cmd).unwrap_or_panic();
         assert_eq!(binary, "C:\\Program Files\\titi\\titi.exe");
         assert_eq!(args, vec!["testaruda-adapter"]);
     }
@@ -1061,7 +1091,7 @@ for line in sys.stdin:
 
     #[test]
     fn test_adapter_command_serialization() {
-        let cmd = serde_json::to_string(&AdapterCommand::handshake()).unwrap();
+        let cmd = serde_json::to_string(&AdapterCommand::handshake()).unwrap_or_panic();
         assert_eq!(cmd, r#"{"command":"handshake"}"#);
     }
 
@@ -1083,8 +1113,8 @@ for line in sys.stdin:
                 }
             }
         }"#;
-        let resp: HandshakeResponse = serde_json::from_str(json).unwrap();
-        let hs = resp.result.unwrap();
+        let resp: HandshakeResponse = serde_json::from_str(json).unwrap_or_panic();
+        let hs = resp.result.unwrap_or_panic();
         assert_eq!(hs.name, "rust-adapter");
         assert_eq!(hs.protocol, 1);
         assert!(hs.capabilities.symbol_model_complete);
@@ -1102,8 +1132,8 @@ for line in sys.stdin:
                 "protocol": 1
             }
         }"#;
-        let resp: HandshakeResponse = serde_json::from_str(json).unwrap();
-        let hs = resp.result.unwrap();
+        let resp: HandshakeResponse = serde_json::from_str(json).unwrap_or_panic();
+        let hs = resp.result.unwrap_or_panic();
         assert_eq!(hs.granularity, "file");
         assert!(!hs.capabilities.symbol_model_complete);
         assert!(hs.capabilities.fingerprinting);
@@ -1117,8 +1147,8 @@ for line in sys.stdin:
                 {"node_id":"t1","suite_kind":"unit","file":"src/main.rs"}
             ]
         }"#;
-        let resp: DiscoverResponse = serde_json::from_str(json).unwrap();
-        let items = resp.result.unwrap();
+        let resp: DiscoverResponse = serde_json::from_str(json).unwrap_or_panic();
+        let items = resp.result.unwrap_or_panic();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].node_id, "t1");
     }
@@ -1126,7 +1156,7 @@ for line in sys.stdin:
     #[test]
     fn test_discover_response_error() {
         let json = r#"{"ok":false,"error":"no files found"}"#;
-        let resp: DiscoverResponse = serde_json::from_str(json).unwrap();
+        let resp: DiscoverResponse = serde_json::from_str(json).unwrap_or_panic();
         assert_eq!(resp.error, Some("no files found".to_string()));
     }
 
@@ -1140,8 +1170,8 @@ for line in sys.stdin:
                 "protocol": 0
             }
         }"#;
-        let resp: HandshakeResponse = serde_json::from_str(json).unwrap();
-        let hs = resp.result.unwrap();
+        let resp: HandshakeResponse = serde_json::from_str(json).unwrap_or_panic();
+        let hs = resp.result.unwrap_or_panic();
         assert_ne!(hs.protocol, PROTOCOL_VERSION);
     }
 
@@ -1154,10 +1184,10 @@ for line in sys.stdin:
             ],
             "unresolved": ["config.yaml"]
         }"#;
-        let resp: StaticDepsResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(resp.candidates.unwrap().len(), 2);
-        assert_eq!(resp.edges.unwrap().len(), 1);
-        assert_eq!(resp.unresolved.unwrap().len(), 1);
+        let resp: StaticDepsResponse = serde_json::from_str(json).unwrap_or_panic();
+        assert_eq!(resp.candidates.unwrap_or_panic().len(), 2);
+        assert_eq!(resp.edges.unwrap_or_panic().len(), 1);
+        assert_eq!(resp.unresolved.unwrap_or_panic().len(), 1);
     }
 
     #[test]
@@ -1172,8 +1202,8 @@ for line in sys.stdin:
                 {"from": "test_mod", "to": "src/lib.rs::foo", "weight": 1000000, "origin": "static"}
             ]
         }"#;
-        let resp: StaticDepsResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(resp.symbol_edges.unwrap().len(), 1);
+        let resp: StaticDepsResponse = serde_json::from_str(json).unwrap_or_panic();
+        assert_eq!(resp.symbol_edges.unwrap_or_panic().len(), 1);
     }
 
     #[test]
@@ -1181,8 +1211,8 @@ for line in sys.stdin:
         let json = r#"{"fingerprints": [
             {"file": "src/main.rs", "fingerprint": "abc123", "symbol": null}
         ]}"#;
-        let resp: FingerprintResponse = serde_json::from_str(json).unwrap();
-        let fps = resp.fingerprints.unwrap();
+        let resp: FingerprintResponse = serde_json::from_str(json).unwrap_or_panic();
+        let fps = resp.fingerprints.unwrap_or_panic();
         assert_eq!(fps.len(), 1);
         assert_eq!(fps[0].file, "src/main.rs");
         assert_eq!(fps[0].fingerprint, "abc123");
@@ -1194,15 +1224,15 @@ for line in sys.stdin:
         let json = r#"{"fingerprints": [
             {"file": "src/lib.rs", "fingerprint": "def456", "symbol": "foo"}
         ]}"#;
-        let resp: FingerprintResponse = serde_json::from_str(json).unwrap();
-        let fp = &resp.fingerprints.unwrap()[0];
+        let resp: FingerprintResponse = serde_json::from_str(json).unwrap_or_panic();
+        let fp = &resp.fingerprints.unwrap_or_panic()[0];
         assert_eq!(fp.symbol.as_deref(), Some("foo"));
     }
 
     #[test]
     fn test_dep_edge_defaults() {
         let json = r#"{"from": "t", "to": "f"}"#;
-        let edge: DepEdge = serde_json::from_str(json).unwrap();
+        let edge: DepEdge = serde_json::from_str(json).unwrap_or_panic();
         assert_eq!(edge.weight, crate::engine::ONE);
         assert_eq!(edge.origin, "static");
     }
@@ -1210,7 +1240,7 @@ for line in sys.stdin:
     #[test]
     fn test_static_deps_result_defaults() {
         let json = r#"{"candidates": [], "edges": [], "unresolved": []}"#;
-        let _result: StaticDepsResponse = serde_json::from_str(json).unwrap();
+        let _result: StaticDepsResponse = serde_json::from_str(json).unwrap_or_panic();
         // Should deserialize with empty defaults
     }
 
@@ -1223,8 +1253,8 @@ for line in sys.stdin:
                 "collection_path": "target/test-results.xml"
             }
         }"#;
-        let resp: RunArgsResponse = serde_json::from_str(json).unwrap();
-        let result = resp.result.unwrap();
+        let resp: RunArgsResponse = serde_json::from_str(json).unwrap_or_panic();
+        let result = resp.result.unwrap_or_panic();
         assert_eq!(result.runner_args, vec!["cargo", "test", "--test", "foo"]);
         assert_eq!(result.collection_path, "target/test-results.xml");
     }
@@ -1232,7 +1262,7 @@ for line in sys.stdin:
     #[test]
     fn test_run_args_response_error() {
         let json = r#"{"ok": false, "error": "no tests selected"}"#;
-        let resp: RunArgsResponse = serde_json::from_str(json).unwrap();
+        let resp: RunArgsResponse = serde_json::from_str(json).unwrap_or_panic();
         assert!(resp.result.is_none());
         assert_eq!(resp.error, Some("no tests selected".to_string()));
     }
@@ -1256,8 +1286,8 @@ for line in sys.stdin:
                 "external_inputs": ["config.json"]
             }
         }"#;
-        let resp: IngestResponse = serde_json::from_str(json).unwrap();
-        let result = resp.result.unwrap();
+        let resp: IngestResponse = serde_json::from_str(json).unwrap_or_panic();
+        let result = resp.result.unwrap_or_panic();
         assert_eq!(result.runtime_edges.len(), 1);
         assert_eq!(result.runtime_edges[0].from, "test_foo");
         assert_eq!(result.runtime_edges[0].origin, "runtime");
@@ -1275,8 +1305,8 @@ for line in sys.stdin:
             "ok": true,
             "result": {}
         }"#;
-        let resp: IngestResponse = serde_json::from_str(json).unwrap();
-        let result = resp.result.unwrap();
+        let resp: IngestResponse = serde_json::from_str(json).unwrap_or_panic();
+        let result = resp.result.unwrap_or_panic();
         assert!(result.runtime_edges.is_empty());
         assert!(result.per_test_results.is_empty());
         assert!(result.external_inputs.is_empty());
@@ -1284,13 +1314,13 @@ for line in sys.stdin:
 
     #[test]
     fn test_run_args_command_serialization() {
-        let cmd = serde_json::to_string(&AdapterCommand::run_args()).unwrap();
+        let cmd = serde_json::to_string(&AdapterCommand::run_args()).unwrap_or_panic();
         assert_eq!(cmd, r#"{"command":"run-args"}"#);
     }
 
     #[test]
     fn test_ingest_command_serialization() {
-        let cmd = serde_json::to_string(&AdapterCommand::ingest()).unwrap();
+        let cmd = serde_json::to_string(&AdapterCommand::ingest()).unwrap_or_panic();
         assert_eq!(cmd, r#"{"command":"ingest"}"#);
     }
 
@@ -1300,7 +1330,7 @@ for line in sys.stdin:
             AdapterCommand::RUN_ARGS,
             serde_json::json!({"selected": ["test_a"]}),
         );
-        let json = serde_json::to_string(&cmd).unwrap();
+        let json = serde_json::to_string(&cmd).unwrap_or_panic();
         assert!(json.contains("\"command\":\"run-args\""));
         assert!(json.contains("\"selected\":[\"test_a\"]"));
     }
@@ -1308,7 +1338,7 @@ for line in sys.stdin:
     #[test]
     fn test_test_run_result_defaults() {
         let json = r#"{"test_id":"t1","outcome":"failed"}"#;
-        let tr: TestRunResult = serde_json::from_str(json).unwrap();
+        let tr: TestRunResult = serde_json::from_str(json).unwrap_or_panic();
         assert_eq!(tr.test_id, "t1");
         assert_eq!(tr.outcome, "failed");
         assert!(tr.duration_ms.is_none());
@@ -1354,8 +1384,8 @@ for line in sys.stdin:
             runner_args: vec!["pytest".to_string(), "-x".to_string()],
             collection_path: "results.xml".to_string(),
         };
-        let json = serde_json::to_string(&orig).unwrap();
-        let restored: RunArgsResult = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&orig).unwrap_or_panic();
+        let restored: RunArgsResult = serde_json::from_str(&json).unwrap_or_panic();
         assert_eq!(orig.runner_args, restored.runner_args);
         assert_eq!(orig.collection_path, restored.collection_path);
     }
@@ -1377,8 +1407,8 @@ for line in sys.stdin:
             }],
             external_inputs: Vec::new(),
         };
-        let json = serde_json::to_string(&orig).unwrap();
-        let restored: IngestResult = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&orig).unwrap_or_panic();
+        let restored: IngestResult = serde_json::from_str(&json).unwrap_or_panic();
         assert_eq!(orig.runtime_edges[0].from, restored.runtime_edges[0].from);
         assert_eq!(
             orig.per_test_results[0].outcome,

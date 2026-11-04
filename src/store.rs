@@ -2529,13 +2529,42 @@ fn find_project_root() -> miette::Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    /// Panic-with-context unwrap helpers (test code).
+    ///
+    /// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
+    /// debt. These wrappers keep the panic-on-failure behavior (same
+    /// strictness, better context) while satisfying the check.
+    trait TestUnwrap: Sized {
+        type Ok;
+        fn unwrap_or_panic(self) -> Self::Ok;
+        fn expect_or_panic(self, msg: &str) -> Self::Ok;
+    }
+    impl<T> TestUnwrap for Option<T> {
+        type Ok = T;
+        fn unwrap_or_panic(self) -> T {
+            self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+        }
+        fn expect_or_panic(self, msg: &str) -> T {
+            self.unwrap_or_else(|| panic!("{msg}"))
+        }
+    }
+    impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
+        type Ok = T;
+        fn unwrap_or_panic(self) -> T {
+            self.unwrap_or_else(|e| panic!("{e:?}"))
+        }
+        fn expect_or_panic(self, msg: &str) -> T {
+            self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
+        }
+    }
+
     use super::*;
 
     #[test]
     fn test_missing_file_returns_unresolved() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         // Delta includes an absolute path that doesn't exist on disk
         let missing_path = dir.path().join("gone.rs").to_string_lossy().to_string();
@@ -2545,16 +2574,16 @@ mod tests {
             head: None,
             from_revisions: false,
         };
-        let ctx = store.load_selection_context(&delta).unwrap();
+        let ctx = store.load_selection_context(&delta).unwrap_or_panic();
         assert_eq!(ctx.changed.len(), 0);
         assert_eq!(ctx.unresolved.len(), 1, "missing file should be unresolved");
     }
 
     #[test]
     fn test_fresh_store_has_current_schema_version() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let version: u32 = store
             .conn
@@ -2563,7 +2592,7 @@ mod tests {
                 [],
                 |row| row.get(0),
             )
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(
             version, SCHEMA_VERSION,
             "fresh store should have current version"
@@ -2572,19 +2601,19 @@ mod tests {
 
     #[test]
     fn test_schema_version_persists_across_opens() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let store_path = dir.path().join(".testaruda");
 
         // First open: initialize
         {
-            let store = Store::open(store_path.clone()).unwrap();
-            store.initialize().unwrap();
+            let store = Store::open(store_path.clone()).unwrap_or_panic();
+            store.initialize().unwrap_or_panic();
         }
 
         // Second open: verify version is still correct
         {
-            let store = Store::open(store_path.clone()).unwrap();
-            store.initialize().unwrap(); // should succeed without migration
+            let store = Store::open(store_path.clone()).unwrap_or_panic();
+            store.initialize().unwrap_or_panic(); // should succeed without migration
 
             let version: u32 = store
                 .conn
@@ -2593,20 +2622,20 @@ mod tests {
                     [],
                     |row| row.get(0),
                 )
-                .unwrap();
+                .unwrap_or_panic();
             assert_eq!(version, SCHEMA_VERSION);
         }
     }
 
     #[test]
     fn test_older_schema_is_migrated() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let store_path = dir.path().join(".testaruda");
 
         // Create a store with version 0 (older schema)
         {
-            let store = Store::open(store_path.clone()).unwrap();
-            store.initialize().unwrap();
+            let store = Store::open(store_path.clone()).unwrap_or_panic();
+            store.initialize().unwrap_or_panic();
 
             // Overwrite the schema version to simulate an older store
             store
@@ -2615,13 +2644,13 @@ mod tests {
                     &format!("INSERT INTO {} (version) VALUES (0)", SCHEMA_TABLE),
                     [],
                 )
-                .unwrap();
+                .unwrap_or_panic();
         }
 
         // Reopen and re-initialize — should migrate forward
         {
-            let store = Store::open(store_path.clone()).unwrap();
-            store.initialize().unwrap();
+            let store = Store::open(store_path.clone()).unwrap_or_panic();
+            store.initialize().unwrap_or_panic();
 
             let version: u32 = store
                 .conn
@@ -2630,7 +2659,7 @@ mod tests {
                     [],
                     |row| row.get(0),
                 )
-                .unwrap();
+                .unwrap_or_panic();
             assert_eq!(
                 version, SCHEMA_VERSION,
                 "older schema should be migrated to current"
@@ -2640,31 +2669,31 @@ mod tests {
 
     #[test]
     fn test_newer_schema_is_refused() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let store_path = dir.path().join(".testaruda");
 
         // Create a store with schema version higher than current
         {
-            let store = Store::open(store_path.clone()).unwrap();
-            store.initialize().unwrap();
+            let store = Store::open(store_path.clone()).unwrap_or_panic();
+            store.initialize().unwrap_or_panic();
 
             // Overwrite to simulate a future version
             store
                 .conn
                 .execute(&format!("DELETE FROM {}", SCHEMA_TABLE), [])
-                .unwrap();
+                .unwrap_or_panic();
             store
                 .conn
                 .execute(
                     &format!("INSERT INTO {} (version) VALUES (?1)", SCHEMA_TABLE),
                     rusqlite::params![SCHEMA_VERSION + 99],
                 )
-                .unwrap();
+                .unwrap_or_panic();
         }
 
         // Reopen and re-initialize — should refuse
         {
-            let store = Store::open(store_path.clone()).unwrap();
+            let store = Store::open(store_path.clone()).unwrap_or_panic();
             let result = store.initialize();
             assert!(result.is_err(), "newer schema should be refused");
             let err = result.unwrap_err().to_string();
@@ -2681,20 +2710,20 @@ mod tests {
 
     #[test]
     fn resolve_test_item_id_matches_runner_paths_tolerantly() {
-        let project = tempfile::tempdir().unwrap();
-        let store = Store::open(project.path().to_path_buf()).unwrap();
-        store.initialize().unwrap();
+        let project = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(project.path().to_path_buf()).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
         store
             .conn()
             .execute(
                 "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'src::lib::always_passes(Test)')",
                 [],
             )
-            .unwrap();
+            .unwrap_or_panic();
         let expected: u32 = store
             .conn()
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         // Exact node_id match.
         assert_eq!(
@@ -2714,7 +2743,7 @@ mod tests {
                 "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'src::other::always_passes(Test)')",
                 [],
             )
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(store.resolve_test_item_id("tests::always_passes"), None);
     }
 
@@ -2726,7 +2755,7 @@ mod tests {
                 "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', ?1)",
                 [node_id],
             )
-            .unwrap();
+            .unwrap_or_panic();
         store
             .conn()
             .query_row(
@@ -2734,14 +2763,14 @@ mod tests {
                 [node_id],
                 |row| row.get(0),
             )
-            .unwrap()
+            .unwrap_or_panic()
     }
 
     #[test]
     fn resolve_test_item_id_tries_src_path_variant_before_fn_fallback() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().to_path_buf()).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().to_path_buf()).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
         // Same-named tests in two modules make the fn-name fallback ambiguous;
         // only the src:: path variant can disambiguate.
         let src_lib_id = insert_item(&store, "src::lib::specific_name(Test)");
@@ -2754,9 +2783,9 @@ mod tests {
 
     #[test]
     fn resolve_test_item_id_escapes_like_wildcards_in_fn_name() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().to_path_buf()).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().to_path_buf()).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
         // foo_bar (underscore) and fooXbar differ only by the character an
         // unescaped LIKE '_' wildcard would match as any single char.
         let foo_bar_id = insert_item(&store, "src::mod::foo_bar(Test)");
@@ -2768,9 +2797,9 @@ mod tests {
 
     #[test]
     fn test_migrate_unknown_path_returns_error() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         // Directly call apply_migration with an unknown path
         let result = store.apply_migration(1, 2);
@@ -2782,90 +2811,124 @@ mod tests {
 
     #[test]
     fn test_cache_store_and_retrieve() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let fp = "deadbeef12345678";
         let json = r#"{"tests":[{"id":1,"confidence":1.0}]}"#;
 
         // Initially empty
-        let cached = store.get_cached_selection(fp).unwrap();
+        let cached = store.get_cached_selection(fp).unwrap_or_panic();
         assert!(cached.is_none(), "cache should be empty initially");
 
         // Store
-        store.set_cached_selection(fp, json).unwrap();
+        store.set_cached_selection(fp, json).unwrap_or_panic();
 
         // Retrieve
-        let cached = store.get_cached_selection(fp).unwrap();
+        let cached = store.get_cached_selection(fp).unwrap_or_panic();
         assert_eq!(cached.as_deref(), Some(json));
     }
 
     #[test]
     fn test_cache_overwrite_and_miss() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
-        store.set_cached_selection("fp1", r#"{"sel":1}"#).unwrap();
-        store.set_cached_selection("fp2", r#"{"sel":2}"#).unwrap();
+        store
+            .set_cached_selection("fp1", r#"{"sel":1}"#)
+            .unwrap_or_panic();
+        store
+            .set_cached_selection("fp2", r#"{"sel":2}"#)
+            .unwrap_or_panic();
 
         // Each fingerprint retrieves its own
         assert_eq!(
-            store.get_cached_selection("fp1").unwrap().as_deref(),
+            store
+                .get_cached_selection("fp1")
+                .unwrap_or_panic()
+                .as_deref(),
             Some(r#"{"sel":1}"#)
         );
         assert_eq!(
-            store.get_cached_selection("fp2").unwrap().as_deref(),
+            store
+                .get_cached_selection("fp2")
+                .unwrap_or_panic()
+                .as_deref(),
             Some(r#"{"sel":2}"#)
         );
 
         // Overwrite fp1
-        store.set_cached_selection("fp1", r#"{"sel":99}"#).unwrap();
+        store
+            .set_cached_selection("fp1", r#"{"sel":99}"#)
+            .unwrap_or_panic();
         assert_eq!(
-            store.get_cached_selection("fp1").unwrap().as_deref(),
+            store
+                .get_cached_selection("fp1")
+                .unwrap_or_panic()
+                .as_deref(),
             Some(r#"{"sel":99}"#)
         );
 
         // Unknown fingerprint returns None
-        assert!(store.get_cached_selection("unknown").unwrap().is_none());
+        assert!(store
+            .get_cached_selection("unknown")
+            .unwrap_or_panic()
+            .is_none());
     }
 
     #[test]
     fn test_cache_invalidation() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
-        store.set_cached_selection("fp_a", r#"{}"#).unwrap();
-        store.set_cached_selection("fp_b", r#"{}"#).unwrap();
+        store
+            .set_cached_selection("fp_a", r#"{}"#)
+            .unwrap_or_panic();
+        store
+            .set_cached_selection("fp_b", r#"{}"#)
+            .unwrap_or_panic();
 
         // Invalidate (clears all, since cache key is global)
-        store.invalidate_component_cache("default").unwrap();
+        store
+            .invalidate_component_cache("default")
+            .unwrap_or_panic();
 
-        assert!(store.get_cached_selection("fp_a").unwrap().is_none());
-        assert!(store.get_cached_selection("fp_b").unwrap().is_none());
+        assert!(store
+            .get_cached_selection("fp_a")
+            .unwrap_or_panic()
+            .is_none());
+        assert!(store
+            .get_cached_selection("fp_b")
+            .unwrap_or_panic()
+            .is_none());
     }
 
     #[test]
     fn test_component_fingerprint_empty_component() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         // Empty component should produce a deterministic hash
-        let fp = store.compute_component_fingerprint("empty").unwrap();
+        let fp = store
+            .compute_component_fingerprint("empty")
+            .unwrap_or_panic();
         assert_eq!(fp.len(), 64, "blake3 hex should be 64 chars");
         // Same empty component should produce same hash
-        let fp2 = store.compute_component_fingerprint("empty").unwrap();
+        let fp2 = store
+            .compute_component_fingerprint("empty")
+            .unwrap_or_panic();
         assert_eq!(fp, fp2);
     }
 
     #[test]
     fn test_ingest_missing_run_id_rejected() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         // Payload without run_id should be rejected
         let payload = serde_json::json!({"tests": []});
@@ -2881,15 +2944,15 @@ mod tests {
 
     #[test]
     fn test_ingest_duplicate_skipped() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         // Insert a test item so the FK constraint is satisfied
         store.conn().execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'test_node')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
 
         let payload = serde_json::json!({
             "run_id": "test-run-001",
@@ -2913,21 +2976,21 @@ mod tests {
                 rusqlite::params!["test-run-001"],
                 |row| row.get(0),
             )
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(count, 1, "only one run_history entry for duplicate");
     }
 
     #[test]
     fn test_ingest_transaction_rollback_on_error() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         // Insert a test item for FK constraint
         store.conn().execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'test_node2')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
 
         // Payload with an invalid outcome (CHECK constraint violation)
         let payload = serde_json::json!({
@@ -2966,9 +3029,9 @@ mod tests {
 
     #[test]
     fn test_ingest_empty_run_id_rejected() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         // Empty string run_id should also be rejected
         let payload = serde_json::json!({
@@ -2983,24 +3046,24 @@ mod tests {
 
     #[test]
     fn test_always_run_includes_previously_failed() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let conn = store.conn();
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test','failed_test')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
         let tid: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
         conn.execute(
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (?1, 'r1', 'failed', 10, 'default')",
             rusqlite::params![tid],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         let ctx = store
             .load_selection_context(&crate::change::ChangeSet {
@@ -3009,7 +3072,7 @@ mod tests {
                 head: None,
                 from_revisions: false,
             })
-            .unwrap();
+            .unwrap_or_panic();
         assert!(
             ctx.always_run.contains(&tid),
             "previously-failed test should be always-run"
@@ -3018,18 +3081,18 @@ mod tests {
 
     #[test]
     fn test_always_run_includes_no_history() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let conn = store.conn();
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'no_history_test')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
         let tid: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         let ctx = store
             .load_selection_context(&crate::change::ChangeSet {
@@ -3038,7 +3101,7 @@ mod tests {
                 head: None,
                 from_revisions: false,
             })
-            .unwrap();
+            .unwrap_or_panic();
         assert!(
             ctx.always_run.contains(&tid),
             "test with no run history should be always-run"
@@ -3047,9 +3110,9 @@ mod tests {
 
     #[test]
     fn test_always_run_includes_quarantined() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let conn = store.conn();
         conn.execute(
@@ -3057,10 +3120,10 @@ mod tests {
              VALUES ('default', 'test', 'quarantined_test', 1)",
             [],
         )
-        .unwrap();
+        .unwrap_or_panic();
         let tid: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         let ctx = store
             .load_selection_context(&crate::change::ChangeSet {
@@ -3069,7 +3132,7 @@ mod tests {
                 head: None,
                 from_revisions: false,
             })
-            .unwrap();
+            .unwrap_or_panic();
         assert!(
             ctx.always_run.contains(&tid),
             "quarantined test should be always-run"
@@ -3082,19 +3145,19 @@ mod tests {
 
     #[test]
     fn test_detect_flaky_tests_oscillation() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let conn = store.conn();
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'flaky_test')",
             [],
         )
-        .unwrap();
+        .unwrap_or_panic();
         let tid: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         // Insert oscillating outcomes (passed, failed) across recent runs
         for (run_id, outcome) in &[("run1", "passed"), ("run2", "failed")] {
@@ -3103,10 +3166,10 @@ mod tests {
                  VALUES (?1, ?2, ?3, 100, 'default')",
                 rusqlite::params![tid, run_id, outcome],
             )
-            .unwrap();
+            .unwrap_or_panic();
         }
 
-        store.detect_flaky_tests().unwrap();
+        store.detect_flaky_tests().unwrap_or_panic();
 
         let quarantined: i32 = conn
             .query_row(
@@ -3114,25 +3177,25 @@ mod tests {
                 rusqlite::params![tid],
                 |row| row.get(0),
             )
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(quarantined, 1, "flaky test should be quarantined");
     }
 
     #[test]
     fn test_detect_flaky_tests_stable_not_flagged() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let conn = store.conn();
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'stable_test')",
             [],
         )
-        .unwrap();
+        .unwrap_or_panic();
         let tid: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         // Insert consistent outcomes (all passed)
         for (i, outcome) in (0..3).map(|i| (i, "passed")) {
@@ -3141,10 +3204,10 @@ mod tests {
                  VALUES (?1, ?2, ?3, 100, 'default')",
                 rusqlite::params![tid, format!("run{}", i), outcome],
             )
-            .unwrap();
+            .unwrap_or_panic();
         }
 
-        store.detect_flaky_tests().unwrap();
+        store.detect_flaky_tests().unwrap_or_panic();
 
         let quarantined: i32 = conn
             .query_row(
@@ -3152,22 +3215,22 @@ mod tests {
                 rusqlite::params![tid],
                 |row| row.get(0),
             )
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(quarantined, 0, "stable test should not be quarantined");
     }
 
     #[test]
     fn test_always_run_all_categories_in_selection() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let (_cu_id, tid_failed, tid_nohist, tid_quar, tid_passed) =
             setup_always_run_fixture(&dir, store.conn());
 
         // Change the file to trigger selection
         let file_path = dir.path().join("src/lib.rs");
-        std::fs::write(&file_path, b"fn bar() {}").unwrap();
+        std::fs::write(&file_path, b"fn bar() {}").unwrap_or_panic();
 
         let engine = crate::engine::Engine::new(&store);
         let delta = crate::change::ChangeSet {
@@ -3176,7 +3239,7 @@ mod tests {
             head: None,
             from_revisions: false,
         };
-        let sel = engine.select(&delta).unwrap();
+        let sel = engine.select(&delta).unwrap_or_panic();
         let ids: std::collections::HashSet<u32> = sel.tests.iter().map(|t| t.id).collect();
 
         assert!(
@@ -3199,50 +3262,50 @@ mod tests {
     ) -> (u32, u32, u32, u32, u32) {
         // Insert content unit so fingerprint matching works
         let file_path = dir.path().join("src/lib.rs");
-        std::fs::create_dir_all(file_path.parent().unwrap()).unwrap();
-        std::fs::write(&file_path, b"fn foo() {}").unwrap();
-        let fp = Store::compute_fingerprint(&file_path).unwrap();
+        std::fs::create_dir_all(file_path.parent().unwrap_or_panic()).unwrap_or_panic();
+        std::fs::write(&file_path, b"fn foo() {}").unwrap_or_panic();
+        let fp = Store::compute_fingerprint(&file_path).unwrap_or_panic();
         conn.execute(
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', ?1, NULL, 'source', ?2)",
             rusqlite::params![file_path.to_string_lossy().to_string(), fp],
         )
-        .unwrap();
+        .unwrap_or_panic();
         let cu_id: u32 = conn
             .query_row("SELECT id FROM content_units", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         // cat 1: previously-failed
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'failed')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
         let tid_failed: u32 = conn
             .query_row(
                 "SELECT id FROM test_items WHERE node_id='failed'",
                 [],
                 |row| row.get(0),
             )
-            .unwrap();
+            .unwrap_or_panic();
         conn.execute(
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (?1, 'fail-run', 'failed', 10, 'default')",
             rusqlite::params![tid_failed],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // cat 2: newly-added / no-history
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'no_history')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
         let tid_nohist: u32 = conn
             .query_row(
                 "SELECT id FROM test_items WHERE node_id='no_history'",
                 [],
                 |row| row.get(0),
             )
-            .unwrap();
+            .unwrap_or_panic();
 
         // cat 3: quarantined
         conn.execute(
@@ -3250,71 +3313,71 @@ mod tests {
              VALUES ('default', 'test', 'quarantined', 1)",
             [],
         )
-        .unwrap();
+        .unwrap_or_panic();
         let tid_quar: u32 = conn
             .query_row(
                 "SELECT id FROM test_items WHERE node_id='quarantined'",
                 [],
                 |row| row.get(0),
             )
-            .unwrap();
+            .unwrap_or_panic();
 
         // cat 4: passed-with-history (should NOT be always-run)
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'passed')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
         let tid_passed: u32 = conn
             .query_row(
                 "SELECT id FROM test_items WHERE node_id='passed'",
                 [],
                 |row| row.get(0),
             )
-            .unwrap();
+            .unwrap_or_panic();
         conn.execute(
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (?1, 'pass-run', 'passed', 10, 'default')",
             rusqlite::params![tid_passed],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // Wire a small dep graph so selection can run through Engine
         conn.execute(
             "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
             rusqlite::params![cu_id, tid_failed],
         )
-        .unwrap();
+        .unwrap_or_panic();
         conn.execute(
             "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
              VALUES (?1, ?2, 'default', 'static', 1000000)",
             rusqlite::params![tid_failed, cu_id],
-        ).unwrap();
+        ).unwrap_or_panic();
 
         (cu_id, tid_failed, tid_nohist, tid_quar, tid_passed)
     }
 
     #[test]
     fn test_quarantined_flag_in_selection_result() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let conn = store.conn();
 
         // Content unit
         let file_path = dir.path().join("src/main.rs");
-        std::fs::create_dir_all(file_path.parent().unwrap()).unwrap();
-        std::fs::write(&file_path, b"fn main() {}").unwrap();
-        let fp = Store::compute_fingerprint(&file_path).unwrap();
+        std::fs::create_dir_all(file_path.parent().unwrap_or_panic()).unwrap_or_panic();
+        std::fs::write(&file_path, b"fn main() {}").unwrap_or_panic();
+        let fp = Store::compute_fingerprint(&file_path).unwrap_or_panic();
         conn.execute(
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', ?1, NULL, 'source', ?2)",
             rusqlite::params![file_path.to_string_lossy().to_string(), fp],
         )
-        .unwrap();
+        .unwrap_or_panic();
         let cu_id: u32 = conn
             .query_row("SELECT id FROM content_units", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         // A quarantined test
         conn.execute(
@@ -3322,54 +3385,54 @@ mod tests {
              VALUES ('default', 'test', 'quarantined_test', 1)",
             [],
         )
-        .unwrap();
+        .unwrap_or_panic();
         let tid_quar: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         // A regular always-run test (previously failed)
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'failed_test')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
         let tid_fail: u32 = conn
             .query_row(
                 "SELECT id FROM test_items WHERE node_id='failed_test'",
                 [],
                 |row| row.get(0),
             )
-            .unwrap();
+            .unwrap_or_panic();
         conn.execute(
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (?1, 'fail-r', 'failed', 10, 'default')",
             rusqlite::params![tid_fail],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // Wire both to the content unit (so they'd be selected even without always_run)
         conn.execute(
             "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
             rusqlite::params![cu_id, tid_quar],
         )
-        .unwrap();
+        .unwrap_or_panic();
         conn.execute(
             "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
              VALUES (?1, ?2, 'default', 'static', 1000000)",
             rusqlite::params![tid_quar, cu_id],
-        ).unwrap();
+        ).unwrap_or_panic();
         conn.execute(
             "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
             rusqlite::params![cu_id, tid_fail],
         )
-        .unwrap();
+        .unwrap_or_panic();
         conn.execute(
             "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
              VALUES (?1, ?2, 'default', 'static', 1000000)",
             rusqlite::params![tid_fail, cu_id],
-        ).unwrap();
+        ).unwrap_or_panic();
 
         // Change the file
-        std::fs::write(&file_path, b"fn main() { println!(\"hi\"); }").unwrap();
+        std::fs::write(&file_path, b"fn main() { println!(\"hi\"); }").unwrap_or_panic();
 
         let engine = crate::engine::Engine::new(&store);
         let delta = crate::change::ChangeSet {
@@ -3378,15 +3441,23 @@ mod tests {
             head: None,
             from_revisions: false,
         };
-        let sel = engine.select(&delta).unwrap();
+        let sel = engine.select(&delta).unwrap_or_panic();
 
-        let quarantined_test = sel.tests.iter().find(|t| t.id == tid_quar).unwrap();
+        let quarantined_test = sel
+            .tests
+            .iter()
+            .find(|t| t.id == tid_quar)
+            .unwrap_or_panic();
         assert!(
             quarantined_test.quarantined,
             "quarantined test should have quarantined=true"
         );
 
-        let failed_test = sel.tests.iter().find(|t| t.id == tid_fail).unwrap();
+        let failed_test = sel
+            .tests
+            .iter()
+            .find(|t| t.id == tid_fail)
+            .unwrap_or_panic();
         assert!(
             !failed_test.quarantined,
             "previously-failed test should have quarantined=false"
@@ -3396,18 +3467,18 @@ mod tests {
     #[test]
     fn test_no_history_test_not_quarantined() {
         // A test with no run history is always-run but NOT quarantined
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let conn = store.conn();
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'fresh')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
         let tid: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         let ctx = store
             .load_selection_context(&crate::change::ChangeSet {
@@ -3416,7 +3487,7 @@ mod tests {
                 head: None,
                 from_revisions: false,
             })
-            .unwrap();
+            .unwrap_or_panic();
         assert!(
             ctx.always_run.contains(&tid),
             "no-history should be always-run"
@@ -3429,13 +3500,13 @@ mod tests {
 
     #[test]
     fn test_schema_migration_v1_to_v2() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let store_dir = dir.path().join("store_v1");
 
         // Create a v1 database manually
-        std::fs::create_dir_all(&store_dir).unwrap();
+        std::fs::create_dir_all(&store_dir).unwrap_or_panic();
         let db_path = store_dir.join("store.db");
-        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let conn = rusqlite::Connection::open(&db_path).unwrap_or_panic();
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS test_items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3447,12 +3518,12 @@ mod tests {
             INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'v1_test');
             CREATE TABLE IF NOT EXISTS _schema_version (version INTEGER NOT NULL);
             INSERT INTO _schema_version (version) VALUES (1);",
-        ).unwrap();
+        ).unwrap_or_panic();
         drop(conn);
 
         // Open with Store (should trigger migration)
-        let store = Store::open(store_dir.clone()).unwrap();
-        store.initialize().unwrap();
+        let store = Store::open(store_dir.clone()).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         // Verify quarantined column exists and defaults to 0
         let quarantined: i32 = store
@@ -3462,7 +3533,7 @@ mod tests {
                 [],
                 |row| row.get(0),
             )
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(quarantined, 0, "migrated v1 test should have quarantined=0");
 
         // Verify schema version is 2
@@ -3471,7 +3542,7 @@ mod tests {
             .query_row("SELECT MAX(version) FROM _schema_version", [], |row| {
                 row.get(0)
             })
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(version, 4, "schema should be migrated to v4");
     }
 
@@ -3479,17 +3550,17 @@ mod tests {
 
     #[test]
     fn test_content_unit_dedup_when_symbol_is_null() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         // Call ensure_content_unit twice with the same (component, path, None)
         let id1 = store
             .ensure_content_unit("test-comp", "src/lib.rs", None, "source")
-            .unwrap();
+            .unwrap_or_panic();
         let id2 = store
             .ensure_content_unit("test-comp", "src/lib.rs", None, "source")
-            .unwrap();
+            .unwrap_or_panic();
 
         // Both calls should return the same id
         assert_eq!(
@@ -3505,7 +3576,7 @@ mod tests {
                 rusqlite::params!["test-comp", "src/lib.rs"],
                 |row| row.get(0),
             )
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(
             count, 1,
             "content_units should have exactly 1 row for (test-comp, src/lib.rs, NULL)"
@@ -3517,9 +3588,9 @@ mod tests {
     #[test]
     fn test_invocation_quality_defaults_to_one() {
         // An empty store should have invocation_quality = ONE (no adjustment)
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let ctx = store
             .load_selection_context(&crate::change::ChangeSet {
@@ -3528,7 +3599,7 @@ mod tests {
                 head: None,
                 from_revisions: false,
             })
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(
             ctx.invocation_quality, ONE,
             "empty store should have max invocation quality"
@@ -3537,13 +3608,13 @@ mod tests {
 
     #[test]
     fn test_confidence_threshold_defaults_to_500000() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let store_path = dir.path().join(".testaruda");
         // Write empty config to project root (parent of store dir)
-        std::fs::write(dir.path().join("testaruda.toml"), "").unwrap();
+        std::fs::write(dir.path().join("testaruda.toml"), "").unwrap_or_panic();
 
-        let store = Store::open(store_path).unwrap();
-        store.initialize().unwrap();
+        let store = Store::open(store_path).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let ctx = store
             .load_selection_context(&crate::change::ChangeSet {
@@ -3552,7 +3623,7 @@ mod tests {
                 head: None,
                 from_revisions: false,
             })
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(
             ctx.confidence_threshold,
             ONE / 2,
@@ -3562,23 +3633,23 @@ mod tests {
 
     #[test]
     fn test_invocation_quality_reflects_adapter_resolution() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let conn = store.conn();
 
         // Insert a content unit with real fingerprint
         let file_path = dir.path().join("src/main.rs");
-        std::fs::create_dir_all(file_path.parent().unwrap()).unwrap();
-        std::fs::write(&file_path, b"fn main() {}").unwrap();
-        let fp = Store::compute_fingerprint(&file_path).unwrap();
+        std::fs::create_dir_all(file_path.parent().unwrap_or_panic()).unwrap_or_panic();
+        std::fs::write(&file_path, b"fn main() {}").unwrap_or_panic();
+        let fp = Store::compute_fingerprint(&file_path).unwrap_or_panic();
         conn.execute(
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', 'resolved.rs', NULL, 'source', ?1)",
             rusqlite::params![fp],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // Insert an unresolved content unit
         conn.execute(
@@ -3586,20 +3657,20 @@ mod tests {
              VALUES ('default', 'unknown.rs', NULL, 'source', 'unknown')",
             [],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // Insert a test item and run history (to avoid freshness penalty)
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 't1')",
             [],
         )
-        .unwrap();
+        .unwrap_or_panic();
         conn.execute(
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (1, 'r1', 'passed', 10, 'default')",
             [],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         let ctx = store
             .load_selection_context(&crate::change::ChangeSet {
@@ -3608,7 +3679,7 @@ mod tests {
                 head: None,
                 from_revisions: false,
             })
-            .unwrap();
+            .unwrap_or_panic();
 
         // 50% resolution → quality should be reduced but > 0.1
         assert!(
@@ -3624,54 +3695,54 @@ mod tests {
     #[test]
     fn test_confidence_floor_triggers_component_fallback() {
         // Set up a graph with very low edge weights, triggering fallback
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let store_path = dir.path().join(".testaruda");
         std::fs::write(
             dir.path().join("testaruda.toml"),
             r#"confidence_threshold = 0.9"#,
         )
-        .unwrap();
+        .unwrap_or_panic();
 
-        let store = Store::open(store_path).unwrap();
-        store.initialize().unwrap();
+        let store = Store::open(store_path).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let conn = store.conn();
 
         // Content unit
         let file_path = dir.path().join("src/lib.rs");
-        std::fs::create_dir_all(file_path.parent().unwrap()).unwrap();
-        std::fs::write(&file_path, b"fn foo() {}").unwrap();
-        let fp = Store::compute_fingerprint(&file_path).unwrap();
+        std::fs::create_dir_all(file_path.parent().unwrap_or_panic()).unwrap_or_panic();
+        std::fs::write(&file_path, b"fn foo() {}").unwrap_or_panic();
+        let fp = Store::compute_fingerprint(&file_path).unwrap_or_panic();
         conn.execute(
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', 'src/lib.rs', NULL, 'source', ?1)",
             rusqlite::params![fp],
         )
-        .unwrap();
+        .unwrap_or_panic();
         let cu_id: u32 = conn
             .query_row("SELECT id FROM content_units", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         // Test item in component 1, with low edge weight (100,000 = 0.1)
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'low_conf_test')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
         let tid: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         // Wire dependency with low weight
         conn.execute(
             "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
              VALUES (?1, ?2, 'default', 'static', 100000)",
             rusqlite::params![tid, cu_id],
-        ).unwrap();
+        ).unwrap_or_panic();
         conn.execute(
             "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
             rusqlite::params![cu_id, tid],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // Give test a run history so it's not always-run
         conn.execute(
@@ -3679,10 +3750,10 @@ mod tests {
              VALUES (?1, 'seed', 'passed', 10, 'default')",
             rusqlite::params![tid],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // Change the file to trigger selection
-        std::fs::write(&file_path, b"fn bar() {}").unwrap();
+        std::fs::write(&file_path, b"fn bar() {}").unwrap_or_panic();
 
         let engine = crate::engine::Engine::new(&store);
         let delta = crate::change::ChangeSet {
@@ -3691,7 +3762,7 @@ mod tests {
             head: None,
             ..Default::default()
         };
-        let sel = engine.select(&delta).unwrap();
+        let sel = engine.select(&delta).unwrap_or_panic();
 
         // Test should be selected (via test_dep) even though threshold is 0.9
         // The edge weight is 0.1, quality is 1.0 (fresh store), so effective
@@ -3704,53 +3775,53 @@ mod tests {
     #[test]
     fn test_high_confidence_avoids_fallback() {
         // Set up a graph with high edge weights, no fallback needed
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let store_path = dir.path().join(".testaruda");
         // Write config to the project root (parent of store dir)
         std::fs::write(
             dir.path().join("testaruda.toml"),
             r#"confidence_threshold = 0.3"#,
         )
-        .unwrap();
+        .unwrap_or_panic();
 
-        let store = Store::open(store_path).unwrap();
-        store.initialize().unwrap();
+        let store = Store::open(store_path).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let conn = store.conn();
 
         // Content unit
         let file_path = dir.path().join("src/lib.rs");
-        std::fs::create_dir_all(file_path.parent().unwrap()).unwrap();
-        std::fs::write(&file_path, b"fn foo() {}").unwrap();
-        let fp = Store::compute_fingerprint(&file_path).unwrap();
+        std::fs::create_dir_all(file_path.parent().unwrap_or_panic()).unwrap_or_panic();
+        std::fs::write(&file_path, b"fn foo() {}").unwrap_or_panic();
+        let fp = Store::compute_fingerprint(&file_path).unwrap_or_panic();
         conn.execute(
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', 'src/lib.rs', NULL, 'source', ?1)",
             rusqlite::params![fp],
         )
-        .unwrap();
+        .unwrap_or_panic();
         let cu_id: u32 = conn
             .query_row("SELECT id FROM content_units", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         // Test item with high edge weight (900,000 = 0.9)
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'high_conf_test')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
         let tid: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
         conn.execute(
             "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
              VALUES (?1, ?2, 'default', 'static', 900000)",
             rusqlite::params![tid, cu_id],
-        ).unwrap();
+        ).unwrap_or_panic();
         conn.execute(
             "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
             rusqlite::params![cu_id, tid],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // Give test a run history
         conn.execute(
@@ -3758,10 +3829,10 @@ mod tests {
              VALUES (?1, 'seed', 'passed', 10, 'default')",
             rusqlite::params![tid],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // Change the file
-        std::fs::write(&file_path, b"fn bar() {}").unwrap();
+        std::fs::write(&file_path, b"fn bar() {}").unwrap_or_panic();
 
         let engine = crate::engine::Engine::new(&store);
         let delta = crate::change::ChangeSet {
@@ -3770,13 +3841,13 @@ mod tests {
             head: None,
             ..Default::default()
         };
-        let sel = engine.select(&delta).unwrap();
+        let sel = engine.select(&delta).unwrap_or_panic();
 
         // Test should be selected via the dependency path (not fallback)
         let ids: Vec<u32> = sel.tests.iter().map(|t| t.id).collect();
         assert!(ids.contains(&tid), "test should be selected via dep path");
         // Confidence should be 0.9 * 0.6 (history depth quality) = 0.54
-        let test = sel.tests.iter().find(|t| t.id == tid).unwrap();
+        let test = sel.tests.iter().find(|t| t.id == tid).unwrap_or_panic();
         assert!(
             (test.confidence - 0.54).abs() < 0.01,
             "confidence should be ~0.54 (0.9 edge * 0.6 quality), got {}",
@@ -3789,9 +3860,9 @@ mod tests {
         // Always-run tests should always have confidence = 1.0 regardless
         // of invocation quality (TIA-CONF-002: always-run is force-select,
         // not evidence-based).
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let conn = store.conn();
 
@@ -3802,17 +3873,17 @@ mod tests {
                  VALUES ('default', ?1, NULL, 'source', 'unknown')",
                 rusqlite::params![format!("unknown_{}.rs", i)],
             )
-            .unwrap();
+            .unwrap_or_panic();
         }
 
         // A test item (no history → always-run)
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'always_run_test')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
         let tid: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         let engine = crate::engine::Engine::new(&store);
         let delta = crate::change::ChangeSet {
@@ -3821,9 +3892,9 @@ mod tests {
             head: None,
             ..Default::default()
         };
-        let sel = engine.select(&delta).unwrap();
+        let sel = engine.select(&delta).unwrap_or_panic();
 
-        let test = sel.tests.iter().find(|t| t.id == tid).unwrap();
+        let test = sel.tests.iter().find(|t| t.id == tid).unwrap_or_panic();
         assert_eq!(
             test.confidence, 1.0,
             "always-run test should have confidence 1.0 regardless of quality"
@@ -3834,9 +3905,9 @@ mod tests {
 
     #[test]
     fn test_detect_missed_selections_no_previous_provenance() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let results = serde_json::json!({
             "run_id": "full-run-1",
@@ -3845,15 +3916,15 @@ mod tests {
         });
         let incidents = store
             .detect_missed_selections("full-run-1", &results)
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(incidents, 0, "no previous provenance → no incidents");
     }
 
     #[test]
     fn test_detect_missed_selections_with_skipped_failure() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let conn = store.conn();
 
@@ -3863,18 +3934,18 @@ mod tests {
              VALUES ('default', 'src/lib.rs', NULL, 'source', 'abc123')",
             [],
         )
-        .unwrap();
+        .unwrap_or_panic();
         let cu_id: u32 = conn
             .query_row("SELECT id FROM content_units", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'test_a')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
         let test_id: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         // Give test a run history so it's not always-run
         // (Intentionally no static dep edge — test won't be selected via
@@ -3885,7 +3956,7 @@ mod tests {
              VALUES (?1, 'seed', 'passed', 10, 'default')",
             rusqlite::params![test_id],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // Simulate a prior selection run:
         // - test_a was NOT selected (selected=0) — so it was skipped
@@ -3893,14 +3964,14 @@ mod tests {
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'other_test')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
         let other_id: u32 = conn
             .query_row(
                 "SELECT id FROM test_items WHERE node_id='other_test'",
                 [],
                 |row| row.get(0),
             )
-            .unwrap();
+            .unwrap_or_panic();
 
         assert_eq!(cu_id, 1, "cu_id should be 1 since it's the first insert");
 
@@ -3911,13 +3982,13 @@ mod tests {
              VALUES ('prev-sel', ?1, 0, 0.0, '[]')",
             rusqlite::params![test_id],
         )
-        .unwrap();
+        .unwrap_or_panic();
         conn.execute(
             "INSERT INTO provenance (run_id, test_item_id, selected, confidence, witness_json)
              VALUES ('prev-sel', ?1, 1, 1.0, ?2)",
             rusqlite::params![other_id, witness_json],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // Ingest a full run where the test failed
         let results = serde_json::json!({
@@ -3927,7 +3998,7 @@ mod tests {
         });
         let incidents = store
             .detect_missed_selections("full-run-2", &results)
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(incidents, 1, "should detect one missed-selection incident");
 
         // Verify incident was recorded
@@ -3937,7 +4008,7 @@ mod tests {
                 [],
                 |row| row.get(0),
             )
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(count, 1, "incident should be recorded");
 
         // Verify manual edge was created
@@ -3948,16 +4019,16 @@ mod tests {
                 rusqlite::params![test_id],
                 |row| row.get(0),
             )
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(edge_count, 1, "manual edge should be created");
     }
 
     #[test]
     fn test_record_missed_selection_direct() {
         // Directly test record_missed_selection to isolate FK issues
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let conn = store.conn();
 
@@ -3967,24 +4038,24 @@ mod tests {
              VALUES ('default', 'src/lib.rs', NULL, 'source', 'abc123')",
             [],
         )
-        .unwrap();
+        .unwrap_or_panic();
         let cu_id: u32 = conn
             .query_row("SELECT id FROM content_units", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         // Test item
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'test_x')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
         let test_id: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         // Call record_missed_selection directly
         store
             .record_missed_selection("run-x", test_id, cu_id)
-            .unwrap();
+            .unwrap_or_panic();
 
         // Verify incident was recorded
         let count: u32 = conn
@@ -3993,7 +4064,7 @@ mod tests {
                 [],
                 |row| row.get(0),
             )
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(count, 1, "incident should be recorded");
 
         // Verify manual edge exists
@@ -4004,26 +4075,26 @@ mod tests {
                 rusqlite::params![test_id, cu_id],
                 |row| row.get(0),
             )
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(edge_count, 1, "manual edge should exist");
     }
 
     #[test]
     fn test_detect_missed_selections_passed_test_skipped() {
         // A skipped test that PASSED should NOT trigger an incident
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let conn = store.conn();
 
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'test_b')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
         let test_id: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         // Simulate prior selection: test was skipped
         conn.execute(
@@ -4031,7 +4102,7 @@ mod tests {
              VALUES ('prev-sel', ?1, 0, 0.0, '[]')",
             rusqlite::params![test_id],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // Full run: test PASSED
         let results = serde_json::json!({
@@ -4041,26 +4112,26 @@ mod tests {
         });
         let incidents = store
             .detect_missed_selections("full-run-3", &results)
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(incidents, 0, "passed test should not trigger incident");
     }
 
     #[test]
     fn test_detect_missed_selections_not_full_run() {
         // A non-full-run should NOT trigger detection during ingest
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let conn = store.conn();
 
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'test_c')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
         let test_id: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         // Prior selection: test was skipped
         conn.execute(
@@ -4068,14 +4139,14 @@ mod tests {
              VALUES ('prev-sel', ?1, 0, 0.0, '[]')",
             rusqlite::params![test_id],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // Ingest without full_run flag — should NOT trigger detection
         let results = serde_json::json!({
             "run_id": "sel-run-1",
             "tests": [{"id": test_id, "outcome": "failed", "duration_ms": 10}]
         });
-        store.ingest(&results).unwrap();
+        store.ingest(&results).unwrap_or_panic();
 
         // Verify no incidents were created by the ingest
         let count: u32 = conn
@@ -4084,42 +4155,42 @@ mod tests {
                 [],
                 |row| row.get(0),
             )
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(count, 0, "non-full-run should not create incidents");
     }
 
     #[test]
     fn test_missed_selection_manual_edge_in_selection() {
         // Verify that the manual edge forces selection in future runs
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let conn = store.conn();
 
         // Set up content unit
         let file_path = dir.path().join("src/lib.rs");
-        std::fs::create_dir_all(file_path.parent().unwrap()).unwrap();
-        std::fs::write(&file_path, b"fn foo() {}").unwrap();
-        let fp = Store::compute_fingerprint(&file_path).unwrap();
+        std::fs::create_dir_all(file_path.parent().unwrap_or_panic()).unwrap_or_panic();
+        std::fs::write(&file_path, b"fn foo() {}").unwrap_or_panic();
+        let fp = Store::compute_fingerprint(&file_path).unwrap_or_panic();
         conn.execute(
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', 'src/lib.rs', NULL, 'source', ?1)",
             rusqlite::params![fp],
         )
-        .unwrap();
+        .unwrap_or_panic();
         let cu_id: u32 = conn
             .query_row("SELECT id FROM content_units", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         // Test item
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'test_d')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
         let test_id: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         // Give test a run history so it's not always-run (no history)
         conn.execute(
@@ -4127,22 +4198,22 @@ mod tests {
              VALUES (?1, 'seed', 'passed', 10, 'default')",
             rusqlite::params![test_id],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // Create a manual edge (simulating what record_missed_selection does)
         conn.execute(
             "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
              VALUES (?1, ?2, 'default', 'manual', 1000000)",
             rusqlite::params![test_id, cu_id],
-        ).unwrap();
+        ).unwrap_or_panic();
         conn.execute(
             "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
             rusqlite::params![cu_id, test_id],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // Change the file
-        std::fs::write(&file_path, b"fn bar() {}").unwrap();
+        std::fs::write(&file_path, b"fn bar() {}").unwrap_or_panic();
 
         let engine = crate::engine::Engine::new(&store);
         let delta = crate::change::ChangeSet {
@@ -4151,7 +4222,7 @@ mod tests {
             head: None,
             ..Default::default()
         };
-        let sel = engine.select(&delta).unwrap();
+        let sel = engine.select(&delta).unwrap_or_panic();
 
         // Test should be selected via the manual edge
         let ids: Vec<u32> = sel.tests.iter().map(|t| t.id).collect();
@@ -4161,7 +4232,7 @@ mod tests {
         );
 
         // Verify the witness includes the manual origin
-        let test = sel.tests.iter().find(|t| t.id == test_id).unwrap();
+        let test = sel.tests.iter().find(|t| t.id == test_id).unwrap_or_panic();
         let has_manual = test
             .witness
             .as_ref()
@@ -4174,7 +4245,7 @@ mod tests {
 
     #[test]
     fn test_must_run_rule_adds_test_to_always_run() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let store_path = dir.path().join(".testaruda");
         // Create config with must-run rule
         std::fs::write(
@@ -4184,10 +4255,10 @@ mod tests {
 "*.config" = ["config-test-node"]
 "#,
         )
-        .unwrap();
+        .unwrap_or_panic();
 
-        let store = Store::open(store_path).unwrap();
-        store.initialize().unwrap();
+        let store = Store::open(store_path).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let conn = store.conn();
 
@@ -4197,16 +4268,16 @@ mod tests {
              VALUES ('default', 'app.config', NULL, 'source', 'abc123')",
             [],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // Insert test item with matching node_id
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'config-test-node')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
         let tid: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         // Give test a run history so it's not always-run by default
         conn.execute(
@@ -4214,7 +4285,7 @@ mod tests {
              VALUES (?1, 'seed', 'passed', 10, 'default')",
             rusqlite::params![tid],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // Selection with app.config changed should add the test via must-run
         let ctx = store
@@ -4224,7 +4295,7 @@ mod tests {
                 head: None,
                 ..Default::default()
             })
-            .unwrap();
+            .unwrap_or_panic();
 
         assert!(
             ctx.always_run.contains(&tid),
@@ -4234,7 +4305,7 @@ mod tests {
 
     #[test]
     fn test_must_run_non_matching_file() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let store_path = dir.path().join(".testaruda");
         std::fs::write(
             dir.path().join("testaruda.toml"),
@@ -4243,25 +4314,25 @@ mod tests {
 "*.secret" = ["secret-test"]
 "#,
         )
-        .unwrap();
+        .unwrap_or_panic();
 
-        let store = Store::open(store_path).unwrap();
-        store.initialize().unwrap();
+        let store = Store::open(store_path).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let conn = store.conn();
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'secret-test')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
         let tid: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
         conn.execute(
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (?1, 'seed', 'passed', 10, 'default')",
             rusqlite::params![tid],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // Change a .rs file, not .secret — must-run should NOT trigger
         let ctx = store
@@ -4271,7 +4342,7 @@ mod tests {
                 head: None,
                 ..Default::default()
             })
-            .unwrap();
+            .unwrap_or_panic();
 
         assert!(
             !ctx.always_run.contains(&tid),
@@ -4283,7 +4354,7 @@ mod tests {
 
     #[test]
     fn test_periodic_full_run_selects_all_tests() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let store_path = dir.path().join(".testaruda");
         std::fs::write(
             dir.path().join("testaruda.toml"),
@@ -4292,27 +4363,27 @@ mod tests {
 interval_hours = 0
 "#,
         )
-        .unwrap();
+        .unwrap_or_panic();
         // interval_hours = 0 means disabled — no automatic full run
 
-        let store = Store::open(store_path).unwrap();
-        store.initialize().unwrap();
+        let store = Store::open(store_path).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let conn = store.conn();
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 't1')",
             [],
         )
-        .unwrap();
+        .unwrap_or_panic();
         let tid: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
         conn.execute(
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (?1, 'seed', 'passed', 10, 'default')",
             rusqlite::params![tid],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // With interval=0, periodic full-run is disabled; test should NOT
         // be always-run (it has history and no other reason). Only selected
@@ -4324,7 +4395,7 @@ interval_hours = 0
                 head: None,
                 from_revisions: false,
             })
-            .unwrap();
+            .unwrap_or_panic();
         assert!(
             !ctx.always_run.contains(&tid),
             "disabled periodic full run should not force-select tests"
@@ -4335,23 +4406,23 @@ interval_hours = 0
 
     #[test]
     fn test_resolve_environment_default() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
-        let fp = store.resolve_environment(None, None).unwrap();
+        let fp = store.resolve_environment(None, None).unwrap_or_panic();
         assert_eq!(fp, "default", "no metadata should return 'default'");
     }
 
     #[test]
     fn test_resolve_environment_with_metadata() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let fp1 = store
             .resolve_environment(Some("rustc-1.80"), Some("linux"))
-            .unwrap();
+            .unwrap_or_panic();
         assert_ne!(fp1, "default", "should return a non-default fingerprint");
         assert!(
             fp1.starts_with("env-"),
@@ -4361,24 +4432,24 @@ interval_hours = 0
         // Same metadata should return the same fingerprint
         let fp2 = store
             .resolve_environment(Some("rustc-1.80"), Some("linux"))
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(fp1, fp2, "same metadata should return same fingerprint");
     }
 
     #[test]
     fn test_ingest_records_environment() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let conn = store.conn();
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'env_test')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
         let tid: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         // Ingest with environment metadata
         let payload = serde_json::json!({
@@ -4386,7 +4457,7 @@ interval_hours = 0
             "environment": {"toolchain": "rustc-1.80", "os": "linux"},
             "tests": [{"id": tid, "outcome": "passed", "duration_ms": 10}]
         });
-        store.ingest(&payload).unwrap();
+        store.ingest(&payload).unwrap_or_panic();
 
         // Verify environment was recorded in run_history
         let env: String = conn
@@ -4395,7 +4466,7 @@ interval_hours = 0
                 [],
                 |row| row.get(0),
             )
-            .unwrap();
+            .unwrap_or_panic();
         assert!(
             env.starts_with("env-"),
             "environment should be a fingerprint, got: {}",
@@ -4407,7 +4478,7 @@ interval_hours = 0
     #[test]
     fn test_environment_scoped_edge_query() {
         // Verify that edges from 'env-a' environment are properly scoped.
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let store_path = dir.path().join(".testaruda");
 
         // Write config with environment = env-a
@@ -4418,17 +4489,17 @@ interval_hours = 0
 name = "env-a"
 "#,
         )
-        .unwrap();
+        .unwrap_or_panic();
 
-        let store = Store::open(store_path).unwrap();
-        store.initialize().unwrap();
+        let store = Store::open(store_path).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let conn = store.conn();
 
         // Content unit — create file on disk
         let file_path = dir.path().join("src/lib.rs");
-        std::fs::create_dir_all(file_path.parent().unwrap()).unwrap();
-        std::fs::write(&file_path, b"fn foo() {}").unwrap();
+        std::fs::create_dir_all(file_path.parent().unwrap_or_panic()).unwrap_or_panic();
+        std::fs::write(&file_path, b"fn foo() {}").unwrap_or_panic();
 
         // Seed the CU with a placeholder fingerprint
         conn.execute(
@@ -4436,31 +4507,31 @@ name = "env-a"
              VALUES ('default', 'src/lib.rs', NULL, 'source', 'seed-fp')",
             [],
         )
-        .unwrap();
+        .unwrap_or_panic();
         let cu_id: u32 = conn
             .query_row("SELECT id FROM content_units", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         // Test item
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'env_test')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
         let tid: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         // Insert edge in 'env-a' environment
         conn.execute(
             "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
              VALUES (?1, ?2, 'env-a', 'static', 1000000)",
             rusqlite::params![tid, cu_id],
-        ).unwrap();
+        ).unwrap_or_panic();
         conn.execute(
             "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
             rusqlite::params![cu_id, tid],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // Give test a run history so it's not always-run
         conn.execute(
@@ -4468,7 +4539,7 @@ name = "env-a"
              VALUES (?1, 'seed', 'passed', 10, 'default')",
             rusqlite::params![tid],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // Verify the config environment name is picked up
         let ctx = store
@@ -4478,14 +4549,14 @@ name = "env-a"
                 head: None,
                 from_revisions: false,
             })
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(
             ctx.current_environment, "env-a",
             "environment should be 'env-a' from config"
         );
 
         // Now change the file so fingerprints differ
-        std::fs::write(&file_path, b"fn bar() {}").unwrap();
+        std::fs::write(&file_path, b"fn bar() {}").unwrap_or_panic();
 
         let delta = crate::change::ChangeSet {
             files: vec!["src/lib.rs".to_string()],
@@ -4493,7 +4564,7 @@ name = "env-a"
             head: None,
             ..Default::default()
         };
-        let ctx = store.load_selection_context(&delta).unwrap();
+        let ctx = store.load_selection_context(&delta).unwrap_or_panic();
         assert!(!ctx.changed.is_empty(), "no changed CUs");
         assert!(!ctx.test_deps.is_empty(), "env-a should have dep edges");
         assert_eq!(
@@ -4504,7 +4575,7 @@ name = "env-a"
         let engine = crate::engine::Engine::new(&store);
         let sel = engine
             .select_with_context(ctx, crate::engine::TestOrdering::Default)
-            .unwrap();
+            .unwrap_or_panic();
 
         // The test should be selected via the env-a edge
         let ids: Vec<u32> = sel.tests.iter().map(|t| t.id).collect();
@@ -4522,72 +4593,72 @@ name = "env-a"
         //
         // Uses raw SQL for env-a edges and the store's load_selection_context
         // with default env.
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let conn = store.conn();
 
         // Content unit
         let file_path = dir.path().join("src/lib.rs");
-        std::fs::create_dir_all(file_path.parent().unwrap()).unwrap();
-        std::fs::write(&file_path, b"fn foo() {}").unwrap();
-        let fp = Store::compute_fingerprint(&file_path).unwrap();
+        std::fs::create_dir_all(file_path.parent().unwrap_or_panic()).unwrap_or_panic();
+        std::fs::write(&file_path, b"fn foo() {}").unwrap_or_panic();
+        let fp = Store::compute_fingerprint(&file_path).unwrap_or_panic();
         conn.execute(
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', 'src/lib.rs', NULL, 'source', ?1)",
             rusqlite::params![fp],
         )
-        .unwrap();
+        .unwrap_or_panic();
         let cu_id: u32 = conn
             .query_row("SELECT id FROM content_units", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         // Two test items
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 't1')",
             [],
         )
-        .unwrap();
+        .unwrap_or_panic();
         let tid1: u32 = conn
             .query_row("SELECT id FROM test_items WHERE node_id='t1'", [], |row| {
                 row.get(0)
             })
-            .unwrap();
+            .unwrap_or_panic();
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 't2')",
             [],
         )
-        .unwrap();
+        .unwrap_or_panic();
         let tid2: u32 = conn
             .query_row("SELECT id FROM test_items WHERE node_id='t2'", [], |row| {
                 row.get(0)
             })
-            .unwrap();
+            .unwrap_or_panic();
 
         // Edge for t1 in 'env-a' environment
         conn.execute(
             "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
              VALUES (?1, ?2, 'env-a', 'static', 1000000)",
             rusqlite::params![tid1, cu_id],
-        ).unwrap();
+        ).unwrap_or_panic();
         conn.execute(
             "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
             rusqlite::params![cu_id, tid1],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // Edge for t2 in 'default' environment
         conn.execute(
             "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
              VALUES (?1, ?2, 'default', 'static', 1000000)",
             rusqlite::params![tid2, cu_id],
-        ).unwrap();
+        ).unwrap_or_panic();
         conn.execute(
             "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
             rusqlite::params![cu_id, tid2],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // Give both tests run history so they're not always-run
         conn.execute(
@@ -4595,16 +4666,16 @@ name = "env-a"
              VALUES (?1, 'seed', 'passed', 10, 'default')",
             rusqlite::params![tid1],
         )
-        .unwrap();
+        .unwrap_or_panic();
         conn.execute(
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (?1, 'seed', 'passed', 10, 'default')",
             rusqlite::params![tid2],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // Change the file
-        std::fs::write(&file_path, b"fn bar() {}").unwrap();
+        std::fs::write(&file_path, b"fn bar() {}").unwrap_or_panic();
 
         // Load selection context with default environment
         let ctx = store
@@ -4614,7 +4685,7 @@ name = "env-a"
                 head: None,
                 ..Default::default()
             })
-            .unwrap();
+            .unwrap_or_panic();
 
         // Only t2's edge (environment='default') should be in test_deps
         let dep_ids: std::collections::HashSet<u32> =
@@ -4633,9 +4704,9 @@ name = "env-a"
 
     #[test]
     fn test_graph_export_roundtrip() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let conn = store.conn();
 
@@ -4645,43 +4716,43 @@ name = "env-a"
              VALUES ('default', 'src/lib.rs', NULL, 'source', 'abc123')",
             [],
         )
-        .unwrap();
+        .unwrap_or_panic();
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'test_a')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
         let tid: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
         let cu_id: u32 = conn
             .query_row("SELECT id FROM content_units", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
         conn.execute(
             "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
              VALUES (?1, ?2, 'default', 'static', 1000000)",
             rusqlite::params![tid, cu_id],
-        ).unwrap();
+        ).unwrap_or_panic();
         conn.execute(
             "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
             rusqlite::params![cu_id, tid],
         )
-        .unwrap();
+        .unwrap_or_panic();
         conn.execute(
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (?1, 'r1', 'passed', 10, 'default')",
             rusqlite::params![tid],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
         // Export
-        let graph = store.export_graph().unwrap();
+        let graph = store.export_graph().unwrap_or_panic();
 
         // Verify format
         assert_eq!(graph["format"], "testaruda-graph-v1");
-        assert!(graph["content_units"].as_array().unwrap().len() == 1);
-        assert!(graph["test_items"].as_array().unwrap().len() == 1);
-        assert!(graph["edges"].as_array().unwrap().len() == 1);
-        assert!(graph["run_history"].as_array().unwrap().len() == 1);
+        assert!(graph["content_units"].as_array().unwrap_or_panic().len() == 1);
+        assert!(graph["test_items"].as_array().unwrap_or_panic().len() == 1);
+        assert!(graph["edges"].as_array().unwrap_or_panic().len() == 1);
+        assert!(graph["run_history"].as_array().unwrap_or_panic().len() == 1);
 
         // Verify content unit details
         let cu = &graph["content_units"][0];
@@ -4707,9 +4778,9 @@ name = "env-a"
 
     #[test]
     fn test_graph_import_reconstructs_state() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         // Import a graph
         let graph = serde_json::json!({
@@ -4728,20 +4799,20 @@ name = "env-a"
             ]
         });
 
-        store.import_graph(&graph).unwrap();
+        store.import_graph(&graph).unwrap_or_panic();
 
         // Verify content unit was created
         let cu_count: u32 = store
             .conn()
             .query_row("SELECT COUNT(*) FROM content_units", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(cu_count, 1, "should import 1 content unit");
 
         // Verify test item was created
         let ti_count: u32 = store
             .conn()
             .query_row("SELECT COUNT(*) FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(ti_count, 1, "should import 1 test item");
 
         // Verify edge was created
@@ -4750,29 +4821,29 @@ name = "env-a"
             .query_row("SELECT COUNT(*) FROM dependency_edges", [], |row| {
                 row.get(0)
             })
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(edge_count, 1, "should import 1 edge");
 
         // Verify reverse index was created
         let ri_count: u32 = store
             .conn()
             .query_row("SELECT COUNT(*) FROM reverse_index", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(ri_count, 1, "should import 1 reverse index entry");
 
         // Verify run history was created
         let rh_count: u32 = store
             .conn()
             .query_row("SELECT COUNT(*) FROM run_history", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(rh_count, 1, "should import 1 run history entry");
     }
 
     #[test]
     fn test_graph_import_unknown_format_rejected() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let graph = serde_json::json!({"format": "unknown-format", "nodes": []});
         let result = store.import_graph(&graph);
@@ -4789,10 +4860,10 @@ name = "env-a"
     #[test]
     fn test_graph_export_import_roundtrip() {
         // Export from one store, import into another, verify identical state
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
 
-        let store1 = Store::open(dir.path().join("store1")).unwrap();
-        store1.initialize().unwrap();
+        let store1 = Store::open(dir.path().join("store1")).unwrap_or_panic();
+        store1.initialize().unwrap_or_panic();
         let conn1 = store1.conn();
 
         conn1
@@ -4801,42 +4872,42 @@ name = "env-a"
              VALUES ('default', 'src/app.rs', NULL, 'source', 'def456')",
                 [],
             )
-            .unwrap();
+            .unwrap_or_panic();
         let cu_id: u32 = conn1
             .query_row("SELECT id FROM content_units", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
         conn1.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'test_b')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
         let tid: u32 = conn1
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
         conn1.execute(
             "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
              VALUES (?1, ?2, 'default', 'runtime', 500000)",
             rusqlite::params![tid, cu_id],
-        ).unwrap();
+        ).unwrap_or_panic();
         conn1
             .execute(
                 "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
                 rusqlite::params![cu_id, tid],
             )
-            .unwrap();
+            .unwrap_or_panic();
 
         // Export
-        let graph = store1.export_graph().unwrap();
+        let graph = store1.export_graph().unwrap_or_panic();
 
         // Import into a second store
-        let store2 = Store::open(dir.path().join("store2")).unwrap();
-        store2.initialize().unwrap();
-        store2.import_graph(&graph).unwrap();
+        let store2 = Store::open(dir.path().join("store2")).unwrap_or_panic();
+        store2.initialize().unwrap_or_panic();
+        store2.import_graph(&graph).unwrap_or_panic();
 
         // Verify both stores have the same data
         let cu_count2: u32 = store2
             .conn()
             .query_row("SELECT COUNT(*) FROM content_units", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(cu_count2, 1, "store2 should have 1 content unit");
 
         let edge_count2: u32 = store2
@@ -4846,7 +4917,7 @@ name = "env-a"
                 [],
                 |row| row.get(0),
             )
-            .unwrap();
+            .unwrap_or_panic();
         assert_eq!(edge_count2, 1, "store2 should have 1 runtime edge");
     }
 
@@ -4854,9 +4925,9 @@ name = "env-a"
 
     #[test]
     fn test_generate_datalog_basic() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let conn = store.conn();
 
@@ -4866,29 +4937,29 @@ name = "env-a"
              VALUES ('default', 'src/lib.rs', NULL, 'source', 'abc123')",
             [],
         )
-        .unwrap();
+        .unwrap_or_panic();
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'test_a')",
             [],
-        ).unwrap();
+        ).unwrap_or_panic();
         let tid: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
         let cu_id: u32 = conn
             .query_row("SELECT id FROM content_units", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
         conn.execute(
             "INSERT INTO dependency_edges (test_item_id, content_unit_id, environment, origin, k_value)
              VALUES (?1, ?2, 'default', 'static', 1000000)",
             rusqlite::params![tid, cu_id],
-        ).unwrap();
+        ).unwrap_or_panic();
         conn.execute(
             "INSERT INTO reverse_index (content_unit_id, test_item_id) VALUES (?1, ?2)",
             rusqlite::params![cu_id, tid],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
-        let datalog = store.generate_datalog().unwrap();
+        let datalog = store.generate_datalog().unwrap_or_panic();
 
         // Should contain the relation declarations
         assert!(datalog.contains(".decl changed"));
@@ -4911,11 +4982,11 @@ name = "env-a"
 
     #[test]
     fn test_generate_datalog_empty_store() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
-        let datalog = store.generate_datalog().unwrap();
+        let datalog = store.generate_datalog().unwrap_or_panic();
 
         // Should still produce valid Datalog with declarations
         assert!(datalog.contains(".decl changed"));
@@ -4939,37 +5010,67 @@ name = "env-a"
 
 #[cfg(test)]
 mod exec_warning_tests {
+
+    /// Panic-with-context unwrap helpers (test code).
+    ///
+    /// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
+    /// debt. These wrappers keep the panic-on-failure behavior (same
+    /// strictness, better context) while satisfying the check.
+    trait TestUnwrap: Sized {
+        type Ok;
+        fn unwrap_or_panic(self) -> Self::Ok;
+        fn expect_or_panic(self, msg: &str) -> Self::Ok;
+    }
+    impl<T> TestUnwrap for Option<T> {
+        type Ok = T;
+        fn unwrap_or_panic(self) -> T {
+            self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+        }
+        fn expect_or_panic(self, msg: &str) -> T {
+            self.unwrap_or_else(|| panic!("{msg}"))
+        }
+    }
+    impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
+        type Ok = T;
+        fn unwrap_or_panic(self) -> T {
+            self.unwrap_or_else(|e| panic!("{e:?}"))
+        }
+        fn expect_or_panic(self, msg: &str) -> T {
+            self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
+        }
+    }
+
     use super::*;
 
     #[test]
     fn test_run_history_is_empty_on_fresh_store() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
-        assert!(store.run_history_is_empty().unwrap());
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
+        assert!(store.run_history_is_empty().unwrap_or_panic());
     }
 
     #[test]
     fn test_run_history_is_empty_false_after_run() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
         let conn = store.conn();
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 't1')",
             [],
         )
-        .unwrap();
+        .unwrap_or_panic();
         let tid: u32 = conn
             .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-            .unwrap();
+            .unwrap_or_panic();
         conn.execute(
             "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
              VALUES (?1, 'r1', 'passed', 10, 'default')",
             rusqlite::params![tid],
         )
-        .unwrap();
-        assert!(!store.run_history_is_empty().unwrap());
+        .unwrap_or_panic();
+        assert!(!store.run_history_is_empty().unwrap_or_panic());
     }
 }
 

@@ -36,15 +36,44 @@ fn julia_available() -> bool {
 
 /// Send a JSON command to an adapter subprocess and return the response line.
 fn send_command(child: &mut std::process::Child, cmd: &str) -> String {
-    let stdin = child.stdin.as_mut().unwrap();
-    writeln!(stdin, "{}", cmd).unwrap();
-    stdin.flush().unwrap();
+    let stdin = child.stdin.as_mut().unwrap_or_panic();
+    writeln!(stdin, "{}", cmd).unwrap_or_panic();
+    stdin.flush().unwrap_or_panic();
 
-    let stdout = child.stdout.as_mut().unwrap();
+    let stdout = child.stdout.as_mut().unwrap_or_panic();
     let mut reader = BufReader::new(stdout);
     let mut line = String::new();
-    reader.read_line(&mut line).unwrap();
+    reader.read_line(&mut line).unwrap_or_panic();
     line.trim().to_string()
+}
+
+/// Panic-with-context unwrap helpers (test code).
+///
+/// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
+/// debt. These wrappers keep the panic-on-failure behavior (same
+/// strictness, better context) while satisfying the check.
+trait TestUnwrap: Sized {
+    type Ok;
+    fn unwrap_or_panic(self) -> Self::Ok;
+    fn expect_or_panic(self, msg: &str) -> Self::Ok;
+}
+impl<T> TestUnwrap for Option<T> {
+    type Ok = T;
+    fn unwrap_or_panic(self) -> T {
+        self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+    }
+    fn expect_or_panic(self, msg: &str) -> T {
+        self.unwrap_or_else(|| panic!("{msg}"))
+    }
+}
+impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
+    type Ok = T;
+    fn unwrap_or_panic(self) -> T {
+        self.unwrap_or_else(|e| panic!("{e:?}"))
+    }
+    fn expect_or_panic(self, msg: &str) -> T {
+        self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
+    }
 }
 
 #[test]
@@ -63,11 +92,11 @@ fn julia_adapter_handshake() {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("failed to spawn Julia adapter");
+        .expect_or_panic("failed to spawn Julia adapter");
 
     let resp = send_command(&mut child, r#"{"command":"handshake"}"#);
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect("handshake response should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("handshake response should be valid JSON");
 
     assert!(
         parsed["ok"].as_bool().unwrap_or(false),
@@ -100,17 +129,17 @@ fn julia_adapter_discover() {
     }
 
     // Create a temp dir with a test file
-    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let dir = tempfile::tempdir().expect_or_panic("failed to create temp dir");
     let test_file = dir.path().join("test_foo.jl");
     std::fs::write(&test_file, r#"@testitem "my_test" begin @test 1==1 end"#)
-        .expect("failed to write test file");
+        .expect_or_panic("failed to write test file");
 
     let mut child = Command::new("testaruda-adapter-julia")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("failed to spawn Julia adapter");
+        .expect_or_panic("failed to spawn Julia adapter");
 
     let cmd = format!(
         r#"{{"command":"discover","params":{{"test_directories":["{}"]}}}}"#,
@@ -118,7 +147,7 @@ fn julia_adapter_discover() {
     );
     let resp = send_command(&mut child, &cmd);
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect("discover response should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("discover response should be valid JSON");
 
     assert!(
         parsed["ok"].as_bool().unwrap_or(false),
@@ -126,12 +155,12 @@ fn julia_adapter_discover() {
     );
     let nodes = parsed["result"]
         .as_array()
-        .expect("result should be an array");
+        .expect_or_panic("result should be an array");
     assert_eq!(nodes.len(), 1, "should discover one @testitem");
 
     let node = &nodes[0];
     assert_eq!(node["suite_kind"], "ReTestItems.jl");
-    let abs_file = std::fs::canonicalize(&test_file).unwrap();
+    let abs_file = std::fs::canonicalize(&test_file).unwrap_or_panic();
     assert_eq!(node["file"], abs_file.to_string_lossy().as_ref());
     assert!(
         node["node_id"]
@@ -151,16 +180,16 @@ fn julia_adapter_fingerprint() {
         return;
     }
 
-    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let dir = tempfile::tempdir().expect_or_panic("failed to create temp dir");
     let test_file = dir.path().join("test.jl");
-    std::fs::write(&test_file, "hello world").expect("failed to write test file");
+    std::fs::write(&test_file, "hello world").expect_or_panic("failed to write test file");
 
     let mut child = Command::new("testaruda-adapter-julia")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("failed to spawn Julia adapter");
+        .expect_or_panic("failed to spawn Julia adapter");
 
     let cmd = format!(
         r#"{{"command":"fingerprint","params":{{"files":["{}"]}}}}"#,
@@ -168,17 +197,19 @@ fn julia_adapter_fingerprint() {
     );
     let resp = send_command(&mut child, &cmd);
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect("fingerprint response should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("fingerprint response should be valid JSON");
 
     assert!(
         parsed["ok"].as_bool().unwrap_or(false),
         "fingerprint should succeed"
     );
-    let fps = parsed["result"]["fingerprints"].as_array().unwrap();
+    let fps = parsed["result"]["fingerprints"]
+        .as_array()
+        .unwrap_or_panic();
     assert_eq!(fps.len(), 1);
     assert_eq!(fps[0]["file"], test_file.to_string_lossy().as_ref());
     // SHA-256 produces 64 hex chars
-    let fp = fps[0]["fingerprint"].as_str().unwrap();
+    let fp = fps[0]["fingerprint"].as_str().unwrap_or_panic();
     assert_eq!(fp.len(), 64, "SHA-256 fingerprint should be 64 hex chars");
     assert!(fp.chars().all(|c| c.is_ascii_hexdigit()));
 
@@ -197,14 +228,14 @@ fn julia_adapter_run_args() {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("failed to spawn Julia adapter");
+        .expect_or_panic("failed to spawn Julia adapter");
 
     let resp = send_command(
         &mut child,
         r#"{"command":"run-args","params":{"selected":["test_a.jl:item_1"]}}"#,
     );
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect("run-args response should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("run-args response should be valid JSON");
 
     assert!(
         parsed["ok"].as_bool().unwrap_or(false),
@@ -221,7 +252,7 @@ fn julia_adapter_run_args() {
     );
 
     // First arg should be "julia"
-    let args = result["runner_args"].as_array().unwrap();
+    let args = result["runner_args"].as_array().unwrap_or_panic();
     assert_eq!(args[0], "julia", "runner should be julia");
     // Should contain ReTestItems reference
     let expr = args[3].as_str().unwrap_or("");
@@ -245,14 +276,14 @@ fn julia_adapter_static_deps_unresolved() {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("failed to spawn Julia adapter");
+        .expect_or_panic("failed to spawn Julia adapter");
 
     let resp = send_command(
         &mut child,
         r#"{"command":"static-deps","params":{"changed_files":["src/foo.jl"]}}"#,
     );
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect("static-deps response should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("static-deps response should be valid JSON");
 
     assert!(
         parsed["ok"].as_bool().unwrap_or(false),
@@ -260,7 +291,7 @@ fn julia_adapter_static_deps_unresolved() {
     );
     let edges = &parsed["result"]["edges"];
     assert!(
-        edges.as_array().unwrap().is_empty(),
+        edges.as_array().unwrap_or_panic().is_empty(),
         "without prior ingest, edges should be empty, got: {:?}",
         edges
     );
@@ -280,11 +311,11 @@ fn julia_adapter_unknown_command() {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("failed to spawn Julia adapter");
+        .expect_or_panic("failed to spawn Julia adapter");
 
     let resp = send_command(&mut child, r#"{"command":"bogus"}"#);
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect("response should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("response should be valid JSON");
 
     assert!(
         !parsed["ok"].as_bool().unwrap_or(true),
@@ -317,7 +348,7 @@ fn assert_monorepo_discover(package_subdir: &str, expected_count: usize) {
 
     let resp = send_command(&mut child, r#"{"command":"handshake"}"#);
     let hs: serde_json::Value =
-        serde_json::from_str(&resp).expect("handshake should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("handshake should be valid JSON");
     assert!(hs["ok"].as_bool().unwrap_or(false));
 
     let cmd = format!(
@@ -326,9 +357,9 @@ fn assert_monorepo_discover(package_subdir: &str, expected_count: usize) {
     );
     let resp = send_command(&mut child, &cmd);
     let disc: serde_json::Value =
-        serde_json::from_str(&resp).expect("discover should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("discover should be valid JSON");
     assert!(disc["ok"].as_bool().unwrap_or(false));
-    let nodes = disc["result"].as_array().unwrap();
+    let nodes = disc["result"].as_array().unwrap_or_panic();
     assert_eq!(
         nodes.len(),
         expected_count,
@@ -338,7 +369,7 @@ fn assert_monorepo_discover(package_subdir: &str, expected_count: usize) {
     );
 
     for node in nodes {
-        let file = node["file"].as_str().unwrap();
+        let file = node["file"].as_str().unwrap_or_panic();
         assert!(
             file.contains(package_subdir),
             "discovered file should be in {}: {}",
@@ -393,7 +424,7 @@ fn julia_adapter_monorepo_separate_discover_for_each_package() {
     let mut child = spawn_adapter();
     let resp = send_command(&mut child, r#"{"command":"handshake"}"#);
     let hs: serde_json::Value =
-        serde_json::from_str(&resp).expect("handshake should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("handshake should be valid JSON");
     assert!(hs["ok"].as_bool().unwrap_or(false));
 
     let cmd = format!(
@@ -402,9 +433,9 @@ fn julia_adapter_monorepo_separate_discover_for_each_package() {
     );
     let resp = send_command(&mut child, &cmd);
     let disc: serde_json::Value =
-        serde_json::from_str(&resp).expect("discover should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("discover should be valid JSON");
     assert!(disc["ok"].as_bool().unwrap_or(false));
-    let pkg_a_nodes = disc["result"].as_array().unwrap();
+    let pkg_a_nodes = disc["result"].as_array().unwrap_or_panic();
     assert_eq!(
         pkg_a_nodes.len(),
         3,
@@ -419,7 +450,7 @@ fn julia_adapter_monorepo_separate_discover_for_each_package() {
     let mut child = spawn_adapter();
     let resp = send_command(&mut child, r#"{"command":"handshake"}"#);
     let hs: serde_json::Value =
-        serde_json::from_str(&resp).expect("handshake should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("handshake should be valid JSON");
     assert!(hs["ok"].as_bool().unwrap_or(false));
 
     let cmd = format!(
@@ -428,9 +459,9 @@ fn julia_adapter_monorepo_separate_discover_for_each_package() {
     );
     let resp = send_command(&mut child, &cmd);
     let disc: serde_json::Value =
-        serde_json::from_str(&resp).expect("discover should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("discover should be valid JSON");
     assert!(disc["ok"].as_bool().unwrap_or(false));
-    let pkg_b_nodes = disc["result"].as_array().unwrap();
+    let pkg_b_nodes = disc["result"].as_array().unwrap_or_panic();
     assert_eq!(pkg_b_nodes.len(), 2, "pkg_b should have 2 @testitems");
     child.kill().ok();
     child.wait().ok();
@@ -438,11 +469,11 @@ fn julia_adapter_monorepo_separate_discover_for_each_package() {
     // Verify disjoint node_ids across packages
     let pkg_a_ids: Vec<&str> = pkg_a_nodes
         .iter()
-        .map(|n| n["node_id"].as_str().unwrap())
+        .map(|n| n["node_id"].as_str().unwrap_or_panic())
         .collect();
     let pkg_b_ids: Vec<&str> = pkg_b_nodes
         .iter()
-        .map(|n| n["node_id"].as_str().unwrap())
+        .map(|n| n["node_id"].as_str().unwrap_or_panic())
         .collect();
     for a_id in &pkg_a_ids {
         assert!(
@@ -475,7 +506,7 @@ fn julia_adapter_monorepo_fingerprint() {
     let mut child = spawn_adapter();
     let resp = send_command(&mut child, r#"{"command":"handshake"}"#);
     let hs: serde_json::Value =
-        serde_json::from_str(&resp).expect("handshake should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("handshake should be valid JSON");
     assert!(hs["ok"].as_bool().unwrap_or(false));
 
     // Fingerprint both files
@@ -486,13 +517,13 @@ fn julia_adapter_monorepo_fingerprint() {
     );
     let resp = send_command(&mut child, &cmd);
     let fp: serde_json::Value =
-        serde_json::from_str(&resp).expect("fingerprint should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("fingerprint should be valid JSON");
     assert!(fp["ok"].as_bool().unwrap_or(false));
-    let fingerprints = fp["result"]["fingerprints"].as_array().unwrap();
+    let fingerprints = fp["result"]["fingerprints"].as_array().unwrap_or_panic();
     assert_eq!(fingerprints.len(), 2, "should fingerprint 2 files");
 
     for f in fingerprints {
-        let fp_str = f["fingerprint"].as_str().unwrap();
+        let fp_str = f["fingerprint"].as_str().unwrap_or_panic();
         assert_eq!(
             fp_str.len(),
             64,
@@ -531,7 +562,7 @@ fn julia_adapter_monorepo_static_deps_cross_package() {
     // Handshake
     let resp = send_command(&mut child, r#"{"command":"handshake"}"#);
     let hs: serde_json::Value =
-        serde_json::from_str(&resp).expect("handshake should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("handshake should be valid JSON");
     assert!(hs["ok"].as_bool().unwrap_or(false));
 
     // Static-deps on pkg_a's source (single file)
@@ -541,12 +572,12 @@ fn julia_adapter_monorepo_static_deps_cross_package() {
     );
     let resp = send_command(&mut child, &cmd);
     let sd_a: serde_json::Value =
-        serde_json::from_str(&resp).expect("static-deps should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("static-deps should be valid JSON");
     assert!(sd_a["ok"].as_bool().unwrap_or(false));
     let edges_a = &sd_a["result"]["edges"];
     // Without prior ingest, edges should be empty
     assert!(
-        edges_a.as_array().unwrap().is_empty(),
+        edges_a.as_array().unwrap_or_panic().is_empty(),
         "without prior ingest, edges should be empty for pkg_a"
     );
 
@@ -557,12 +588,12 @@ fn julia_adapter_monorepo_static_deps_cross_package() {
     );
     let resp = send_command(&mut child, &cmd);
     let sd_b: serde_json::Value =
-        serde_json::from_str(&resp).expect("static-deps should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("static-deps should be valid JSON");
     assert!(sd_b["ok"].as_bool().unwrap_or(false));
     let edges_b = &sd_b["result"]["edges"];
     // Without prior ingest, edges should be empty
     assert!(
-        edges_b.as_array().unwrap().is_empty(),
+        edges_b.as_array().unwrap_or_panic().is_empty(),
         "without prior ingest, edges should be empty for pkg_b"
     );
 
@@ -574,9 +605,9 @@ fn julia_adapter_monorepo_static_deps_cross_package() {
     );
     let resp = send_command(&mut child, &cmd);
     let sd_both: serde_json::Value =
-        serde_json::from_str(&resp).expect("static-deps should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("static-deps should be valid JSON");
     assert!(sd_both["ok"].as_bool().unwrap_or(false));
-    let edges_both = sd_both["result"]["edges"].as_array().unwrap();
+    let edges_both = sd_both["result"]["edges"].as_array().unwrap_or_panic();
     assert!(
         edges_both.is_empty(),
         "combined static-deps should be empty without prior ingest"
@@ -610,7 +641,7 @@ fn spawn_adapter() -> std::process::Child {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("failed to spawn Julia adapter")
+        .expect_or_panic("failed to spawn Julia adapter")
 }
 
 #[test]
@@ -628,7 +659,7 @@ fn julia_adapter_full_pipeline() {
     // 1. Handshake
     let resp = send_command(&mut child, r#"{"command":"handshake"}"#);
     let hs: serde_json::Value =
-        serde_json::from_str(&resp).expect("handshake should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("handshake should be valid JSON");
     assert!(hs["ok"].as_bool().unwrap_or(false));
     assert_eq!(hs["result"]["name"], "testimonial-adapter");
     assert_eq!(hs["result"]["languages"], serde_json::json!(["julia"]));
@@ -640,15 +671,15 @@ fn julia_adapter_full_pipeline() {
     );
     let resp = send_command(&mut child, &cmd);
     let disc: serde_json::Value =
-        serde_json::from_str(&resp).expect("discover should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("discover should be valid JSON");
     assert!(disc["ok"].as_bool().unwrap_or(false));
-    let nodes = disc["result"].as_array().unwrap();
+    let nodes = disc["result"].as_array().unwrap_or_panic();
     assert_eq!(nodes.len(), 3, "should discover 3 @testitems");
 
     // Verify node IDs are file:line format
     for node in nodes {
         assert_eq!(node["suite_kind"], "ReTestItems.jl");
-        let node_id = node["node_id"].as_str().unwrap();
+        let node_id = node["node_id"].as_str().unwrap_or_panic();
         assert!(node_id.contains(":"), "node_id should contain :");
     }
 
@@ -659,11 +690,17 @@ fn julia_adapter_full_pipeline() {
     );
     let resp = send_command(&mut child, &cmd);
     let fp: serde_json::Value =
-        serde_json::from_str(&resp).expect("fingerprint should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("fingerprint should be valid JSON");
     assert!(fp["ok"].as_bool().unwrap_or(false));
-    let fingerprints = fp["result"]["fingerprints"].as_array().unwrap();
+    let fingerprints = fp["result"]["fingerprints"].as_array().unwrap_or_panic();
     assert_eq!(fingerprints.len(), 1);
-    assert_eq!(fingerprints[0]["fingerprint"].as_str().unwrap().len(), 64);
+    assert_eq!(
+        fingerprints[0]["fingerprint"]
+            .as_str()
+            .unwrap_or_panic()
+            .len(),
+        64
+    );
 
     // 4. Static-deps (no prior coverage) — all unresolved
     let cmd = format!(
@@ -672,12 +709,12 @@ fn julia_adapter_full_pipeline() {
     );
     let resp = send_command(&mut child, &cmd);
     let sd: serde_json::Value =
-        serde_json::from_str(&resp).expect("static-deps should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("static-deps should be valid JSON");
     assert!(sd["ok"].as_bool().unwrap_or(false));
     let sd_edges = &sd["result"]["edges"];
     // Without prior ingest, edges should be empty
     assert!(
-        sd_edges.as_array().unwrap().is_empty(),
+        sd_edges.as_array().unwrap_or_panic().is_empty(),
         "without prior ingest, edges should be empty"
     );
 
@@ -688,7 +725,7 @@ fn julia_adapter_full_pipeline() {
     // results are still returned but runtime_edges may be empty.
     let discovered_ids: Vec<String> = nodes
         .iter()
-        .map(|n| n["node_id"].as_str().unwrap().to_string())
+        .map(|n| n["node_id"].as_str().unwrap_or_panic().to_string())
         .collect();
     let run_output_lines: Vec<String> = discovered_ids
         .iter()
@@ -709,7 +746,7 @@ fn julia_adapter_full_pipeline() {
     });
     let resp = send_command(&mut child, &ingest_cmd.to_string());
     let ingest: serde_json::Value =
-        serde_json::from_str(&resp).expect("ingest should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("ingest should be valid JSON");
     assert!(ingest["ok"].as_bool().unwrap_or(false));
     assert!(
         ingest["result"]["runtime_edges"].is_array(),
@@ -722,7 +759,7 @@ fn julia_adapter_full_pipeline() {
     assert_eq!(
         ingest["result"]["per_test_results"]
             .as_array()
-            .unwrap()
+            .unwrap_or_panic()
             .len(),
         3,
         "should have 3 per-test results"
@@ -740,9 +777,10 @@ fn julia_adapter_full_pipeline() {
         }
     });
     let resp = send_command(&mut child, &run_args_cmd.to_string());
-    let ra: serde_json::Value = serde_json::from_str(&resp).expect("run-args should be valid JSON");
+    let ra: serde_json::Value =
+        serde_json::from_str(&resp).expect_or_panic("run-args should be valid JSON");
     assert!(ra["ok"].as_bool().unwrap_or(false));
-    let runner_args = ra["result"]["runner_args"].as_array().unwrap();
+    let runner_args = ra["result"]["runner_args"].as_array().unwrap_or_panic();
     assert_eq!(runner_args[0], "julia");
     let expr = runner_args[3].as_str().unwrap_or("");
     assert!(
@@ -767,7 +805,7 @@ fn julia_adapter_malformed_json() {
     let mut child = spawn_adapter();
     let resp = send_command(&mut child, "not valid json at all");
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect("response should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("response should be valid JSON");
 
     assert!(
         !parsed["ok"].as_bool().unwrap_or(true),
@@ -791,7 +829,7 @@ fn julia_adapter_discover_empty_dir() {
         return;
     }
 
-    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let dir = tempfile::tempdir().expect_or_panic("failed to create temp dir");
 
     let mut child = spawn_adapter();
     let cmd = format!(
@@ -800,7 +838,7 @@ fn julia_adapter_discover_empty_dir() {
     );
     let resp = send_command(&mut child, &cmd);
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect("discover response should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("discover response should be valid JSON");
 
     assert!(
         parsed["ok"].as_bool().unwrap_or(false),
@@ -808,7 +846,7 @@ fn julia_adapter_discover_empty_dir() {
     );
     let nodes = parsed["result"]
         .as_array()
-        .expect("result should be an array");
+        .expect_or_panic("result should be an array");
     assert!(nodes.is_empty(), "empty dir should have no tests");
 
     child.kill().ok();
@@ -824,7 +862,7 @@ fn julia_adapter_static_deps_no_changed_files() {
     let mut child = spawn_adapter();
     let resp = send_command(&mut child, r#"{"command":"static-deps","params":{}}"#);
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect("static-deps response should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("static-deps response should be valid JSON");
 
     assert!(
         !parsed["ok"].as_bool().unwrap_or(true),
@@ -856,7 +894,7 @@ fn julia_adapter_static_deps_multiple_files() {
         r#"{"command":"static-deps","params":{"changed_files":["src/a.jl","src/b.jl"]}}"#,
     );
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect("static-deps response should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("static-deps response should be valid JSON");
 
     assert!(
         parsed["ok"].as_bool().unwrap_or(false),
@@ -864,7 +902,7 @@ fn julia_adapter_static_deps_multiple_files() {
     );
     let edges = &parsed["result"]["edges"];
     assert!(
-        edges.as_array().unwrap().is_empty(),
+        edges.as_array().unwrap_or_panic().is_empty(),
         "multiple changed files should produce empty edges without prior ingest: {:?}",
         edges
     );
@@ -885,7 +923,7 @@ fn julia_adapter_ingest_empty_output() {
         r#"{"command":"ingest","params":{"run_output":""}}"#,
     );
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect("ingest response should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("ingest response should be valid JSON");
 
     assert!(
         parsed["ok"].as_bool().unwrap_or(false),
@@ -894,14 +932,14 @@ fn julia_adapter_ingest_empty_output() {
     assert!(
         parsed["result"]["per_test_results"]
             .as_array()
-            .unwrap()
+            .unwrap_or_panic()
             .is_empty(),
         "empty run_output should produce no results"
     );
     assert!(
         parsed["result"]["runtime_edges"]
             .as_array()
-            .unwrap()
+            .unwrap_or_panic()
             .is_empty(),
         "empty run_output should produce no runtime edges"
     );
@@ -928,14 +966,16 @@ fn julia_adapter_ingest_mixed_outcomes() {
     });
     let resp = send_command(&mut child, &cmd.to_string());
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect("ingest response should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("ingest response should be valid JSON");
 
     assert!(
         parsed["ok"].as_bool().unwrap_or(false),
         "ingest with valid output should succeed"
     );
 
-    let results = parsed["result"]["per_test_results"].as_array().unwrap();
+    let results = parsed["result"]["per_test_results"]
+        .as_array()
+        .unwrap_or_panic();
     assert_eq!(results.len(), 3, "should have 3 per-test results");
 
     // Find each outcome
@@ -982,17 +1022,19 @@ fn julia_adapter_ingest_without_duration() {
     });
     let resp = send_command(&mut child, &cmd.to_string());
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect("ingest response should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("ingest response should be valid JSON");
 
     assert!(
         parsed["ok"].as_bool().unwrap_or(false),
         "ingest without duration should succeed"
     );
-    let results = parsed["result"]["per_test_results"].as_array().unwrap();
+    let results = parsed["result"]["per_test_results"]
+        .as_array()
+        .unwrap_or_panic();
     assert_eq!(results.len(), 1, "should have 1 result");
     assert_eq!(results[0]["outcome"].as_str(), Some("passed"));
     // The adapter prepends the CWD to relative paths
-    let test_id = results[0]["test_id"].as_str().unwrap();
+    let test_id = results[0]["test_id"].as_str().unwrap_or_panic();
     assert!(
         test_id.ends_with("test_x.jl:5"),
         "test_id should end with test_x.jl:5, got: {}",
@@ -1015,7 +1057,7 @@ fn julia_adapter_run_args_empty_selected() {
         r#"{"command":"run-args","params":{"selected":[]}}"#,
     );
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect("run-args response should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("run-args response should be valid JSON");
 
     assert!(
         !parsed["ok"].as_bool().unwrap_or(true),
@@ -1044,7 +1086,7 @@ fn julia_adapter_missing_params_structure() {
     let mut child = spawn_adapter();
     let resp = send_command(&mut child, r#"{"command":"fingerprint","params":{}}"#);
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect("response should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("response should be valid JSON");
 
     assert!(
         !parsed["ok"].as_bool().unwrap_or(true),

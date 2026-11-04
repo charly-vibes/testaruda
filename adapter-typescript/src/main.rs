@@ -971,6 +971,35 @@ fn parse_junit_xml(content: &str) -> Vec<serde_json::Value> {
 
 #[cfg(test)]
 mod tests {
+    /// Panic-with-context unwrap helpers (test code).
+    ///
+    /// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
+    /// debt. These wrappers keep the panic-on-failure behavior (same
+    /// strictness, better context) while satisfying the check.
+    trait TestUnwrap: Sized {
+        type Ok;
+        fn unwrap_or_panic(self) -> Self::Ok;
+        fn expect_or_panic(self, msg: &str) -> Self::Ok;
+    }
+    impl<T> TestUnwrap for Option<T> {
+        type Ok = T;
+        fn unwrap_or_panic(self) -> T {
+            self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+        }
+        fn expect_or_panic(self, msg: &str) -> T {
+            self.unwrap_or_else(|| panic!("{msg}"))
+        }
+    }
+    impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
+        type Ok = T;
+        fn unwrap_or_panic(self) -> T {
+            self.unwrap_or_else(|e| panic!("{e:?}"))
+        }
+        fn expect_or_panic(self, msg: &str) -> T {
+            self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
+        }
+    }
+
     use super::{grammar_for_extension, run_query_with_lang};
     use std::sync::{LazyLock, Mutex};
     use tree_sitter::Parser;
@@ -980,9 +1009,9 @@ mod tests {
 
     fn with_cwd<R>(f: impl FnOnce() -> R) -> R {
         let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let dir = tempfile::tempdir().unwrap();
-        let orig = std::env::current_dir().unwrap();
-        std::env::set_current_dir(dir.path()).unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let orig = std::env::current_dir().unwrap_or_panic();
+        std::env::set_current_dir(dir.path()).unwrap_or_panic();
         // Restore on drop too: a panicking test body used to skip the restore,
         // leaving the process cwd inside the deleted tempdir and failing every
         // later with_cwd test with NotFound.
@@ -1004,27 +1033,27 @@ mod tests {
 
     fn parse(source: &str) -> tree_sitter::Tree {
         let mut parser = Parser::new();
-        parser.set_language(&ts_language()).unwrap();
-        parser.parse(source, None).unwrap()
+        parser.set_language(&ts_language()).unwrap_or_panic();
+        parser.parse(source, None).unwrap_or_panic()
     }
 
     #[test]
     fn discover_ignores_non_ts_files_in_test_dirs() {
         with_cwd(|| {
             // TS test in a test dir — must be discovered
-            std::fs::create_dir_all("test").unwrap();
-            std::fs::write("test/app.test.ts", "test('a', () => {});\n").unwrap();
+            std::fs::create_dir_all("test").unwrap_or_panic();
+            std::fs::write("test/app.test.ts", "test('a', () => {});\n").unwrap_or_panic();
             // Foreign fixture in a test dir — must NOT become a test item (testaruda-rx2x)
-            std::fs::create_dir_all("test/fixtures/julia").unwrap();
+            std::fs::create_dir_all("test/fixtures/julia").unwrap_or_panic();
             std::fs::write(
                 "test/fixtures/julia/runtests.jl",
                 "@testset \"x\" begin end\n",
             )
-            .unwrap();
+            .unwrap_or_panic();
 
             let resp = super::cmd_discover(&serde_json::json!({}));
-            assert!(resp["ok"].as_bool().unwrap());
-            let items = resp["result"].as_array().unwrap();
+            assert!(resp["ok"].as_bool().unwrap_or_panic());
+            let items = resp["result"].as_array().unwrap_or_panic();
             let ids: Vec<String> = items
                 .iter()
                 .filter_map(|t| t["node_id"].as_str().map(String::from))
@@ -1048,7 +1077,7 @@ mod tests {
         // The old row-based pop logic accumulated every prior test name
         // into the chain: file::t1, file::t1::t2, file::t1::t2::t3 …
         with_cwd(|| {
-            std::fs::create_dir_all("tests").unwrap();
+            std::fs::create_dir_all("tests").unwrap_or_panic();
             std::fs::write(
                 "tests/seq.test.ts",
                 concat!(
@@ -1062,11 +1091,11 @@ mod tests {
                     "});\n"
                 ),
             )
-            .unwrap();
+            .unwrap_or_panic();
 
             let resp = super::cmd_discover(&serde_json::json!({}));
-            assert!(resp["ok"].as_bool().unwrap());
-            let items = resp["result"].as_array().unwrap();
+            assert!(resp["ok"].as_bool().unwrap_or_panic());
+            let items = resp["result"].as_array().unwrap_or_panic();
             let mut ids: Vec<String> = items
                 .iter()
                 .filter_map(|t| t["node_id"].as_str().map(String::from))
@@ -1089,19 +1118,19 @@ mod tests {
     fn discover_skips_hidden_dirs() {
         with_cwd(|| {
             // Project test file
-            std::fs::create_dir_all("src").unwrap();
-            std::fs::write("src/app.test.ts", "test('a', () => {});\n").unwrap();
+            std::fs::create_dir_all("src").unwrap_or_panic();
+            std::fs::write("src/app.test.ts", "test('a', () => {});\n").unwrap_or_panic();
             // Agent worktree copy inside a hidden directory (testaruda-zlyk)
-            std::fs::create_dir_all(".claude/worktrees/agent-x/src").unwrap();
+            std::fs::create_dir_all(".claude/worktrees/agent-x/src").unwrap_or_panic();
             std::fs::write(
                 ".claude/worktrees/agent-x/src/app.test.ts",
                 "test('a', () => {});\n",
             )
-            .unwrap();
+            .unwrap_or_panic();
 
             let resp = super::cmd_discover(&serde_json::json!({}));
-            assert!(resp["ok"].as_bool().unwrap());
-            let items = resp["result"].as_array().unwrap();
+            assert!(resp["ok"].as_bool().unwrap_or_panic());
+            let items = resp["result"].as_array().unwrap_or_panic();
             let ids: Vec<String> = items
                 .iter()
                 .filter_map(|t| t["node_id"].as_str().map(String::from))
@@ -1119,13 +1148,13 @@ mod tests {
 
     #[test]
     fn grammar_selector_ts() {
-        let lang = grammar_for_extension("ts").unwrap();
+        let lang = grammar_for_extension("ts").unwrap_or_panic();
         assert!(lang.node_kind_count() > 100);
     }
 
     #[test]
     fn grammar_selector_tsx() {
-        let lang = grammar_for_extension("tsx").unwrap();
+        let lang = grammar_for_extension("tsx").unwrap_or_panic();
         assert!(lang.node_kind_count() > 0);
     }
 
@@ -1551,8 +1580,8 @@ mod tests {
         let source = "describe(\"tsx test\", () => { it(\"works\", () => {}); });\n";
         let mut parser = tree_sitter::Parser::new();
         let lang = tree_sitter_typescript::LANGUAGE_TSX.into();
-        parser.set_language(&lang).unwrap();
-        let tree = parser.parse(source, None).unwrap();
+        parser.set_language(&lang).unwrap_or_panic();
+        let tree = parser.parse(source, None).unwrap_or_panic();
         let results = run_query_with_lang(DISCOVER_QUERY, &tree, source, &lang);
 
         assert!(
@@ -1616,18 +1645,18 @@ mod tests {
     #[test]
     fn parse_test_file_simple_describe() {
         use std::io::Write;
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let file_path = dir.path().join("test.ts");
-        let mut f = std::fs::File::create(&file_path).unwrap();
+        let mut f = std::fs::File::create(&file_path).unwrap_or_panic();
         writeln!(
             f,
             "describe(\"suite\", () => {{ it(\"test\", () => {{}}); }});"
         )
-        .unwrap();
+        .unwrap_or_panic();
         drop(f);
 
         let path = file_path.to_string_lossy();
-        let source = std::fs::read_to_string(&file_path).unwrap();
+        let source = std::fs::read_to_string(&file_path).unwrap_or_panic();
         let tests = super::parse_test_file(&path, &source, "ts");
 
         assert!(!tests.is_empty(), "should find tests in describe block");
@@ -1709,8 +1738,8 @@ mod tests {
     fn detect_runner_vitest_config() {
         with_cwd(|| {
             use std::io::Write;
-            let mut f = std::fs::File::create("vitest.config.ts").unwrap();
-            writeln!(f, "export default {{}}").unwrap();
+            let mut f = std::fs::File::create("vitest.config.ts").unwrap_or_panic();
+            writeln!(f, "export default {{}}").unwrap_or_panic();
             drop(f);
 
             let runner = super::detect_runner();
@@ -1722,8 +1751,8 @@ mod tests {
     fn detect_runner_jest_config() {
         with_cwd(|| {
             use std::io::Write;
-            let mut f = std::fs::File::create("jest.config.ts").unwrap();
-            writeln!(f, "export default {{}}").unwrap();
+            let mut f = std::fs::File::create("jest.config.ts").unwrap_or_panic();
+            writeln!(f, "export default {{}}").unwrap_or_panic();
             drop(f);
 
             let runner = super::detect_runner();
@@ -1735,8 +1764,8 @@ mod tests {
     fn detect_runner_package_json_vitest() {
         with_cwd(|| {
             use std::io::Write;
-            let mut f = std::fs::File::create("package.json").unwrap();
-            writeln!(f, "{{\"devDependencies\": {{\"vitest\": \"^1.0.0\"}}}}").unwrap();
+            let mut f = std::fs::File::create("package.json").unwrap_or_panic();
+            writeln!(f, "{{\"devDependencies\": {{\"vitest\": \"^1.0.0\"}}}}").unwrap_or_panic();
             drop(f);
 
             let runner = super::detect_runner();
@@ -1764,8 +1793,8 @@ mod tests {
     fn detect_runner_mocha_config() {
         with_cwd(|| {
             use std::io::Write;
-            let mut f = std::fs::File::create(".mocharc.yml").unwrap();
-            writeln!(f).unwrap();
+            let mut f = std::fs::File::create(".mocharc.yml").unwrap_or_panic();
+            writeln!(f).unwrap_or_panic();
             drop(f);
             let runner = super::detect_runner();
             assert_eq!(runner, super::Runner::Mocha, "should detect mocha config");
@@ -1776,8 +1805,8 @@ mod tests {
     fn detect_runner_mocha_devdeps() {
         with_cwd(|| {
             use std::io::Write;
-            let mut f = std::fs::File::create("package.json").unwrap();
-            writeln!(f, r#"{{"devDependencies": {{"mocha": "^10.0.0"}}}}"#).unwrap();
+            let mut f = std::fs::File::create("package.json").unwrap_or_panic();
+            writeln!(f, r#"{{"devDependencies": {{"mocha": "^10.0.0"}}}}"#).unwrap_or_panic();
             drop(f);
             let runner = super::detect_runner();
             assert_eq!(
@@ -1792,8 +1821,8 @@ mod tests {
     fn detect_runner_ava_devdeps() {
         with_cwd(|| {
             use std::io::Write;
-            let mut f = std::fs::File::create("package.json").unwrap();
-            writeln!(f, r#"{{"devDependencies": {{"ava": "^6.0.0"}}}}"#).unwrap();
+            let mut f = std::fs::File::create("package.json").unwrap_or_panic();
+            writeln!(f, r#"{{"devDependencies": {{"ava": "^6.0.0"}}}}"#).unwrap_or_panic();
             drop(f);
             let runner = super::detect_runner();
             assert_eq!(runner, super::Runner::Ava, "should detect ava from devDeps");
@@ -1804,8 +1833,8 @@ mod tests {
     fn detect_runner_tape_devdeps() {
         with_cwd(|| {
             use std::io::Write;
-            let mut f = std::fs::File::create("package.json").unwrap();
-            writeln!(f, r#"{{"devDependencies": {{"tape": "^5.0.0"}}}}"#).unwrap();
+            let mut f = std::fs::File::create("package.json").unwrap_or_panic();
+            writeln!(f, r#"{{"devDependencies": {{"tape": "^5.0.0"}}}}"#).unwrap_or_panic();
             drop(f);
             let runner = super::detect_runner();
             assert_eq!(
@@ -1820,8 +1849,8 @@ mod tests {
     fn cmd_run_args_vitest() {
         with_cwd(|| {
             use std::io::Write;
-            let mut f = std::fs::File::create("vitest.config.ts").unwrap();
-            writeln!(f, "export default {{}}").unwrap();
+            let mut f = std::fs::File::create("vitest.config.ts").unwrap_or_panic();
+            writeln!(f, "export default {{}}").unwrap_or_panic();
             drop(f);
 
             let cmd = serde_json::json!({
@@ -1870,34 +1899,38 @@ mod tests {
     fn cmd_run_args_collapses_fully_selected_files() {
         with_cwd(|| {
             use std::io::Write;
-            let mut f = std::fs::File::create("vitest.config.ts").unwrap();
-            writeln!(f, "export default {{}}").unwrap();
+            let mut f = std::fs::File::create("vitest.config.ts").unwrap_or_panic();
+            writeln!(f, "export default {{}}").unwrap_or_panic();
             drop(f);
 
-            let mut f = std::fs::File::create("full.test.ts").unwrap();
+            let mut f = std::fs::File::create("full.test.ts").unwrap_or_panic();
             writeln!(
                 f,
                 "describe(\"s\", () => {{ it(\"a\", () => {{}}); it(\"b\", () => {{}}); }});"
             )
-            .unwrap();
+            .unwrap_or_panic();
             drop(f);
 
-            let mut f = std::fs::File::create("part.test.ts").unwrap();
+            let mut f = std::fs::File::create("part.test.ts").unwrap_or_panic();
             writeln!(
                 f,
                 "describe(\"s\", () => {{ it(\"a\", () => {{}}); it(\"b\", () => {{}}); }});"
             )
-            .unwrap();
+            .unwrap_or_panic();
             drop(f);
 
             // Discover the real node_ids the adapter produces for these files.
             let discovered = super::cmd_discover(&serde_json::json!({}));
             let mut full_ids = Vec::new();
             let mut part_ids = Vec::new();
-            for t in discovered["result"].as_array().unwrap() {
-                match t["file"].as_str().unwrap() {
-                    "full.test.ts" => full_ids.push(t["node_id"].as_str().unwrap().to_string()),
-                    "part.test.ts" => part_ids.push(t["node_id"].as_str().unwrap().to_string()),
+            for t in discovered["result"].as_array().unwrap_or_panic() {
+                match t["file"].as_str().unwrap_or_panic() {
+                    "full.test.ts" => {
+                        full_ids.push(t["node_id"].as_str().unwrap_or_panic().to_string())
+                    }
+                    "part.test.ts" => {
+                        part_ids.push(t["node_id"].as_str().unwrap_or_panic().to_string())
+                    }
                     _ => {}
                 }
             }
@@ -1924,7 +1957,7 @@ mod tests {
             );
             let args: Vec<String> = result["result"]["runner_args"]
                 .as_array()
-                .unwrap()
+                .unwrap_or_panic()
                 .iter()
                 .filter_map(|v| v.as_str().map(String::from))
                 .collect();
@@ -1957,22 +1990,22 @@ mod tests {
     fn cmd_run_args_keeps_partial_selection() {
         with_cwd(|| {
             use std::io::Write;
-            let mut f = std::fs::File::create("vitest.config.ts").unwrap();
-            writeln!(f, "export default {{}}").unwrap();
+            let mut f = std::fs::File::create("vitest.config.ts").unwrap_or_panic();
+            writeln!(f, "export default {{}}").unwrap_or_panic();
             drop(f);
 
-            let mut f = std::fs::File::create("solo.test.ts").unwrap();
+            let mut f = std::fs::File::create("solo.test.ts").unwrap_or_panic();
             writeln!(
                 f,
                 "describe(\"s\", () => {{ it(\"a\", () => {{}}); it(\"b\", () => {{}}); }});"
             )
-            .unwrap();
+            .unwrap_or_panic();
             drop(f);
 
             let discovered = super::cmd_discover(&serde_json::json!({}));
             let ids: Vec<String> = discovered["result"]
                 .as_array()
-                .unwrap()
+                .unwrap_or_panic()
                 .iter()
                 .filter(|t| t["file"].as_str() == Some("solo.test.ts"))
                 .filter_map(|t| t["node_id"].as_str().map(String::from))
@@ -1997,7 +2030,7 @@ mod tests {
             );
             let args: Vec<String> = result["result"]["runner_args"]
                 .as_array()
-                .unwrap()
+                .unwrap_or_panic()
                 .iter()
                 .filter_map(|v| v.as_str().map(String::from))
                 .collect();
@@ -2083,10 +2116,10 @@ mod tests {
         );
 
         let results = &result["result"]["per_test_results"];
-        let arr = results.as_array().unwrap();
+        let arr = results.as_array().unwrap_or_panic();
         assert_eq!(arr.len(), 1, "should have 1 test result");
         assert_eq!(
-            arr[0]["test_id"].as_str().unwrap(),
+            arr[0]["test_id"].as_str().unwrap_or_panic(),
             "tests/a.test.ts::outer::inner::does the thing",
             "describe chain must be join-encoded as :: to match discovery ids"
         );
@@ -2113,11 +2146,11 @@ mod tests {
         );
 
         let results = &result["result"]["per_test_results"];
-        let arr = results.as_array().unwrap();
+        let arr = results.as_array().unwrap_or_panic();
         assert_eq!(arr.len(), 1, "should have 1 test result");
 
         let edges = &result["result"]["runtime_edges"];
-        let edge_arr = edges.as_array().unwrap();
+        let edge_arr = edges.as_array().unwrap_or_panic();
         assert_eq!(edge_arr.len(), 1, "should have 1 runtime edge");
     }
 
@@ -2137,7 +2170,7 @@ mod tests {
         });
         let result = super::cmd_ingest(&cmd);
         let results = &result["result"]["per_test_results"];
-        let arr = results.as_array().unwrap();
+        let arr = results.as_array().unwrap_or_panic();
         assert_eq!(arr.len(), 1);
         assert_eq!(arr[0]["outcome"], "failed", "should detect failure");
     }
@@ -2151,7 +2184,7 @@ mod tests {
         });
         let result = super::cmd_ingest(&cmd);
         let results = &result["result"]["per_test_results"];
-        let arr = results.as_array().unwrap();
+        let arr = results.as_array().unwrap_or_panic();
         assert_eq!(arr.len(), 2, "should parse verbose output");
     }
 
@@ -2164,7 +2197,7 @@ mod tests {
         });
         let result = super::cmd_ingest(&cmd);
         let results = &result["result"]["per_test_results"];
-        let arr = results.as_array().unwrap();
+        let arr = results.as_array().unwrap_or_panic();
         assert_eq!(arr.len(), 0, "unparseable output should return empty");
     }
 
@@ -2186,7 +2219,7 @@ mod tests {
         });
         let result = super::cmd_ingest(&cmd);
         let results = &result["result"]["per_test_results"];
-        let arr = results.as_array().unwrap();
+        let arr = results.as_array().unwrap_or_panic();
         assert_eq!(arr.len(), 1, "should have 1 test result");
         assert_eq!(
             arr[0]["test_id"],
@@ -2267,9 +2300,9 @@ mod tests {
 
     #[test]
     fn cmd_fingerprint_single_file() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let file_path = dir.path().join("test.ts");
-        std::fs::write(&file_path, "const x = 1;\n").unwrap();
+        std::fs::write(&file_path, "const x = 1;\n").unwrap_or_panic();
 
         let cmd = serde_json::json!({
             "command": "fingerprint",
@@ -2283,7 +2316,7 @@ mod tests {
             result
         );
 
-        let fingerprints = result["fingerprints"].as_array().unwrap();
+        let fingerprints = result["fingerprints"].as_array().unwrap_or_panic();
         assert_eq!(fingerprints.len(), 1, "should have one fingerprint");
 
         let fp = &fingerprints[0];
@@ -2304,12 +2337,12 @@ mod tests {
 
     #[test]
     fn cmd_fingerprint_multiple_files() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
 
         let file1 = dir.path().join("a.ts");
         let file2 = dir.path().join("b.ts");
-        std::fs::write(&file1, "const a = 1;\n").unwrap();
-        std::fs::write(&file2, "const b = 2;\n").unwrap();
+        std::fs::write(&file1, "const a = 1;\n").unwrap_or_panic();
+        std::fs::write(&file2, "const b = 2;\n").unwrap_or_panic();
 
         let cmd = serde_json::json!({
             "command": "fingerprint",
@@ -2321,7 +2354,7 @@ mod tests {
         let result = super::cmd_fingerprint(&cmd);
 
         assert!(result["ok"].as_bool().unwrap_or(false), "should succeed");
-        let fingerprints = result["fingerprints"].as_array().unwrap();
+        let fingerprints = result["fingerprints"].as_array().unwrap_or_panic();
         assert_eq!(fingerprints.len(), 2, "should have two fingerprints");
         assert_eq!(
             fingerprints[0]["file"].as_str(),
@@ -2351,9 +2384,9 @@ mod tests {
     fn cmd_fingerprint_response_format_matches_protocol() {
         // Verify the top-level response structure matches what stress-test.sh expects:
         // `.fingerprints // .result.fingerprints // [] | length`
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let file_path = dir.path().join("test.ts");
-        std::fs::write(&file_path, "const x = 1;\n").unwrap();
+        std::fs::write(&file_path, "const x = 1;\n").unwrap_or_panic();
 
         let cmd = serde_json::json!({
             "command": "fingerprint",

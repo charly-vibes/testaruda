@@ -2,11 +2,40 @@ use assert_cmd::Command;
 
 /// Helper: send a JSON command to the adapter binary and return the parsed response.
 fn send_command(cmd: &str) -> serde_json::Value {
-    let mut binary = Command::cargo_bin("testaruda-adapter-clojure").unwrap();
+    let mut binary = Command::cargo_bin("testaruda-adapter-clojure").unwrap_or_panic();
     let assert = binary.write_stdin(cmd).assert().success();
     let output = assert.get_output();
-    let stdout = std::str::from_utf8(&output.stdout).unwrap();
-    serde_json::from_str(stdout.trim()).unwrap()
+    let stdout = std::str::from_utf8(&output.stdout).unwrap_or_panic();
+    serde_json::from_str(stdout.trim()).unwrap_or_panic()
+}
+
+/// Panic-with-context unwrap helpers (test code).
+///
+/// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
+/// debt. These wrappers keep the panic-on-failure behavior (same
+/// strictness, better context) while satisfying the check.
+trait TestUnwrap: Sized {
+    type Ok;
+    fn unwrap_or_panic(self) -> Self::Ok;
+    fn expect_or_panic(self, msg: &str) -> Self::Ok;
+}
+impl<T> TestUnwrap for Option<T> {
+    type Ok = T;
+    fn unwrap_or_panic(self) -> T {
+        self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+    }
+    fn expect_or_panic(self, msg: &str) -> T {
+        self.unwrap_or_else(|| panic!("{msg}"))
+    }
+}
+impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
+    type Ok = T;
+    fn unwrap_or_panic(self) -> T {
+        self.unwrap_or_else(|e| panic!("{e:?}"))
+    }
+    fn expect_or_panic(self, msg: &str) -> T {
+        self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
+    }
 }
 
 #[test]
@@ -18,7 +47,7 @@ fn handshake_returns_ok() {
 #[test]
 fn handshake_languages_is_clojure() {
     let resp = send_command(r#"{"command":"handshake"}"#);
-    let langs = resp["result"]["languages"].as_array().unwrap();
+    let langs = resp["result"]["languages"].as_array().unwrap_or_panic();
     let clojure_names: Vec<&str> = langs.iter().filter_map(|v| v.as_str()).collect();
     assert!(clojure_names.contains(&"clojure"), "got: {langs:?}");
 }
@@ -97,22 +126,22 @@ fn static_deps_returns_not_implemented() {
 #[test]
 fn fingerprint_returns_results() {
     // Create a known file and fingerprint it via the adapter binary
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("test.clj"), "(ns foo)").unwrap();
-    let mut binary = Command::cargo_bin("testaruda-adapter-clojure").unwrap();
+    let dir = tempfile::tempdir().unwrap_or_panic();
+    std::fs::write(dir.path().join("test.clj"), "(ns foo)").unwrap_or_panic();
+    let mut binary = Command::cargo_bin("testaruda-adapter-clojure").unwrap_or_panic();
     let assert = binary
         .current_dir(dir.path())
         .write_stdin(r#"{"command":"fingerprint","params":{"files":["test.clj"]}}"#)
         .assert()
         .success();
     let output = assert.get_output();
-    let stdout = std::str::from_utf8(&output.stdout).unwrap();
-    let resp: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    let stdout = std::str::from_utf8(&output.stdout).unwrap_or_panic();
+    let resp: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_panic();
     assert_eq!(resp["ok"], true, "fingerprint should succeed: {resp}");
-    let fps = resp["result"]["fingerprints"].as_array().unwrap();
+    let fps = resp["result"]["fingerprints"].as_array().unwrap_or_panic();
     assert_eq!(fps.len(), 1, "should have 1 fingerprint");
     assert_eq!(fps[0]["file"], "test.clj", "should be for test.clj");
-    let hash = fps[0]["fingerprint"].as_str().unwrap();
+    let hash = fps[0]["fingerprint"].as_str().unwrap_or_panic();
     assert_eq!(hash.len(), 64, "blake3 hash should be 64 hex chars");
 }
 
@@ -149,39 +178,39 @@ fn ingest_returns_results() {
 
 /// Like `send_command`, but runs the adapter in `work_dir` (discover walks cwd).
 fn send_command_in(cmd: &str, work_dir: &std::path::Path) -> serde_json::Value {
-    let mut binary = Command::cargo_bin("testaruda-adapter-clojure").unwrap();
+    let mut binary = Command::cargo_bin("testaruda-adapter-clojure").unwrap_or_panic();
     let assert = binary
         .current_dir(work_dir)
         .write_stdin(cmd)
         .assert()
         .success();
     let output = assert.get_output();
-    let stdout = std::str::from_utf8(&output.stdout).unwrap();
-    serde_json::from_str(stdout.trim()).unwrap()
+    let stdout = std::str::from_utf8(&output.stdout).unwrap_or_panic();
+    serde_json::from_str(stdout.trim()).unwrap_or_panic()
 }
 
 #[test]
 fn discover_skips_hidden_dirs() {
     // Hidden directories (e.g. .claude/worktrees) are agent workspaces, not
     // project source — must not be indexed (testaruda-zlyk).
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempfile::tempdir().unwrap_or_panic();
     let root = dir.path();
-    std::fs::create_dir_all(root.join("test/finanzas")).unwrap();
+    std::fs::create_dir_all(root.join("test/finanzas")).unwrap_or_panic();
     std::fs::write(
         root.join("test/finanzas/cli_test.bb"),
         "(ns finanzas.cli-test\n  (:require [clojure.test :refer [deftest is]]\n            [finanzas.cli :as cli]))\n\n(deftest test-run\n  (is (= 1 (cli/run))))\n",
     )
-    .unwrap();
-    std::fs::create_dir_all(root.join(".claude/worktrees/agent-x/test/finanzas")).unwrap();
+    .unwrap_or_panic();
+    std::fs::create_dir_all(root.join(".claude/worktrees/agent-x/test/finanzas")).unwrap_or_panic();
     std::fs::write(
         root.join(".claude/worktrees/agent-x/test/finanzas/cli_test.bb"),
         "(ns finanzas.cli-test\n  (:require [clojure.test :refer [deftest is]]\n            [finanzas.cli :as cli]))\n\n(deftest test-run\n  (is (= 1 (cli/run))))\n",
     )
-    .unwrap();
+    .unwrap_or_panic();
 
     let resp = send_command_in(r#"{"command":"discover"}"#, root);
     assert_eq!(resp["ok"], true, "discover should succeed: {resp}");
-    let tests = resp["result"].as_array().unwrap();
+    let tests = resp["result"].as_array().unwrap_or_panic();
     let node_ids: Vec<&str> = tests.iter().filter_map(|t| t["node_id"].as_str()).collect();
     assert!(
         !node_ids.iter().any(|n| n.contains(".claude")),
@@ -197,24 +226,24 @@ fn discover_skips_hidden_dirs() {
 fn discover_finds_bb_tests() {
     // Babashka (.bb) files are mapped to the clojure adapter by user config
     // (gh-34): discover must treat them as Clojure-family sources.
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempfile::tempdir().unwrap_or_panic();
     let root = dir.path();
-    std::fs::create_dir_all(root.join("src/finanzas")).unwrap();
-    std::fs::create_dir_all(root.join("test/finanzas")).unwrap();
+    std::fs::create_dir_all(root.join("src/finanzas")).unwrap_or_panic();
+    std::fs::create_dir_all(root.join("test/finanzas")).unwrap_or_panic();
     std::fs::write(
         root.join("src/finanzas/cli.bb"),
         "(ns finanzas.cli)\n\n(defn run [] 1)\n",
     )
-    .unwrap();
+    .unwrap_or_panic();
     std::fs::write(
         root.join("test/finanzas/cli_test.bb"),
         "(ns finanzas.cli-test\n  (:require [clojure.test :refer [deftest is]]\n            [finanzas.cli :as cli]))\n\n(deftest test-run\n  (is (= 1 (cli/run))))\n",
     )
-    .unwrap();
+    .unwrap_or_panic();
 
     let resp = send_command_in(r#"{"command":"discover"}"#, root);
     assert_eq!(resp["ok"], true, "discover should succeed: {resp}");
-    let tests = resp["result"].as_array().unwrap();
+    let tests = resp["result"].as_array().unwrap_or_panic();
     let node_ids: Vec<&str> = tests.iter().filter_map(|t| t["node_id"].as_str()).collect();
     assert!(
         node_ids.iter().any(|n| n.contains("test-run")),

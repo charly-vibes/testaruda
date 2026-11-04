@@ -30,7 +30,7 @@ fn titi_available() -> bool {
 /// Create a minimal .NET test project in the given directory.
 fn create_dotnet_project(dir: &std::path::Path) {
     let src = dir.join("src");
-    std::fs::create_dir_all(&src).unwrap();
+    std::fs::create_dir_all(&src).unwrap_or_panic();
 
     // Create a .cs file (the main source extension)
     std::fs::write(
@@ -46,7 +46,7 @@ class Program
 }
 "#,
     )
-    .unwrap();
+    .unwrap_or_panic();
 }
 
 /// Write a testaruda.toml with a .NET titi mapping.
@@ -63,7 +63,7 @@ default = "testaruda-adapter-rust"
 ".sln" = "titi testaruda-adapter"
 ".slnx" = "titi testaruda-adapter"
 "#;
-    std::fs::write(dir.join("testaruda.toml"), config).unwrap();
+    std::fs::write(dir.join("testaruda.toml"), config).unwrap_or_panic();
 }
 
 // ===== Registry resolution tests =====
@@ -118,7 +118,7 @@ fn dotnet_extension_resolves_sln() {
 /// Returns true if the project was set up successfully.
 fn setup_dotnet_fixture(dir: &std::path::Path) -> bool {
     let proj_dir = dir.join("src/MyApp");
-    std::fs::create_dir_all(&proj_dir).unwrap();
+    std::fs::create_dir_all(&proj_dir).unwrap_or_panic();
 
     // .csproj
     std::fs::write(
@@ -133,18 +133,18 @@ fn setup_dotnet_fixture(dir: &std::path::Path) -> bool {
 </Project>
 "#,
     )
-    .unwrap();
+    .unwrap_or_panic();
 
     // Program.cs
     std::fs::write(
         proj_dir.join("Program.cs"),
         "Console.WriteLine(\"Hello from .NET fixture!\");\n",
     )
-    .unwrap();
+    .unwrap_or_panic();
 
     // .slnx
     let slnx_dir = dir.join(".titi/solutions");
-    std::fs::create_dir_all(&slnx_dir).unwrap();
+    std::fs::create_dir_all(&slnx_dir).unwrap_or_panic();
     std::fs::write(
         slnx_dir.join("MyApp.slnx"),
         serde_json::json!({
@@ -157,7 +157,7 @@ fn setup_dotnet_fixture(dir: &std::path::Path) -> bool {
         })
         .to_string(),
     )
-    .unwrap();
+    .unwrap_or_panic();
 
     true
 }
@@ -169,14 +169,14 @@ fn titi_adapter_handshake_returns_correct_fields() {
         return;
     }
 
-    let temp = tempfile::tempdir().unwrap();
+    let temp = tempfile::tempdir().unwrap_or_panic();
     setup_dotnet_fixture(temp.path());
 
     // Spawn the titi adapter rooted at the fixture dir (handshake performs
     // project discovery, so cwd matters)
     let adapter =
         testaruda::adapter::spawn_adapter_in("titi testaruda-adapter", None, Some(temp.path()))
-            .expect("should spawn titi adapter");
+            .expect_or_panic("should spawn titi adapter");
 
     // Verify adapter name from handshake
     assert_eq!(adapter.name, "titi");
@@ -189,7 +189,7 @@ fn titi_adapter_handshake_response_format() {
         return;
     }
 
-    let temp = tempfile::tempdir().unwrap();
+    let temp = tempfile::tempdir().unwrap_or_panic();
     setup_dotnet_fixture(temp.path());
 
     use std::io::Write;
@@ -202,23 +202,23 @@ fn titi_adapter_handshake_response_format() {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .expect("failed to spawn titi");
+        .expect_or_panic("failed to spawn titi");
 
-    let stdin = child.stdin.as_mut().unwrap();
-    writeln!(stdin, r#"{{"command":"handshake"}}"#).unwrap();
-    stdin.flush().unwrap();
+    let stdin = child.stdin.as_mut().unwrap_or_panic();
+    writeln!(stdin, r#"{{"command":"handshake"}}"#).unwrap_or_panic();
+    stdin.flush().unwrap_or_panic();
 
     let output = child
         .wait_with_output()
-        .expect("failed to read titi output");
+        .expect_or_panic("failed to read titi output");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let line = stdout
         .lines()
         .next()
-        .expect("expected at least one JSON line");
+        .expect_or_panic("expected at least one JSON line");
 
     let parsed: serde_json::Value =
-        serde_json::from_str(line).expect("handshake response should be valid JSON");
+        serde_json::from_str(line).expect_or_panic("handshake response should be valid JSON");
 
     assert!(parsed["ok"].as_bool().unwrap_or(false), "ok should be true");
     let result = &parsed["result"];
@@ -240,7 +240,7 @@ fn titi_adapter_handshake_then_discover() {
         return;
     }
 
-    let temp = tempfile::tempdir().unwrap();
+    let temp = tempfile::tempdir().unwrap_or_panic();
     setup_dotnet_fixture(temp.path());
 
     use std::io::{BufRead, Write};
@@ -253,32 +253,32 @@ fn titi_adapter_handshake_then_discover() {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .expect("failed to spawn titi");
+        .expect_or_panic("failed to spawn titi");
 
-    let stdin = child.stdin.as_mut().unwrap();
+    let stdin = child.stdin.as_mut().unwrap_or_panic();
 
     // 1. Handshake
-    writeln!(stdin, r#"{{"command":"handshake"}}"#).unwrap();
-    stdin.flush().unwrap();
+    writeln!(stdin, r#"{{"command":"handshake"}}"#).unwrap_or_panic();
+    stdin.flush().unwrap_or_panic();
 
     let mut line = String::new();
-    let mut reader = std::io::BufReader::new(child.stdout.as_mut().unwrap());
-    reader.read_line(&mut line).unwrap();
+    let mut reader = std::io::BufReader::new(child.stdout.as_mut().unwrap_or_panic());
+    reader.read_line(&mut line).unwrap_or_panic();
 
     let hs: serde_json::Value =
-        serde_json::from_str(&line).expect("handshake response should be valid JSON");
+        serde_json::from_str(&line).expect_or_panic("handshake response should be valid JSON");
     assert!(hs["ok"].as_bool().unwrap_or(false));
     assert_eq!(hs["result"]["name"].as_str(), Some("titi"));
 
     // 2. Discover
-    writeln!(stdin, r#"{{"command":"discover"}}"#).unwrap();
-    stdin.flush().unwrap();
+    writeln!(stdin, r#"{{"command":"discover"}}"#).unwrap_or_panic();
+    stdin.flush().unwrap_or_panic();
 
     let mut disc_line = String::new();
-    reader.read_line(&mut disc_line).unwrap();
+    reader.read_line(&mut disc_line).unwrap_or_panic();
 
     let disc: serde_json::Value =
-        serde_json::from_str(&disc_line).expect("discover response should be valid JSON");
+        serde_json::from_str(&disc_line).expect_or_panic("discover response should be valid JSON");
     assert!(disc["ok"].as_bool().unwrap_or(false));
     assert!(
         disc["result"].is_array(),
@@ -339,7 +339,7 @@ default = "testaruda-adapter-rust"
 ".rs" = "testaruda-adapter-rust"
 "#;
 
-    let parsed: testaruda::config::Config = toml::from_str(config).unwrap();
+    let parsed: testaruda::config::Config = toml::from_str(config).unwrap_or_panic();
     assert_eq!(
         parsed.adapters.extensions.get(".cs").map(String::as_str),
         Some("titi testaruda-adapter")
@@ -384,7 +384,7 @@ fn run_git(dir: &std::path::Path, args: &[&str]) -> std::process::Output {
         .args(args)
         .current_dir(dir)
         .output()
-        .expect("failed to run git")
+        .expect_or_panic("failed to run git")
 }
 
 /// Initialize a real git repository and stage everything, so testaruda's git
@@ -399,23 +399,23 @@ fn git_init_and_stage(dir: &std::path::Path) {
 /// `testaruda-adapter-rust` into a fresh tempdir prepended to PATH.
 /// Returns the tempdir guard (must outlive the child run) and the child PATH.
 fn child_path_with_rust_adapter() -> (tempfile::TempDir, std::ffi::OsString) {
-    let adapter_dir = tempfile::tempdir().unwrap();
+    let adapter_dir = tempfile::tempdir().unwrap_or_panic();
     #[cfg(unix)]
     std::os::unix::fs::symlink(
         env!("CARGO_BIN_EXE_testaruda-adapter-rust"),
         adapter_dir.path().join("testaruda-adapter-rust"),
     )
-    .expect("failed to symlink adapter binary");
+    .expect_or_panic("failed to symlink adapter binary");
     #[cfg(not(unix))]
     std::fs::copy(
         env!("CARGO_BIN_EXE_testaruda-adapter-rust"),
         adapter_dir.path().join("testaruda-adapter-rust"),
     )
-    .expect("failed to copy adapter binary");
+    .expect_or_panic("failed to copy adapter binary");
     let child_path = std::env::join_paths(std::iter::once(adapter_dir.path().to_path_buf()).chain(
         std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
     ))
-    .expect("failed to build child PATH");
+    .expect_or_panic("failed to build child PATH");
     (adapter_dir, child_path)
 }
 
@@ -430,9 +430,9 @@ version = "0.1.0"
 edition = "2021"
 "#,
     )
-    .unwrap();
+    .unwrap_or_panic();
     let src = dir.join("src");
-    std::fs::create_dir_all(&src).unwrap();
+    std::fs::create_dir_all(&src).unwrap_or_panic();
     std::fs::write(
         src.join("lib.rs"),
         r#"pub fn greet() -> &'static str { "hello" }
@@ -443,7 +443,7 @@ mod tests {
 }
 "#,
     )
-    .unwrap();
+    .unwrap_or_panic();
 }
 
 /// Run the testaruda binary with `args` from `dir` with `child_path` as PATH.
@@ -457,7 +457,7 @@ fn run_testaruda(
         .current_dir(dir)
         .env("PATH", child_path)
         .output()
-        .expect("failed to run testaruda")
+        .expect_or_panic("failed to run testaruda")
 }
 
 /// Any documented FULL_RUN cause is valid in the JSON plan reason
@@ -487,7 +487,7 @@ fn select_falls_back_when_titi_not_installed() {
         return;
     }
 
-    let project = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap_or_panic();
 
     // Create a .NET-like project structure
     create_dotnet_project(project.path());
@@ -544,7 +544,7 @@ fn select_falls_back_when_titi_not_installed() {
     // The JSON output should be valid envelope format
     let stdout = String::from_utf8_lossy(&select_output.stdout);
     let parsed: serde_json::Value =
-        serde_json::from_str(&stdout).expect("select --json output should be valid JSON");
+        serde_json::from_str(&stdout).expect_or_panic("select --json output should be valid JSON");
 
     // Should be an envelope with data containing the selection
     assert!(
@@ -553,7 +553,7 @@ fn select_falls_back_when_titi_not_installed() {
         stdout,
     );
 
-    let tests = parsed["data"]["tests"].as_array().unwrap();
+    let tests = parsed["data"]["tests"].as_array().unwrap_or_panic();
     // Should have at least the Rust test items (selected via default adapter)
     assert!(
         !tests.is_empty(),
@@ -590,7 +590,7 @@ default = "testaruda-adapter-rust"
     // Normalize via the config module
     let normalized = testaruda::config::normalize_adapters_config(flat);
 
-    let parsed: testaruda::config::Config = toml::from_str(&normalized).unwrap();
+    let parsed: testaruda::config::Config = toml::from_str(&normalized).unwrap_or_panic();
     assert_eq!(
         parsed.adapters.extensions.get(".cs").map(String::as_str),
         Some("titi testaruda-adapter")
@@ -603,4 +603,33 @@ default = "testaruda-adapter-rust"
         parsed.adapters.default.as_deref(),
         Some("testaruda-adapter-rust")
     );
+}
+
+/// Panic-with-context unwrap helpers (test code).
+///
+/// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
+/// debt. These wrappers keep the panic-on-failure behavior (same
+/// strictness, better context) while satisfying the check.
+trait TestUnwrap: Sized {
+    type Ok;
+    fn unwrap_or_panic(self) -> Self::Ok;
+    fn expect_or_panic(self, msg: &str) -> Self::Ok;
+}
+impl<T> TestUnwrap for Option<T> {
+    type Ok = T;
+    fn unwrap_or_panic(self) -> T {
+        self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+    }
+    fn expect_or_panic(self, msg: &str) -> T {
+        self.unwrap_or_else(|| panic!("{msg}"))
+    }
+}
+impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
+    type Ok = T;
+    fn unwrap_or_panic(self) -> T {
+        self.unwrap_or_else(|e| panic!("{e:?}"))
+    }
+    fn expect_or_panic(self, msg: &str) -> T {
+        self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
+    }
 }

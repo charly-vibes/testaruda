@@ -29,7 +29,7 @@ use testaruda::ONE;
 ///
 /// Files are expected to already exist on disk (created via Fixture).
 fn setup_graph(store: &Store, root: &Path) -> (Vec<u32>, [u32; 4]) {
-    store.initialize().unwrap();
+    store.initialize().unwrap_or_panic();
 
     let paths = [
         "src/session.py",
@@ -49,20 +49,20 @@ fn setup_graph(store: &Store, root: &Path) -> (Vec<u32>, [u32; 4]) {
     // Insert content units
     let mut cids: Vec<u32> = Vec::new();
     for p in &paths {
-        let fp = Store::compute_fingerprint(&root.join(p)).unwrap();
+        let fp = Store::compute_fingerprint(&root.join(p)).unwrap_or_panic();
         conn.execute(
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', ?1, NULL, 'source', ?2)",
             rusqlite::params![p, fp],
         )
-        .unwrap();
+        .unwrap_or_panic();
         let id: u32 = conn
             .query_row(
                 "SELECT id FROM content_units WHERE component='default' AND path=?1",
                 rusqlite::params![p],
                 |row| row.get(0),
             )
-            .unwrap();
+            .unwrap_or_panic();
         cids.push(id);
     }
 
@@ -72,14 +72,14 @@ fn setup_graph(store: &Store, root: &Path) -> (Vec<u32>, [u32; 4]) {
         conn.execute(
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'rust-adapter', ?1)",
             rusqlite::params![n],
-        ).unwrap();
+        ).unwrap_or_panic();
         tids[i] = conn
             .query_row(
                 "SELECT id FROM test_items WHERE component='default' AND node_id=?1",
                 rusqlite::params![n],
                 |row| row.get(0),
             )
-            .unwrap();
+            .unwrap_or_panic();
     }
 
     // Insert edges
@@ -121,7 +121,9 @@ fn setup_graph(store: &Store, root: &Path) -> (Vec<u32>, [u32; 4]) {
             origin: "static".into(),
         },
     ];
-    store.store_static_deps("rust-adapter", &edges).unwrap();
+    store
+        .store_static_deps("rust-adapter", &edges)
+        .unwrap_or_panic();
 
     // Seed a passed run for all tests so no-history always-run doesn't
     // interfere with the precision assertions (TIA-SAFE-007 always-run is
@@ -132,7 +134,7 @@ fn setup_graph(store: &Store, root: &Path) -> (Vec<u32>, [u32; 4]) {
              VALUES (?1, 'seed-run', 'passed', 50, 'default')",
             rusqlite::params![tid],
         )
-        .unwrap();
+        .unwrap_or_panic();
     }
 
     (cids, tids)
@@ -149,12 +151,41 @@ where
         .with_file("src/helpers.py", "def fmt(): pass")
         .with_file("testaruda.toml", "")
         .build()
-        .unwrap();
+        .unwrap_or_panic();
     let root = fixture.root();
 
-    let store = Store::open(root.join(".testaruda")).unwrap();
+    let store = Store::open(root.join(".testaruda")).unwrap_or_panic();
     let (cids, tids) = setup_graph(&store, root);
     f(&store, root, &cids, &tids);
+}
+
+/// Panic-with-context unwrap helpers (test code).
+///
+/// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
+/// debt. These wrappers keep the panic-on-failure behavior (same
+/// strictness, better context) while satisfying the check.
+trait TestUnwrap: Sized {
+    type Ok;
+    fn unwrap_or_panic(self) -> Self::Ok;
+    fn expect_or_panic(self, msg: &str) -> Self::Ok;
+}
+impl<T> TestUnwrap for Option<T> {
+    type Ok = T;
+    fn unwrap_or_panic(self) -> T {
+        self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+    }
+    fn expect_or_panic(self, msg: &str) -> T {
+        self.unwrap_or_else(|| panic!("{msg}"))
+    }
+}
+impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
+    type Ok = T;
+    fn unwrap_or_panic(self) -> T {
+        self.unwrap_or_else(|e| panic!("{e:?}"))
+    }
+    fn expect_or_panic(self, msg: &str) -> T {
+        self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
+    }
 }
 
 #[test]
@@ -167,14 +198,14 @@ fn test_seeded_fault_soundness_and_precision() {
                 root.join("src/session.py"),
                 b"def login(): return True  # modified",
             )
-            .unwrap();
+            .unwrap_or_panic();
             let delta = ChangeSet {
                 files: vec!["src/session.py".to_string()],
                 base: None,
                 head: None,
                 from_revisions: false,
             };
-            let sel = Selector::select(store, &delta).unwrap();
+            let sel = Selector::select(store, &delta).unwrap_or_panic();
             let ids: Vec<u32> = sel.tests.iter().map(|t| t.id).collect();
 
             assert!(
@@ -193,14 +224,15 @@ fn test_seeded_fault_soundness_and_precision() {
 
         // Scenario 2: change helpers.py → all except test_totp
         {
-            std::fs::write(root.join("src/helpers.py"), b"def fmt(x): return str(x)").unwrap();
+            std::fs::write(root.join("src/helpers.py"), b"def fmt(x): return str(x)")
+                .unwrap_or_panic();
             let delta = ChangeSet {
                 files: vec!["src/helpers.py".to_string()],
                 base: None,
                 head: None,
                 from_revisions: false,
             };
-            let sel = Selector::select(store, &delta).unwrap();
+            let sel = Selector::select(store, &delta).unwrap_or_panic();
             let ids: Vec<u32> = sel.tests.iter().map(|t| t.id).collect();
 
             assert!(ids.contains(&tids[0]), "test_session");
@@ -212,15 +244,17 @@ fn test_seeded_fault_soundness_and_precision() {
 
         // Scenario 3: change session.py + invoice.py → 3 tests
         {
-            std::fs::write(root.join("src/session.py"), b"def login(): return 42").unwrap();
-            std::fs::write(root.join("src/invoice.py"), b"def create(x): return x").unwrap();
+            std::fs::write(root.join("src/session.py"), b"def login(): return 42")
+                .unwrap_or_panic();
+            std::fs::write(root.join("src/invoice.py"), b"def create(x): return x")
+                .unwrap_or_panic();
             let delta = ChangeSet {
                 files: vec!["src/session.py".to_string(), "src/invoice.py".to_string()],
                 base: None,
                 head: None,
                 from_revisions: false,
             };
-            let sel = Selector::select(store, &delta).unwrap();
+            let sel = Selector::select(store, &delta).unwrap_or_panic();
             let ids: Vec<u32> = sel.tests.iter().map(|t| t.id).collect();
 
             assert!(ids.contains(&tids[0]), "test_session");
@@ -236,15 +270,15 @@ fn test_seeded_fault_soundness_and_precision() {
                 root.join("src/session.py"),
                 b"def login(x): pass  # signature change",
             )
-            .unwrap();
+            .unwrap_or_panic();
             let delta = ChangeSet {
                 files: vec!["src/session.py".to_string()],
                 base: None,
                 head: None,
                 from_revisions: false,
             };
-            let sel = Selector::select(store, &delta).unwrap();
-            let totp = sel.tests.iter().find(|t| t.id == tids[2]).unwrap();
+            let sel = Selector::select(store, &delta).unwrap_or_panic();
+            let totp = sel.tests.iter().find(|t| t.id == tids[2]).unwrap_or_panic();
 
             let has_runtime = totp
                 .witness

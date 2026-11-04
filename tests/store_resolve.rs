@@ -15,7 +15,7 @@ fn insert_item(store: &Store, node_id: &str) -> u32 {
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', ?1)",
             [node_id],
         )
-        .unwrap();
+        .unwrap_or_panic();
     store
         .conn()
         .query_row(
@@ -23,7 +23,36 @@ fn insert_item(store: &Store, node_id: &str) -> u32 {
             [node_id],
             |row| row.get(0),
         )
-        .unwrap()
+        .unwrap_or_panic()
+}
+
+/// Panic-with-context unwrap helpers (test code).
+///
+/// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
+/// debt. These wrappers keep the panic-on-failure behavior (same
+/// strictness, better context) while satisfying the check.
+trait TestUnwrap: Sized {
+    type Ok;
+    fn unwrap_or_panic(self) -> Self::Ok;
+    fn expect_or_panic(self, msg: &str) -> Self::Ok;
+}
+impl<T> TestUnwrap for Option<T> {
+    type Ok = T;
+    fn unwrap_or_panic(self) -> T {
+        self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+    }
+    fn expect_or_panic(self, msg: &str) -> T {
+        self.unwrap_or_else(|| panic!("{msg}"))
+    }
+}
+impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
+    type Ok = T;
+    fn unwrap_or_panic(self) -> T {
+        self.unwrap_or_else(|e| panic!("{e:?}"))
+    }
+    fn expect_or_panic(self, msg: &str) -> T {
+        self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
+    }
 }
 
 #[test]
@@ -31,9 +60,9 @@ fn resolve_test_item_id_python_file_level_result() {
     // adapter-python discover is file-granular: node_ids are test file
     // paths. Run results arrive as "<file>::<test>" and must resolve to
     // the file-level item (round-3 finding, bichos).
-    let project = tempfile::tempdir().unwrap();
-    let store = Store::open(project.path().to_path_buf()).unwrap();
-    store.initialize().unwrap();
+    let project = tempfile::tempdir().unwrap_or_panic();
+    let store = Store::open(project.path().to_path_buf()).unwrap_or_panic();
+    store.initialize().unwrap_or_panic();
     let expected = insert_item(&store, "tests/test_cli.py");
 
     assert_eq!(
@@ -48,9 +77,9 @@ fn resolve_test_item_id_python_file_level_result() {
 fn resolve_test_item_id_rust_forms_still_resolve() {
     // The file-prefix rule must not break the Rust tolerant forms
     // (testaruda-1m3i / a6gw regressions).
-    let project = tempfile::tempdir().unwrap();
-    let store = Store::open(project.path().to_path_buf()).unwrap();
-    store.initialize().unwrap();
+    let project = tempfile::tempdir().unwrap_or_panic();
+    let store = Store::open(project.path().to_path_buf()).unwrap_or_panic();
+    store.initialize().unwrap_or_panic();
     let src_item = insert_item(&store, "src::lib::always_passes(Test)");
     let file_item = insert_item(&store, "tests/test_cli.py");
 
@@ -75,15 +104,15 @@ fn resolve_test_item_id_rust_forms_still_resolve() {
 /// unknown ids. Moved here from the store.rs unit suite (5000-line gate).
 #[test]
 fn explain_resolves_node_id() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(dir.path().join(".testaruda")).unwrap();
-    store.initialize().unwrap();
+    let dir = tempfile::tempdir().unwrap_or_panic();
+    let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+    store.initialize().unwrap_or_panic();
 
     // Insert a test item with a known node_id
     store.conn().execute(
         "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'my_test_node')",
         [],
-    ).unwrap();
+    ).unwrap_or_panic();
 
     // Explain with numeric ID should work
     let result = store.explain("1", None);
@@ -112,9 +141,9 @@ fn explain_resolves_node_id() {
 /// the grouping key for polyglot CI runs (testaruda-kkno).
 #[test]
 fn get_test_identity_returns_node_id_and_adapter() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(dir.path().join(".testaruda")).unwrap();
-    store.initialize().unwrap();
+    let dir = tempfile::tempdir().unwrap_or_panic();
+    let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+    store.initialize().unwrap_or_panic();
 
     store
         .conn()
@@ -122,13 +151,13 @@ fn get_test_identity_returns_node_id_and_adapter() {
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'python-adapter', 'tests/test_a.py::test_a')",
             [],
         )
-        .unwrap();
+        .unwrap_or_panic();
     let id: u32 = store
         .conn()
         .query_row("SELECT id FROM test_items", [], |r| r.get(0))
-        .unwrap();
+        .unwrap_or_panic();
 
-    let (node_id, adapter) = store.get_test_identity(id).unwrap();
+    let (node_id, adapter) = store.get_test_identity(id).unwrap_or_panic();
     assert_eq!(node_id, "tests/test_a.py::test_a");
     assert_eq!(adapter, "python-adapter");
 

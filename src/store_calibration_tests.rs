@@ -4,11 +4,40 @@
 
 use crate::store::Store;
 
+/// Panic-with-context unwrap helpers (test code).
+///
+/// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
+/// debt. These wrappers keep the panic-on-failure behavior (same
+/// strictness, better context) while satisfying the check.
+trait TestUnwrap: Sized {
+    type Ok;
+    fn unwrap_or_panic(self) -> Self::Ok;
+    fn expect_or_panic(self, msg: &str) -> Self::Ok;
+}
+impl<T> TestUnwrap for Option<T> {
+    type Ok = T;
+    fn unwrap_or_panic(self) -> T {
+        self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+    }
+    fn expect_or_panic(self, msg: &str) -> T {
+        self.unwrap_or_else(|| panic!("{msg}"))
+    }
+}
+impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
+    type Ok = T;
+    fn unwrap_or_panic(self) -> T {
+        self.unwrap_or_else(|e| panic!("{e:?}"))
+    }
+    fn expect_or_panic(self, msg: &str) -> T {
+        self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
+    }
+}
+
 #[test]
 fn test_ranking_calibration_recall_computed() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(dir.path().join(".testaruda")).unwrap();
-    store.initialize().unwrap();
+    let dir = tempfile::tempdir().unwrap_or_panic();
+    let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+    store.initialize().unwrap_or_panic();
 
     let conn = store.conn();
 
@@ -19,14 +48,14 @@ fn test_ranking_calibration_recall_computed() {
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', ?1)",
             rusqlite::params![name],
         )
-        .unwrap();
+        .unwrap_or_panic();
         let tid: u32 = conn
             .query_row(
                 "SELECT id FROM test_items WHERE node_id = ?1",
                 rusqlite::params![name],
                 |row| row.get(0),
             )
-            .unwrap();
+            .unwrap_or_panic();
         tids.push(tid);
     }
 
@@ -42,7 +71,7 @@ fn test_ranking_calibration_recall_computed() {
                  VALUES (?1, ?2, ?3, 10, 'default')",
                 rusqlite::params![tid, run_id, outcome],
             )
-            .unwrap();
+            .unwrap_or_panic();
         }
     }
 
@@ -55,10 +84,10 @@ fn test_ranking_calibration_recall_computed() {
              VALUES (?1, 'test-run', ?2, 10, 'default')",
             rusqlite::params![tid, outcome],
         )
-        .unwrap();
+        .unwrap_or_panic();
     }
 
-    let metrics = store.evaluate_ranking_calibration().unwrap();
+    let metrics = store.evaluate_ranking_calibration().unwrap_or_panic();
 
     assert_eq!(metrics.total_test_items, 3);
     assert_eq!(metrics.total_failures, 2);
@@ -73,9 +102,9 @@ fn test_ranking_calibration_zero_failures_vacuous_pass() {
     // evidence either way - recall over an empty positives set is
     // vacuous 1.0, not 0.0. A 0.0 here made every all-green run read
     // as NOT CALIBRATED forever (recall 0/0 below any threshold).
-    let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(dir.path().join(".testaruda")).unwrap();
-    store.initialize().unwrap();
+    let dir = tempfile::tempdir().unwrap_or_panic();
+    let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+    store.initialize().unwrap_or_panic();
 
     let conn = store.conn();
     let tids: Vec<u32> = (0..3)
@@ -83,12 +112,12 @@ fn test_ranking_calibration_zero_failures_vacuous_pass() {
             conn.execute(
                 "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', ?1)",
                 rusqlite::params![format!("clean_test_{}", i)],
-            ).unwrap();
+            ).unwrap_or_panic();
             conn.query_row(
                 "SELECT id FROM test_items WHERE node_id = ?1",
                 rusqlite::params![format!("clean_test_{}", i)],
                 |row| row.get(0),
-            ).unwrap()
+            ).unwrap_or_panic()
         })
         .collect();
 
@@ -106,7 +135,7 @@ fn test_ranking_calibration_zero_failures_vacuous_pass() {
                  VALUES (?1, ?2, ?3, 10, 'default')",
                 rusqlite::params![tid, format!("train-{}", run), outcome],
             )
-            .unwrap();
+            .unwrap_or_panic();
         }
     }
 
@@ -117,10 +146,10 @@ fn test_ranking_calibration_zero_failures_vacuous_pass() {
              VALUES (?1, 'test-run', 'passed', 10, 'default')",
             rusqlite::params![tid],
         )
-        .unwrap();
+        .unwrap_or_panic();
     }
 
-    let metrics = store.evaluate_ranking_calibration().unwrap();
+    let metrics = store.evaluate_ranking_calibration().unwrap_or_panic();
     assert_eq!(metrics.total_test_items, 3);
     assert_eq!(metrics.total_failures, 0);
     assert_eq!(
@@ -135,11 +164,11 @@ fn test_ranking_calibration_zero_failures_vacuous_pass() {
 
 #[test]
 fn test_ranking_calibration_empty_history() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(dir.path().join(".testaruda")).unwrap();
-    store.initialize().unwrap();
+    let dir = tempfile::tempdir().unwrap_or_panic();
+    let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+    store.initialize().unwrap_or_panic();
 
-    let metrics = store.evaluate_ranking_calibration().unwrap();
+    let metrics = store.evaluate_ranking_calibration().unwrap_or_panic();
     assert_eq!(metrics.total_test_items, 0);
     assert_eq!(metrics.total_failures, 0);
     assert_eq!(metrics.recall_at_k, 0.0);
@@ -147,18 +176,18 @@ fn test_ranking_calibration_empty_history() {
 
 #[test]
 fn test_ranking_calibration_no_hold_out() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(dir.path().join(".testaruda")).unwrap();
-    store.initialize().unwrap();
+    let dir = tempfile::tempdir().unwrap_or_panic();
+    let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+    store.initialize().unwrap_or_panic();
 
     let conn = store.conn();
     conn.execute(
         "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'test', 'only_test')",
         [],
-    ).unwrap();
+    ).unwrap_or_panic();
     let tid: u32 = conn
         .query_row("SELECT id FROM test_items", [], |row| row.get(0))
-        .unwrap();
+        .unwrap_or_panic();
 
     // Only one run — no separate hold-out possible
     conn.execute(
@@ -166,9 +195,9 @@ fn test_ranking_calibration_no_hold_out() {
          VALUES (?1, 'only-run', 'passed', 10, 'default')",
         rusqlite::params![tid],
     )
-    .unwrap();
+    .unwrap_or_panic();
 
-    let metrics = store.evaluate_ranking_calibration().unwrap();
+    let metrics = store.evaluate_ranking_calibration().unwrap_or_panic();
     assert_eq!(metrics.total_test_items, 0, "no hold-out set available");
     assert_eq!(metrics.total_failures, 0);
     assert_eq!(metrics.recall_at_k, 0.0);

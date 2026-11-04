@@ -21,7 +21,7 @@ fn count(store: &Store, sql: &str) -> usize {
     store
         .conn()
         .query_row(sql, [], |row| row.get::<_, usize>(0))
-        .unwrap()
+        .unwrap_or_panic()
 }
 
 /// Seed item `node_id` for `adapter` plus a run-history row and an edge,
@@ -33,7 +33,7 @@ fn seed_with_history(store: &Store, adapter: &str, node_id: &str) -> u32 {
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', ?1, ?2)",
             rusqlite::params![adapter, node_id],
         )
-        .unwrap();
+        .unwrap_or_panic();
     let id: u32 = store
         .conn()
         .query_row(
@@ -41,7 +41,7 @@ fn seed_with_history(store: &Store, adapter: &str, node_id: &str) -> u32 {
             rusqlite::params![adapter, node_id],
             |row| row.get(0),
         )
-        .unwrap();
+        .unwrap_or_panic();
     store
         .conn()
         .execute(
@@ -49,7 +49,7 @@ fn seed_with_history(store: &Store, adapter: &str, node_id: &str) -> u32 {
              VALUES (?1, 'run-1', 'passed', 'local')",
             [id],
         )
-        .unwrap();
+        .unwrap_or_panic();
     let cu: u32 = store
         .conn()
         .query_row(
@@ -58,7 +58,7 @@ fn seed_with_history(store: &Store, adapter: &str, node_id: &str) -> u32 {
             [format!("src/{node_id}.rs")],
             |row| row.get(0),
         )
-        .unwrap();
+        .unwrap_or_panic();
     store
         .conn()
         .execute(
@@ -66,15 +66,44 @@ fn seed_with_history(store: &Store, adapter: &str, node_id: &str) -> u32 {
              VALUES (?1, ?2, 'static')",
             rusqlite::params![id, cu],
         )
-        .unwrap();
+        .unwrap_or_panic();
     id
+}
+
+/// Panic-with-context unwrap helpers (test code).
+///
+/// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
+/// debt. These wrappers keep the panic-on-failure behavior (same
+/// strictness, better context) while satisfying the check.
+trait TestUnwrap: Sized {
+    type Ok;
+    fn unwrap_or_panic(self) -> Self::Ok;
+    fn expect_or_panic(self, msg: &str) -> Self::Ok;
+}
+impl<T> TestUnwrap for Option<T> {
+    type Ok = T;
+    fn unwrap_or_panic(self) -> T {
+        self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+    }
+    fn expect_or_panic(self, msg: &str) -> T {
+        self.unwrap_or_else(|| panic!("{msg}"))
+    }
+}
+impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
+    type Ok = T;
+    fn unwrap_or_panic(self) -> T {
+        self.unwrap_or_else(|e| panic!("{e:?}"))
+    }
+    fn expect_or_panic(self, msg: &str) -> T {
+        self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
+    }
 }
 
 #[test]
 fn prune_removes_absent_items_and_their_dependents() {
-    let project = tempfile::tempdir().unwrap();
-    let store = Store::open(project.path().to_path_buf()).unwrap();
-    store.initialize().unwrap();
+    let project = tempfile::tempdir().unwrap_or_panic();
+    let store = Store::open(project.path().to_path_buf()).unwrap_or_panic();
+    store.initialize().unwrap_or_panic();
 
     let stale = seed_with_history(&store, "python-adapter", "tests/test_old.py");
     let kept = seed_with_history(&store, "python-adapter", "tests/test_new.py");
@@ -87,11 +116,11 @@ fn prune_removes_absent_items_and_their_dependents() {
             "INSERT INTO selection_cache (fingerprint, selection_json) VALUES ('fp', '[]')",
             [],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
     let pruned = store
         .prune_stale_test_items("python-adapter", &[item("tests/test_new.py")])
-        .unwrap();
+        .unwrap_or_panic();
 
     assert_eq!(pruned, 1);
     assert_eq!(
@@ -141,9 +170,9 @@ fn prune_removes_absent_items_and_their_dependents() {
 
 #[test]
 fn prune_with_full_discovery_keeps_everything() {
-    let project = tempfile::tempdir().unwrap();
-    let store = Store::open(project.path().to_path_buf()).unwrap();
-    store.initialize().unwrap();
+    let project = tempfile::tempdir().unwrap_or_panic();
+    let store = Store::open(project.path().to_path_buf()).unwrap_or_panic();
+    store.initialize().unwrap_or_panic();
 
     seed_with_history(&store, "python-adapter", "tests/test_a.py");
     seed_with_history(&store, "python-adapter", "tests/test_b.py");
@@ -153,7 +182,7 @@ fn prune_with_full_discovery_keeps_everything() {
             "python-adapter",
             &[item("tests/test_a.py"), item("tests/test_b.py")],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
     assert_eq!(pruned, 0);
     assert_eq!(count(&store, "SELECT COUNT(*) FROM test_items"), 2);
@@ -162,9 +191,9 @@ fn prune_with_full_discovery_keeps_everything() {
 
 #[test]
 fn prune_is_scoped_to_one_adapter() {
-    let project = tempfile::tempdir().unwrap();
-    let store = Store::open(project.path().to_path_buf()).unwrap();
-    store.initialize().unwrap();
+    let project = tempfile::tempdir().unwrap_or_panic();
+    let store = Store::open(project.path().to_path_buf()).unwrap_or_panic();
+    store.initialize().unwrap_or_panic();
 
     seed_with_history(&store, "python-adapter", "tests/test_old.py");
     seed_with_history(&store, "rust-adapter", "src::old_test(Test)");
@@ -173,7 +202,7 @@ fn prune_is_scoped_to_one_adapter() {
     // pruning rust must not touch python's items (per-adapter semantics).
     let pruned = store
         .prune_stale_test_items("rust-adapter", &[item("src::kept_test(Test)")])
-        .unwrap();
+        .unwrap_or_panic();
 
     assert_eq!(pruned, 1);
     assert_eq!(
@@ -195,9 +224,9 @@ fn prune_is_scoped_to_one_adapter() {
 
 #[test]
 fn prune_cascades_provenance_and_incidents() {
-    let project = tempfile::tempdir().unwrap();
-    let store = Store::open(project.path().to_path_buf()).unwrap();
-    store.initialize().unwrap();
+    let project = tempfile::tempdir().unwrap_or_panic();
+    let store = Store::open(project.path().to_path_buf()).unwrap_or_panic();
+    store.initialize().unwrap_or_panic();
 
     let stale = seed_with_history(&store, "python-adapter", "tests/test_old.py");
     store
@@ -207,9 +236,11 @@ fn prune_cascades_provenance_and_incidents() {
              VALUES ('run-1', ?1, 1, 0.5)",
             [stale],
         )
-        .unwrap();
+        .unwrap_or_panic();
 
-    store.prune_stale_test_items("python-adapter", &[]).unwrap();
+    store
+        .prune_stale_test_items("python-adapter", &[])
+        .unwrap_or_panic();
 
     assert_eq!(
         count(

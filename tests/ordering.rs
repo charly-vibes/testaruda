@@ -21,7 +21,7 @@ use testaruda::ONE;
 /// All four content units have known fingerprints stored.
 /// Files are expected to already exist on disk (created via Fixture).
 fn setup_graph(store: &Store, root: &Path) -> [u32; 4] {
-    store.initialize().unwrap();
+    store.initialize().unwrap_or_panic();
 
     let paths = [
         "src/session.py",
@@ -39,13 +39,13 @@ fn setup_graph(store: &Store, root: &Path) -> [u32; 4] {
     let conn = store.conn();
 
     for p in &paths {
-        let fp = Store::compute_fingerprint(&root.join(p)).unwrap();
+        let fp = Store::compute_fingerprint(&root.join(p)).unwrap_or_panic();
         conn.execute(
             "INSERT INTO content_units (component, path, symbol, kind, fingerprint)
              VALUES ('default', ?1, NULL, 'source', ?2)",
             rusqlite::params![p, fp],
         )
-        .unwrap();
+        .unwrap_or_panic();
     }
 
     let mut tids: [u32; 4] = [0; 4];
@@ -54,14 +54,14 @@ fn setup_graph(store: &Store, root: &Path) -> [u32; 4] {
             "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'rust-adapter', ?1)",
             rusqlite::params![n],
         )
-        .unwrap();
+        .unwrap_or_panic();
         tids[i] = conn
             .query_row(
                 "SELECT id FROM test_items WHERE component='default' AND node_id=?1",
                 rusqlite::params![n],
                 |row| row.get(0),
             )
-            .unwrap();
+            .unwrap_or_panic();
     }
 
     let edges = vec![
@@ -102,7 +102,9 @@ fn setup_graph(store: &Store, root: &Path) -> [u32; 4] {
             origin: "static".into(),
         },
     ];
-    store.store_static_deps("rust-adapter", &edges).unwrap();
+    store
+        .store_static_deps("rust-adapter", &edges)
+        .unwrap_or_panic();
 
     // Seed a passed run for all tests so no-history always-run doesn't
     // interfere with ordering scenarios (TIA-SAFE-007 always-run is tested
@@ -113,7 +115,7 @@ fn setup_graph(store: &Store, root: &Path) -> [u32; 4] {
              VALUES (?1, 'seed-run', 'passed', 50, 'default')",
             rusqlite::params![tid],
         )
-        .unwrap();
+        .unwrap_or_panic();
     }
 
     tids
@@ -130,12 +132,41 @@ where
         .with_file("src/helpers.py", "def fmt(): pass")
         .with_file("testaruda.toml", "")
         .build()
-        .unwrap();
+        .unwrap_or_panic();
     let root = fixture.root();
 
-    let store = Store::open(root.join(".testaruda")).unwrap();
+    let store = Store::open(root.join(".testaruda")).unwrap_or_panic();
     let tids = setup_graph(&store, root);
     f(&store, root, &tids);
+}
+
+/// Panic-with-context unwrap helpers (test code).
+///
+/// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
+/// debt. These wrappers keep the panic-on-failure behavior (same
+/// strictness, better context) while satisfying the check.
+trait TestUnwrap: Sized {
+    type Ok;
+    fn unwrap_or_panic(self) -> Self::Ok;
+    fn expect_or_panic(self, msg: &str) -> Self::Ok;
+}
+impl<T> TestUnwrap for Option<T> {
+    type Ok = T;
+    fn unwrap_or_panic(self) -> T {
+        self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+    }
+    fn expect_or_panic(self, msg: &str) -> T {
+        self.unwrap_or_else(|| panic!("{msg}"))
+    }
+}
+impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
+    type Ok = T;
+    fn unwrap_or_panic(self) -> T {
+        self.unwrap_or_else(|e| panic!("{e:?}"))
+    }
+    fn expect_or_panic(self, msg: &str) -> T {
+        self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
+    }
 }
 
 #[test]
@@ -148,7 +179,8 @@ fn test_ordering_scenarios() {
         //
         // Scenario 1: helpers.py → affects tids[0,1,3] (session, invoice, helpers)
         {
-            std::fs::write(root.join("src/helpers.py"), b"def fmt(x): return str(x)").unwrap();
+            std::fs::write(root.join("src/helpers.py"), b"def fmt(x): return str(x)")
+                .unwrap_or_panic();
             let delta = ChangeSet {
                 files: vec!["src/helpers.py".to_string()],
                 base: None,
@@ -156,14 +188,14 @@ fn test_ordering_scenarios() {
                 ..Default::default()
             };
 
-            let sel1 =
-                Selector::select_with_ordering(store, &delta, TestOrdering::Deterministic).unwrap();
+            let sel1 = Selector::select_with_ordering(store, &delta, TestOrdering::Deterministic)
+                .unwrap_or_panic();
             // Second call: different content on helpers.py so a new change is detected
             std::fs::write(
                 root.join("src/helpers.py"),
                 b"def fmt(x, y): return str(x + y)",
             )
-            .unwrap();
+            .unwrap_or_panic();
             let delta2 = ChangeSet {
                 files: vec!["src/helpers.py".to_string()],
                 base: None,
@@ -171,7 +203,7 @@ fn test_ordering_scenarios() {
                 ..Default::default()
             };
             let sel2 = Selector::select_with_ordering(store, &delta2, TestOrdering::Deterministic)
-                .unwrap();
+                .unwrap_or_panic();
 
             assert_eq!(
                 sel1.selected_count, sel2.selected_count,
@@ -191,15 +223,16 @@ fn test_ordering_scenarios() {
         // === Scenario 2: Deterministic sorts output (TIA-SEL-005) ===
         // session.py → affects tids[0,2] (session, totp)
         {
-            std::fs::write(root.join("src/session.py"), b"def login(): return 42").unwrap();
+            std::fs::write(root.join("src/session.py"), b"def login(): return 42")
+                .unwrap_or_panic();
             let delta = ChangeSet {
                 files: vec!["src/session.py".to_string()],
                 base: None,
                 head: None,
                 ..Default::default()
             };
-            let sel =
-                Selector::select_with_ordering(store, &delta, TestOrdering::Deterministic).unwrap();
+            let sel = Selector::select_with_ordering(store, &delta, TestOrdering::Deterministic)
+                .unwrap_or_panic();
             assert_eq!(sel.selected_count, 2);
             let ids: Vec<u32> = sel.tests.iter().map(|t| t.id).collect();
             assert!(ids[0] < ids[1], "must be sorted by ID: {:?}", ids);
@@ -218,22 +251,23 @@ fn test_ordering_scenarios() {
                 "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
                  VALUES (?1, 'dur-1', 'passed', 100, 'default')",
                 rusqlite::params![tids[0]],
-            ).unwrap();
+            ).unwrap_or_panic();
             store.conn().execute(
                 "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
                  VALUES (?1, 'dur-1', 'passed', 200, 'default')",
                 rusqlite::params![tids[1]],
-            ).unwrap();
+            ).unwrap_or_panic();
 
-            std::fs::write(root.join("src/invoice.py"), b"def create(x): return x * 2").unwrap();
+            std::fs::write(root.join("src/invoice.py"), b"def create(x): return x * 2")
+                .unwrap_or_panic();
             let delta = ChangeSet {
                 files: vec!["src/invoice.py".to_string()],
                 base: None,
                 head: None,
                 ..Default::default()
             };
-            let sel =
-                Selector::select_with_ordering(store, &delta, TestOrdering::ByDuration).unwrap();
+            let sel = Selector::select_with_ordering(store, &delta, TestOrdering::ByDuration)
+                .unwrap_or_panic();
             // invoice.py → test_invoice (tid[1]) only
             assert_eq!(sel.selected_count, 1);
             assert_eq!(sel.tests[0].id, tids[1]);
@@ -247,15 +281,15 @@ fn test_ordering_scenarios() {
                 root.join("src/helpers.py"),
                 b"def fmt(a, b, c): return str(a + b + c)",
             )
-            .unwrap();
+            .unwrap_or_panic();
             let delta = ChangeSet {
                 files: vec!["src/helpers.py".to_string()],
                 base: None,
                 head: None,
                 ..Default::default()
             };
-            let sel =
-                Selector::select_with_ordering(store, &delta, TestOrdering::ByDuration).unwrap();
+            let sel = Selector::select_with_ordering(store, &delta, TestOrdering::ByDuration)
+                .unwrap_or_panic();
             // 3 tests affected: session, invoice, helpers (tids[0,1,3])
             assert_eq!(sel.selected_count, 3);
             let ids: Vec<u32> = sel.tests.iter().map(|t| t.id).collect();
@@ -276,13 +310,13 @@ fn test_ordering_scenarios() {
                 "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
                  VALUES (?1, 'fail-1', 'failed', 50, 'default')",
                 rusqlite::params![tids[2]],
-            ).unwrap();
+            ).unwrap_or_panic();
 
             std::fs::write(
                 root.join("src/session.py"),
                 b"def login(): return True  # v5",
             )
-            .unwrap();
+            .unwrap_or_panic();
             let delta = ChangeSet {
                 files: vec!["src/session.py".to_string()],
                 base: None,
@@ -291,7 +325,8 @@ fn test_ordering_scenarios() {
             };
 
             // Default ordering
-            let sel = Selector::select_with_ordering(store, &delta, TestOrdering::Default).unwrap();
+            let sel = Selector::select_with_ordering(store, &delta, TestOrdering::Default)
+                .unwrap_or_panic();
             let ids: std::collections::HashSet<u32> = sel.tests.iter().map(|t| t.id).collect();
             assert!(ids.contains(&tids[0]), "test_session (dep on session.py)");
             assert!(ids.contains(&tids[2]), "test_totp (always-run from failed)");
@@ -310,7 +345,7 @@ fn test_ordering_scenarios() {
                     "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
                      VALUES (?1, ?2, ?3, 50, 'default')",
                     rusqlite::params![tids[0], format!("pred-{}-{}", i, tids[0]), outcome],
-                ).unwrap();
+                ).unwrap_or_panic();
             }
             // tid[3]: 5/5 passed = 0% failure rate
             for i in 0..5 {
@@ -318,7 +353,7 @@ fn test_ordering_scenarios() {
                     "INSERT INTO run_history (test_item_id, run_id, outcome, duration_ms, environment)
                      VALUES (?1, ?2, 'passed', 50, 'default')",
                     rusqlite::params![tids[3], format!("pred-{}-{}", i, tids[3])],
-                ).unwrap();
+                ).unwrap_or_panic();
             }
             // tid[1]: no history (0 runs) → goes last
 
@@ -326,7 +361,7 @@ fn test_ordering_scenarios() {
                 root.join("src/helpers.py"),
                 b"def fmt(p, q, r, s): return str(p + q + r + s)",
             )
-            .unwrap();
+            .unwrap_or_panic();
             let delta = ChangeSet {
                 files: vec!["src/helpers.py".to_string()],
                 base: None,
@@ -345,15 +380,15 @@ fn test_ordering_scenarios() {
             // Always-run from scenario 5 means tids[2] is also selected → 4 tests total.
             // Expected order: tids[0] (50%) → tids[2] (50%) → tids[1] (0%) → tids[3] (0%)
             // Tiebreaker on equal rate: ascending ID
-            let sel =
-                Selector::select_with_ordering(store, &delta, TestOrdering::Predictive).unwrap();
+            let sel = Selector::select_with_ordering(store, &delta, TestOrdering::Predictive)
+                .unwrap_or_panic();
             assert_eq!(
                 sel.selected_count, 4,
                 "helpers.py → 3 affected + 1 always-run"
             );
             let ids: Vec<u32> = sel.tests.iter().map(|t| t.id).collect();
             // Verify descending failure rate with ID tiebreaker
-            let rates = store.load_failure_rates().unwrap();
+            let rates = store.load_failure_rates().unwrap_or_panic();
             for i in 1..ids.len() {
                 let ra = rates.get(&ids[i - 1]).copied().unwrap_or(0.0);
                 let rb = rates.get(&ids[i]).copied().unwrap_or(0.0);

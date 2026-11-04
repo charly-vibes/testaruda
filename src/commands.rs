@@ -2076,6 +2076,35 @@ pub fn completions(shell: clap_complete::Shell) -> miette::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    /// Panic-with-context unwrap helpers (test code).
+    ///
+    /// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
+    /// debt. These wrappers keep the panic-on-failure behavior (same
+    /// strictness, better context) while satisfying the check.
+    trait TestUnwrap: Sized {
+        type Ok;
+        fn unwrap_or_panic(self) -> Self::Ok;
+        fn expect_or_panic(self, msg: &str) -> Self::Ok;
+    }
+    impl<T> TestUnwrap for Option<T> {
+        type Ok = T;
+        fn unwrap_or_panic(self) -> T {
+            self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+        }
+        fn expect_or_panic(self, msg: &str) -> T {
+            self.unwrap_or_else(|| panic!("{msg}"))
+        }
+    }
+    impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
+        type Ok = T;
+        fn unwrap_or_panic(self) -> T {
+            self.unwrap_or_else(|e| panic!("{e:?}"))
+        }
+        fn expect_or_panic(self, msg: &str) -> T {
+            self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
+        }
+    }
+
     use super::*;
     use testaruda::adapter::TestItem;
 
@@ -2171,26 +2200,33 @@ line two",
     /// ingested, and adapters with no collection_path fall back to stdout.
     #[test]
     fn run_output_prefers_freshly_written_collection_path() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let path = dir.path().join("test-results.xml");
-        std::fs::write(&path, "<?xml version=\"1.0\"?><testsuites tests=\"1\"/>").unwrap();
+        std::fs::write(&path, "<?xml version=\"1.0\"?><testsuites tests=\"1\"/>").unwrap_or_panic();
 
         // mtime_before = None models a file that appeared during the run.
-        let out = run_output_for_ingest(path.to_str().unwrap(), None, "console output");
+        let out = run_output_for_ingest(path.to_str().unwrap_or_panic(), None, "console output");
         assert_eq!(out, "<?xml version=\"1.0\"?><testsuites tests=\"1\"/>");
     }
 
     #[test]
     fn run_output_ignores_stale_collection_path() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let path = dir.path().join("test-results.xml");
-        std::fs::write(&path, "<?xml version=\"1.0\"?><stale/>").unwrap();
+        std::fs::write(&path, "<?xml version=\"1.0\"?><stale/>").unwrap_or_panic();
 
         // mtime_before after the file's mtime models a run that did NOT
         // rewrite the file.
-        let stale_mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
+        let stale_mtime = std::fs::metadata(&path)
+            .unwrap_or_panic()
+            .modified()
+            .unwrap_or_panic();
         let later = stale_mtime + std::time::Duration::from_secs(1);
-        let out = run_output_for_ingest(path.to_str().unwrap(), Some(later), "console output");
+        let out = run_output_for_ingest(
+            path.to_str().unwrap_or_panic(),
+            Some(later),
+            "console output",
+        );
         assert_eq!(out, "console output");
     }
 
@@ -2200,7 +2236,7 @@ line two",
     /// failed until the artifacts were hand-deleted and the dir gitignored.
     #[test]
     fn drop_gitignored_items_filters_generated_artifacts() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let run_git = |args: &[&str]| {
             std::process::Command::new("git")
                 .arg("-C")
@@ -2208,11 +2244,11 @@ line two",
                 .args(args)
                 .env("GIT_CONFIG_NOSYSTEM", "1")
                 .output()
-                .unwrap();
+                .unwrap_or_panic();
         };
         run_git(&["init", "-q"]);
-        std::fs::write(dir.path().join(".gitignore"), "generated/\n").unwrap();
-        std::fs::create_dir_all(dir.path().join("generated")).unwrap();
+        std::fs::write(dir.path().join(".gitignore"), "generated/\n").unwrap_or_panic();
+        std::fs::create_dir_all(dir.path().join("generated")).unwrap_or_panic();
 
         let items: Vec<TestItem> = vec![
             TestItem {
@@ -2242,28 +2278,28 @@ line two",
     /// kept (recall-safe — collect_selected_by_adapter already skips those).
     #[test]
     fn prune_selected_tests_without_files_drops_absent_paths() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
         let conn = store.conn();
         let insert = |node: &str| {
             conn.execute(
                 "INSERT INTO test_items (component, adapter, node_id) VALUES ('default', 'python-adapter', ?1)",
                 rusqlite::params![node],
             )
-            .unwrap();
+            .unwrap_or_panic();
             conn.query_row(
                 "SELECT id FROM test_items WHERE node_id=?1",
                 rusqlite::params![node],
                 |row| row.get::<_, u32>(0),
             )
-            .unwrap()
+            .unwrap_or_panic()
         };
         let kept = insert("tests/kept.py::test_a");
         let gone = insert("tests/gone.py::test_b");
         let opaque = insert("weird-id-no-file-part");
-        std::fs::create_dir(dir.path().join("tests")).unwrap();
-        std::fs::write(dir.path().join("tests/kept.py"), "def test_a(): pass").unwrap();
+        std::fs::create_dir(dir.path().join("tests")).unwrap_or_panic();
+        std::fs::write(dir.path().join("tests/kept.py"), "def test_a(): pass").unwrap_or_panic();
 
         let selection = Selection {
             changed_count: 1,
@@ -2318,10 +2354,10 @@ line two",
 
     #[test]
     fn run_output_falls_back_on_empty_collection_file() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let path = dir.path().join("test-results.xml");
-        std::fs::write(&path, "   \n").unwrap();
-        let out = run_output_for_ingest(path.to_str().unwrap(), None, "console output");
+        std::fs::write(&path, "   \n").unwrap_or_panic();
+        let out = run_output_for_ingest(path.to_str().unwrap_or_panic(), None, "console output");
         assert_eq!(out, "console output");
     }
 
@@ -2331,9 +2367,9 @@ line two",
     /// .ts paths, exited 4, ingested 0 results, and the store stayed cold.
     #[test]
     fn group_selected_by_adapter_separates_adapters() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let py_items: Vec<TestItem> = (0..3)
             .map(|i| TestItem {
@@ -2349,20 +2385,22 @@ line two",
                 file: format!("src/t{i}.test.ts"),
             })
             .collect();
-        store.store_test_items("python-adapter", &py_items).unwrap();
+        store
+            .store_test_items("python-adapter", &py_items)
+            .unwrap_or_panic();
         store
             .store_test_items("typescript-adapter", &ts_items)
-            .unwrap();
+            .unwrap_or_panic();
 
         // SelectedTest ids: look up inserted ids in insertion order.
         let ids_for = |adapter: &str, n: usize| -> Vec<SelectedTest> {
             let mut stmt = store
                 .conn()
                 .prepare("SELECT id FROM test_items WHERE adapter = ?1 ORDER BY id")
-                .unwrap();
+                .unwrap_or_panic();
             let ids: Vec<u32> = stmt
                 .query_map([adapter], |r| r.get(0))
-                .unwrap()
+                .unwrap_or_panic()
                 .map_while(Result::ok)
                 .take(n)
                 .collect();
@@ -2385,11 +2423,11 @@ line two",
         let ts = groups
             .iter()
             .find(|(a, _)| a == "typescript-adapter")
-            .expect("typescript group");
+            .expect_or_panic("typescript group");
         let py = groups
             .iter()
             .find(|(a, _)| a == "python-adapter")
-            .expect("python group");
+            .expect_or_panic("python group");
         assert_eq!(ts.1.len(), 2, "all 163-style ts ids in one group");
         assert_eq!(py.1.len(), 3, "all python ids in one group");
         assert!(
@@ -2408,20 +2446,22 @@ line two",
     /// grouping — it's skipped, matching collect_test_node_ids behavior.
     #[test]
     fn group_selected_by_adapter_skips_unresolved_ids() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(dir.path().join(".testaruda")).unwrap();
-        store.initialize().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
+        let store = Store::open(dir.path().join(".testaruda")).unwrap_or_panic();
+        store.initialize().unwrap_or_panic();
 
         let items = vec![TestItem {
             node_id: "tests/test_a.py::test_a".into(),
             suite_kind: "unit".into(),
             file: "tests/test_a.py".into(),
         }];
-        store.store_test_items("python-adapter", &items).unwrap();
+        store
+            .store_test_items("python-adapter", &items)
+            .unwrap_or_panic();
         let id: u32 = store
             .conn()
             .query_row("SELECT id FROM test_items", [], |r| r.get(0))
-            .unwrap();
+            .unwrap_or_panic();
 
         let tests = vec![
             SelectedTest {

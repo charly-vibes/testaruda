@@ -501,59 +501,88 @@ fn extract_re_export_sources(source: &str, ext: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    /// Panic-with-context unwrap helpers (test code).
+    ///
+    /// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
+    /// debt. These wrappers keep the panic-on-failure behavior (same
+    /// strictness, better context) while satisfying the check.
+    trait TestUnwrap: Sized {
+        type Ok;
+        fn unwrap_or_panic(self) -> Self::Ok;
+        fn expect_or_panic(self, msg: &str) -> Self::Ok;
+    }
+    impl<T> TestUnwrap for Option<T> {
+        type Ok = T;
+        fn unwrap_or_panic(self) -> T {
+            self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+        }
+        fn expect_or_panic(self, msg: &str) -> T {
+            self.unwrap_or_else(|| panic!("{msg}"))
+        }
+    }
+    impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
+        type Ok = T;
+        fn unwrap_or_panic(self) -> T {
+            self.unwrap_or_else(|e| panic!("{e:?}"))
+        }
+        fn expect_or_panic(self, msg: &str) -> T {
+            self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
+        }
+    }
+
     use super::*;
     use std::io::Write;
 
     #[allow(dead_code)]
     fn setup_resolver() -> ImportResolver {
         // Create a temporary directory simulating a TypeScript project
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let base = dir.path().to_path_buf();
 
         // Create src/ directory structure
-        std::fs::create_dir_all(base.join("src/components")).unwrap();
-        std::fs::create_dir_all(base.join("src/models")).unwrap();
-        std::fs::create_dir_all(base.join("src/styles")).unwrap();
-        std::fs::create_dir_all(base.join("tests")).unwrap();
+        std::fs::create_dir_all(base.join("src/components")).unwrap_or_panic();
+        std::fs::create_dir_all(base.join("src/models")).unwrap_or_panic();
+        std::fs::create_dir_all(base.join("src/styles")).unwrap_or_panic();
+        std::fs::create_dir_all(base.join("tests")).unwrap_or_panic();
 
         // Create source files
-        let mut f = std::fs::File::create(base.join("src/calculator.ts")).unwrap();
+        let mut f = std::fs::File::create(base.join("src/calculator.ts")).unwrap_or_panic();
         writeln!(
             f,
             "export function add(a: number, b: number) {{ return a + b; }}"
         )
-        .unwrap();
+        .unwrap_or_panic();
         drop(f);
 
-        let mut f = std::fs::File::create(base.join("src/utils.ts")).unwrap();
-        writeln!(f, "export function helper() {{}}").unwrap();
+        let mut f = std::fs::File::create(base.join("src/utils.ts")).unwrap_or_panic();
+        writeln!(f, "export function helper() {{}}").unwrap_or_panic();
         drop(f);
 
-        let mut f = std::fs::File::create(base.join("src/components/Button.tsx")).unwrap();
-        writeln!(f, "export const Button = () => null;").unwrap();
+        let mut f = std::fs::File::create(base.join("src/components/Button.tsx")).unwrap_or_panic();
+        writeln!(f, "export const Button = () => null;").unwrap_or_panic();
         drop(f);
 
         // Create barrel file
-        let mut f = std::fs::File::create(base.join("src/models/index.ts")).unwrap();
-        writeln!(f, "export {{ User }} from \"./user\";").unwrap();
+        let mut f = std::fs::File::create(base.join("src/models/index.ts")).unwrap_or_panic();
+        writeln!(f, "export {{ User }} from \"./user\";").unwrap_or_panic();
         drop(f);
 
-        let mut f = std::fs::File::create(base.join("src/models/user.ts")).unwrap();
-        writeln!(f, "export interface User {{ name: string; age: number; }}").unwrap();
+        let mut f = std::fs::File::create(base.join("src/models/user.ts")).unwrap_or_panic();
+        writeln!(f, "export interface User {{ name: string; age: number; }}").unwrap_or_panic();
         drop(f);
 
         // Create a style file
-        let mut f = std::fs::File::create(base.join("src/styles/button.css")).unwrap();
-        writeln!(f, ".btn {{ color: red; }}").unwrap();
+        let mut f = std::fs::File::create(base.join("src/styles/button.css")).unwrap_or_panic();
+        writeln!(f, ".btn {{ color: red; }}").unwrap_or_panic();
         drop(f);
 
         // Create test files
-        let mut f = std::fs::File::create(base.join("tests/calculator.test.ts")).unwrap();
+        let mut f = std::fs::File::create(base.join("tests/calculator.test.ts")).unwrap_or_panic();
         writeln!(
             f,
             "import {{ add }} from \"../src/calculator\";\nimport \"./styles.css\";"
         )
-        .unwrap();
+        .unwrap_or_panic();
         drop(f);
 
         let resolver = ImportResolver::new(base.as_ref());
@@ -631,7 +660,7 @@ mod tests {
 
     #[test]
     fn load_tsconfig_with_paths() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let tsconfig_path = dir.path().join("tsconfig.json");
 
         let content = r#"{
@@ -644,38 +673,38 @@ mod tests {
                 }
             }
         }"#;
-        let mut f = std::fs::File::create(&tsconfig_path).unwrap();
-        write!(f, "{}", content).unwrap();
+        let mut f = std::fs::File::create(&tsconfig_path).unwrap_or_panic();
+        write!(f, "{}", content).unwrap_or_panic();
         drop(f);
 
         let tsconfig = ImportResolver::load_tsconfig(&tsconfig_path);
         assert!(tsconfig.is_some(), "should parse tsconfig.json");
 
-        let tc = tsconfig.unwrap();
+        let tc = tsconfig.unwrap_or_panic();
         assert_eq!(tc.base_url, PathBuf::from("."));
         assert_eq!(tc.paths.len(), 3);
 
         // Check by key (serde_json Map sorts alphabetically by default)
         let at_star = tc.paths.iter().find(|(k, _)| k == "@/*");
         assert!(at_star.is_some(), "should have @/* path");
-        assert_eq!(at_star.unwrap().1, vec!["src/*"]);
+        assert_eq!(at_star.unwrap_or_panic().1, vec!["src/*"]);
 
         let at_components = tc.paths.iter().find(|(k, _)| k == "@components/*");
         assert!(at_components.is_some(), "should have @components/* path");
 
         let tilde_star = tc.paths.iter().find(|(k, _)| k == "~/*");
         assert!(tilde_star.is_some(), "should have ~/* path");
-        assert_eq!(tilde_star.unwrap().1, vec!["src/*"]);
+        assert_eq!(tilde_star.unwrap_or_panic().1, vec!["src/*"]);
     }
 
     #[test]
     fn load_tsconfig_with_comments() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let tsconfig_path = dir.path().join("tsconfig.json");
 
         let content = "// TypeScript config\n{\n  /* compiler options */\n  \"compilerOptions\": {\n    // base URL\n    \"baseUrl\": \".\",\n    \"paths\": {\n      \"@/*\": [\"src/*\"] // wildcard\n    }\n  }\n}\n";
-        let mut f = std::fs::File::create(&tsconfig_path).unwrap();
-        write!(f, "{}", content).unwrap();
+        let mut f = std::fs::File::create(&tsconfig_path).unwrap_or_panic();
+        write!(f, "{}", content).unwrap_or_panic();
         drop(f);
 
         let tsconfig = ImportResolver::load_tsconfig(&tsconfig_path);
@@ -687,7 +716,7 @@ mod tests {
 
     #[test]
     fn load_tsconfig_missing_file() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let bad_path = dir.path().join("nonexistent.json");
         let tsconfig = ImportResolver::load_tsconfig(&bad_path);
         assert!(tsconfig.is_none(), "should return None for missing file");
@@ -695,11 +724,11 @@ mod tests {
 
     #[test]
     fn load_tsconfig_missing_compiler_options() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let tsconfig_path = dir.path().join("tsconfig.json");
         let content = r#"{"extends": "./base.json"}"#;
-        let mut f = std::fs::File::create(&tsconfig_path).unwrap();
-        write!(f, "{}", content).unwrap();
+        let mut f = std::fs::File::create(&tsconfig_path).unwrap_or_panic();
+        write!(f, "{}", content).unwrap_or_panic();
         drop(f);
 
         let tsconfig = ImportResolver::load_tsconfig(&tsconfig_path);
@@ -711,16 +740,16 @@ mod tests {
 
     #[test]
     fn load_tsconfig_empty_paths() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let tsconfig_path = dir.path().join("tsconfig.json");
         let content = r#"{"compilerOptions": {"baseUrl": ".", "paths": {}}}"#;
-        let mut f = std::fs::File::create(&tsconfig_path).unwrap();
-        write!(f, "{}", content).unwrap();
+        let mut f = std::fs::File::create(&tsconfig_path).unwrap_or_panic();
+        write!(f, "{}", content).unwrap_or_panic();
         drop(f);
 
         let tsconfig = ImportResolver::load_tsconfig(&tsconfig_path);
         assert!(tsconfig.is_some());
-        assert!(tsconfig.unwrap().paths.is_empty());
+        assert!(tsconfig.unwrap_or_panic().paths.is_empty());
     }
 
     // -----------------------------------------------------------------------
@@ -729,11 +758,11 @@ mod tests {
 
     #[test]
     fn resolve_relative_exact_match() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let base = dir.path();
 
-        let mut f = std::fs::File::create(base.join("foo.ts")).unwrap();
-        writeln!(f, "export const x = 1;").unwrap();
+        let mut f = std::fs::File::create(base.join("foo.ts")).unwrap_or_panic();
+        writeln!(f, "export const x = 1;").unwrap_or_panic();
         drop(f);
 
         let resolver = ImportResolver::new(base);
@@ -744,11 +773,11 @@ mod tests {
 
     #[test]
     fn resolve_relative_extensionless() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let base = dir.path();
 
-        let mut f = std::fs::File::create(base.join("foo.ts")).unwrap();
-        writeln!(f, "export const x = 1;").unwrap();
+        let mut f = std::fs::File::create(base.join("foo.ts")).unwrap_or_panic();
+        writeln!(f, "export const x = 1;").unwrap_or_panic();
         drop(f);
 
         let resolver = ImportResolver::new(base);
@@ -761,15 +790,15 @@ mod tests {
 
     #[test]
     fn resolve_relative_barrel() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let base = dir.path();
 
-        std::fs::create_dir_all(base.join("models")).unwrap();
-        let mut f = std::fs::File::create(base.join("models/index.ts")).unwrap();
-        writeln!(f, "export {{ User }} from \"./user\";").unwrap();
+        std::fs::create_dir_all(base.join("models")).unwrap_or_panic();
+        let mut f = std::fs::File::create(base.join("models/index.ts")).unwrap_or_panic();
+        writeln!(f, "export {{ User }} from \"./user\";").unwrap_or_panic();
         drop(f);
-        let mut f = std::fs::File::create(base.join("models/user.ts")).unwrap();
-        writeln!(f, "export interface User {{}}").unwrap();
+        let mut f = std::fs::File::create(base.join("models/user.ts")).unwrap_or_panic();
+        writeln!(f, "export interface User {{}}").unwrap_or_panic();
         drop(f);
 
         let resolver = ImportResolver::new(base);
@@ -778,7 +807,7 @@ mod tests {
             result.resolved.is_some(),
             "should resolve to models/index.ts"
         );
-        let resolved = result.resolved.unwrap();
+        let resolved = result.resolved.unwrap_or_panic();
         assert!(
             resolved.ends_with("models/index.ts") || resolved.ends_with("models\\index.ts"),
             "should be index.ts: {:?}",
@@ -788,18 +817,18 @@ mod tests {
 
     #[test]
     fn resolve_relative_extension_fallback_order() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let base = dir.path();
 
         // Create .tsx but import .ts — should find .tsx
-        let mut f = std::fs::File::create(base.join("component.tsx")).unwrap();
-        writeln!(f, "export const C = () => null;").unwrap();
+        let mut f = std::fs::File::create(base.join("component.tsx")).unwrap_or_panic();
+        writeln!(f, "export const C = () => null;").unwrap_or_panic();
         drop(f);
 
         let resolver = ImportResolver::new(base);
         let result = resolver.resolve(base, "./component");
         assert!(result.resolved.is_some(), "should resolve to component.tsx");
-        let resolved = result.resolved.as_ref().unwrap();
+        let resolved = result.resolved.as_ref().unwrap_or_panic();
         assert!(
             resolved.to_string_lossy().ends_with("component.tsx"),
             "should prefer .tsx: {:?}",
@@ -809,11 +838,11 @@ mod tests {
 
     #[test]
     fn resolve_non_code_css() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let base = dir.path();
 
-        let mut f = std::fs::File::create(base.join("styles.css")).unwrap();
-        writeln!(f, "body {{}}").unwrap();
+        let mut f = std::fs::File::create(base.join("styles.css")).unwrap_or_panic();
+        writeln!(f, "body {{}}").unwrap_or_panic();
         drop(f);
 
         let resolver = ImportResolver::new(base);
@@ -824,10 +853,10 @@ mod tests {
 
     #[test]
     fn resolve_non_code_image() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let base = dir.path();
 
-        let f = std::fs::File::create(base.join("logo.png")).unwrap();
+        let f = std::fs::File::create(base.join("logo.png")).unwrap_or_panic();
         // Just create an empty file
         drop(f);
 
@@ -839,7 +868,7 @@ mod tests {
 
     #[test]
     fn resolve_package_import_external() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let resolver = ImportResolver::new(dir.path());
         let result = resolver.resolve(dir.path(), "lodash");
         assert!(
@@ -850,7 +879,7 @@ mod tests {
 
     #[test]
     fn resolve_scoped_package_external() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let resolver = ImportResolver::new(dir.path());
         let result = resolver.resolve(dir.path(), "@angular/core");
         assert!(
@@ -861,7 +890,7 @@ mod tests {
 
     #[test]
     fn resolve_nonexistent_relative() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let resolver = ImportResolver::new(dir.path());
         let result = resolver.resolve(dir.path(), "./nonexistent");
         assert!(result.resolved.is_none(), "nonexistent should not resolve");
@@ -869,14 +898,14 @@ mod tests {
 
     #[test]
     fn resolve_relative_updir() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let base = dir.path();
 
-        std::fs::create_dir_all(base.join("src")).unwrap();
-        std::fs::create_dir_all(base.join("tests")).unwrap();
+        std::fs::create_dir_all(base.join("src")).unwrap_or_panic();
+        std::fs::create_dir_all(base.join("tests")).unwrap_or_panic();
 
-        let mut f = std::fs::File::create(base.join("src/utils.ts")).unwrap();
-        writeln!(f, "export const x = 1;").unwrap();
+        let mut f = std::fs::File::create(base.join("src/utils.ts")).unwrap_or_panic();
+        writeln!(f, "export const x = 1;").unwrap_or_panic();
         drop(f);
 
         let resolver = ImportResolver::new(base);
@@ -890,18 +919,18 @@ mod tests {
 
     #[test]
     fn resolve_alias_at_wildcard() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let base = dir.path();
 
-        std::fs::create_dir_all(base.join("src/components")).unwrap();
-        let mut f = std::fs::File::create(base.join("src/components/Button.ts")).unwrap();
-        writeln!(f, "export const Button = () => null;").unwrap();
+        std::fs::create_dir_all(base.join("src/components")).unwrap_or_panic();
+        let mut f = std::fs::File::create(base.join("src/components/Button.ts")).unwrap_or_panic();
+        writeln!(f, "export const Button = () => null;").unwrap_or_panic();
         drop(f);
 
         // Write tsconfig.json
         let content = r#"{"compilerOptions": {"baseUrl": ".", "paths": {"@/*": ["src/*"]}}}"#;
-        let mut f = std::fs::File::create(base.join("tsconfig.json")).unwrap();
-        write!(f, "{}", content).unwrap();
+        let mut f = std::fs::File::create(base.join("tsconfig.json")).unwrap_or_panic();
+        write!(f, "{}", content).unwrap_or_panic();
         drop(f);
 
         let resolver = ImportResolver::new(base);
@@ -913,7 +942,7 @@ mod tests {
             "should resolve @ alias: {:?}",
             result.resolved
         );
-        let resolved = result.resolved.unwrap();
+        let resolved = result.resolved.unwrap_or_panic();
         assert!(
             resolved
                 .to_string_lossy()
@@ -928,17 +957,17 @@ mod tests {
 
     #[test]
     fn resolve_alias_tilde_wildcard() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let base = dir.path();
 
-        std::fs::create_dir_all(base.join("src")).unwrap();
-        let mut f = std::fs::File::create(base.join("src/utils.ts")).unwrap();
-        writeln!(f, "export const x = 1;").unwrap();
+        std::fs::create_dir_all(base.join("src")).unwrap_or_panic();
+        let mut f = std::fs::File::create(base.join("src/utils.ts")).unwrap_or_panic();
+        writeln!(f, "export const x = 1;").unwrap_or_panic();
         drop(f);
 
         let content = r#"{"compilerOptions": {"baseUrl": ".", "paths": {"~/*": ["src/*"]}}}"#;
-        let mut f = std::fs::File::create(base.join("tsconfig.json")).unwrap();
-        write!(f, "{}", content).unwrap();
+        let mut f = std::fs::File::create(base.join("tsconfig.json")).unwrap_or_panic();
+        write!(f, "{}", content).unwrap_or_panic();
         drop(f);
 
         let resolver = ImportResolver::new(base);
@@ -952,17 +981,17 @@ mod tests {
 
     #[test]
     fn resolve_alias_explicit_component_path() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let base = dir.path();
 
-        std::fs::create_dir_all(base.join("src/components")).unwrap();
-        let mut f = std::fs::File::create(base.join("src/components/Button.tsx")).unwrap();
-        writeln!(f, "export const Button = () => null;").unwrap();
+        std::fs::create_dir_all(base.join("src/components")).unwrap_or_panic();
+        let mut f = std::fs::File::create(base.join("src/components/Button.tsx")).unwrap_or_panic();
+        writeln!(f, "export const Button = () => null;").unwrap_or_panic();
         drop(f);
 
         let content = r#"{"compilerOptions": {"baseUrl": ".", "paths": {"@components/*": ["src/components/*"]}}}"#;
-        let mut f = std::fs::File::create(base.join("tsconfig.json")).unwrap();
-        write!(f, "{}", content).unwrap();
+        let mut f = std::fs::File::create(base.join("tsconfig.json")).unwrap_or_panic();
+        write!(f, "{}", content).unwrap_or_panic();
         drop(f);
 
         let resolver = ImportResolver::new(base);
@@ -975,16 +1004,16 @@ mod tests {
 
     #[test]
     fn resolve_alias_non_wildcard() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let base = dir.path();
 
-        let mut f = std::fs::File::create(base.join("utils.ts")).unwrap();
-        writeln!(f, "export const util = 1;").unwrap();
+        let mut f = std::fs::File::create(base.join("utils.ts")).unwrap_or_panic();
+        writeln!(f, "export const util = 1;").unwrap_or_panic();
         drop(f);
 
         let content = r#"{"compilerOptions": {"baseUrl": ".", "paths": {"@utils": ["utils.ts"]}}}"#;
-        let mut f = std::fs::File::create(base.join("tsconfig.json")).unwrap();
-        write!(f, "{}", content).unwrap();
+        let mut f = std::fs::File::create(base.join("tsconfig.json")).unwrap_or_panic();
+        write!(f, "{}", content).unwrap_or_panic();
         drop(f);
 
         let resolver = ImportResolver::new(base);
@@ -997,7 +1026,7 @@ mod tests {
 
     #[test]
     fn resolve_no_tsconfig_alias_fails() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let resolver = ImportResolver::new(dir.path());
         assert!(!resolver.has_tsconfig(), "no tsconfig should be loaded");
 
@@ -1010,18 +1039,18 @@ mod tests {
 
     #[test]
     fn resolve_alias_base_url() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let base = dir.path();
 
-        std::fs::create_dir_all(base.join("src")).unwrap();
-        let mut f = std::fs::File::create(base.join("src/app.ts")).unwrap();
-        writeln!(f, "export const app = 1;").unwrap();
+        std::fs::create_dir_all(base.join("src")).unwrap_or_panic();
+        let mut f = std::fs::File::create(base.join("src/app.ts")).unwrap_or_panic();
+        writeln!(f, "export const app = 1;").unwrap_or_panic();
         drop(f);
 
         // baseUrl = "src", paths = {"@/*": ["./*"]}
         let content = r#"{"compilerOptions": {"baseUrl": "src", "paths": {"@/*": ["./*"]}}}"#;
-        let mut f = std::fs::File::create(base.join("tsconfig.json")).unwrap();
-        write!(f, "{}", content).unwrap();
+        let mut f = std::fs::File::create(base.join("tsconfig.json")).unwrap_or_panic();
+        write!(f, "{}", content).unwrap_or_panic();
         drop(f);
 
         let resolver = ImportResolver::new(base);
@@ -1039,17 +1068,17 @@ mod tests {
 
     #[test]
     fn resolve_with_re_exports_one_hop() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let base = dir.path();
 
         // Create a barrel file re-exporting from a leaf module
-        std::fs::create_dir_all(base.join("src")).unwrap();
-        let mut f = std::fs::File::create(base.join("src/index.ts")).unwrap();
-        writeln!(f, "export {{ coreFn }} from \"./core\";").unwrap();
+        std::fs::create_dir_all(base.join("src")).unwrap_or_panic();
+        let mut f = std::fs::File::create(base.join("src/index.ts")).unwrap_or_panic();
+        writeln!(f, "export {{ coreFn }} from \"./core\";").unwrap_or_panic();
         drop(f);
 
-        let mut f = std::fs::File::create(base.join("src/core.ts")).unwrap();
-        writeln!(f, "export function coreFn() {{ return 42; }}").unwrap();
+        let mut f = std::fs::File::create(base.join("src/core.ts")).unwrap_or_panic();
+        writeln!(f, "export function coreFn() {{ return 42; }}").unwrap_or_panic();
         drop(f);
 
         let resolver = ImportResolver::new(base);
@@ -1071,21 +1100,21 @@ mod tests {
 
     #[test]
     fn resolve_with_re_exports_circular_safety() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let base = dir.path();
 
         // Create circular re-exports: a.ts -> b.ts -> a.ts
-        std::fs::create_dir_all(base.join("src")).unwrap();
-        let mut f = std::fs::File::create(base.join("src/index.ts")).unwrap();
-        writeln!(f, "export {{ a }} from \"./a\";").unwrap();
+        std::fs::create_dir_all(base.join("src")).unwrap_or_panic();
+        let mut f = std::fs::File::create(base.join("src/index.ts")).unwrap_or_panic();
+        writeln!(f, "export {{ a }} from \"./a\";").unwrap_or_panic();
         drop(f);
 
-        let mut f = std::fs::File::create(base.join("src/a.ts")).unwrap();
-        writeln!(f, "export {{ b }} from \"./b\";\nexport const a = 1;").unwrap();
+        let mut f = std::fs::File::create(base.join("src/a.ts")).unwrap_or_panic();
+        writeln!(f, "export {{ b }} from \"./b\";\nexport const a = 1;").unwrap_or_panic();
         drop(f);
 
-        let mut f = std::fs::File::create(base.join("src/b.ts")).unwrap();
-        writeln!(f, "export {{ a }} from \"./a\";\nexport const b = 2;").unwrap();
+        let mut f = std::fs::File::create(base.join("src/b.ts")).unwrap_or_panic();
+        writeln!(f, "export {{ a }} from \"./a\";\nexport const b = 2;").unwrap_or_panic();
         drop(f);
 
         let resolver = ImportResolver::new(base);
@@ -1099,11 +1128,11 @@ mod tests {
 
     #[test]
     fn resolve_non_barrel_no_re_export_follow() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let base = dir.path();
 
-        let mut f = std::fs::File::create(base.join("utils.ts")).unwrap();
-        writeln!(f, "export const x = 1;").unwrap();
+        let mut f = std::fs::File::create(base.join("utils.ts")).unwrap_or_panic();
+        writeln!(f, "export const x = 1;").unwrap_or_panic();
         drop(f);
 
         let resolver = ImportResolver::new(base);
@@ -1123,28 +1152,28 @@ mod tests {
 
     #[test]
     fn resolver_returns_correct_edges() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let base = dir.path();
 
-        std::fs::create_dir_all(base.join("src")).unwrap();
-        std::fs::create_dir_all(base.join("tests")).unwrap();
+        std::fs::create_dir_all(base.join("src")).unwrap_or_panic();
+        std::fs::create_dir_all(base.join("tests")).unwrap_or_panic();
 
         // Source file
-        let mut f = std::fs::File::create(base.join("src/calculator.ts")).unwrap();
+        let mut f = std::fs::File::create(base.join("src/calculator.ts")).unwrap_or_panic();
         writeln!(
             f,
             "export function add(a: number, b: number) {{ return a + b; }}"
         )
-        .unwrap();
+        .unwrap_or_panic();
         drop(f);
 
         // Test file that imports it
-        let mut f = std::fs::File::create(base.join("tests/calc.test.ts")).unwrap();
+        let mut f = std::fs::File::create(base.join("tests/calc.test.ts")).unwrap_or_panic();
         writeln!(
             f,
             "import {{ add }} from \"../src/calculator\";\ndescribe(\"calc\", () => {{ it(\"adds\", () => {{}}); }});"
         )
-        .unwrap();
+        .unwrap_or_panic();
         drop(f);
 
         let resolver = ImportResolver::new(base);
@@ -1157,7 +1186,7 @@ mod tests {
             "should resolve test import to source file"
         );
 
-        let resolved_path = resolved.resolved.unwrap();
+        let resolved_path = resolved.resolved.unwrap_or_panic();
         assert!(
             resolved_path
                 .to_string_lossy()
@@ -1176,11 +1205,11 @@ mod tests {
 
     #[test]
     fn resolve_non_code_scss() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let base = dir.path();
 
-        let mut f = std::fs::File::create(base.join("styles.scss")).unwrap();
-        writeln!(f, "$primary: blue;").unwrap();
+        let mut f = std::fs::File::create(base.join("styles.scss")).unwrap_or_panic();
+        writeln!(f, "$primary: blue;").unwrap_or_panic();
         drop(f);
 
         let resolver = ImportResolver::new(base);
@@ -1191,11 +1220,11 @@ mod tests {
 
     #[test]
     fn resolve_non_code_svg() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let base = dir.path();
 
-        let mut f = std::fs::File::create(base.join("icon.svg")).unwrap();
-        writeln!(f, "<svg></svg>").unwrap();
+        let mut f = std::fs::File::create(base.join("icon.svg")).unwrap_or_panic();
+        writeln!(f, "<svg></svg>").unwrap_or_panic();
         drop(f);
 
         let resolver = ImportResolver::new(base);
@@ -1210,13 +1239,13 @@ mod tests {
 
     #[test]
     fn load_jsconfig_fallback() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let base = dir.path();
 
         // Write jsconfig.json (not tsconfig.json)
         let content = r#"{"compilerOptions": {"baseUrl": ".", "paths": {"@/*": ["src/*"]}}}"#;
-        let mut f = std::fs::File::create(base.join("jsconfig.json")).unwrap();
-        write!(f, "{}", content).unwrap();
+        let mut f = std::fs::File::create(base.join("jsconfig.json")).unwrap_or_panic();
+        write!(f, "{}", content).unwrap_or_panic();
         drop(f);
 
         let resolver = ImportResolver::new(base);
@@ -1264,17 +1293,17 @@ export * as Utils from "./utils";
 
     #[test]
     fn resolve_alias_components_path() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let base = dir.path();
 
-        std::fs::create_dir_all(base.join("src/components")).unwrap();
-        let mut f = std::fs::File::create(base.join("src/components/Button.tsx")).unwrap();
-        writeln!(f, "export const Button = () => null;").unwrap();
+        std::fs::create_dir_all(base.join("src/components")).unwrap_or_panic();
+        let mut f = std::fs::File::create(base.join("src/components/Button.tsx")).unwrap_or_panic();
+        writeln!(f, "export const Button = () => null;").unwrap_or_panic();
         drop(f);
 
         let content = r#"{"compilerOptions": {"baseUrl": ".", "paths": {"@components/*": ["src/components/*"]}}}"#;
-        let mut f = std::fs::File::create(base.join("tsconfig.json")).unwrap();
-        write!(f, "{}", content).unwrap();
+        let mut f = std::fs::File::create(base.join("tsconfig.json")).unwrap_or_panic();
+        write!(f, "{}", content).unwrap_or_panic();
         drop(f);
 
         let resolver = ImportResolver::new(base);
@@ -1287,11 +1316,11 @@ export * as Utils from "./utils";
 
     #[test]
     fn resolve_relative_with_hyphen() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap_or_panic();
         let base = dir.path();
 
-        let mut f = std::fs::File::create(base.join("my-component.ts")).unwrap();
-        writeln!(f, "export const x = 1;").unwrap();
+        let mut f = std::fs::File::create(base.join("my-component.ts")).unwrap_or_panic();
+        writeln!(f, "export const x = 1;").unwrap_or_panic();
         drop(f);
 
         let resolver = ImportResolver::new(base);

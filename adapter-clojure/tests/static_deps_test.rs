@@ -2,65 +2,94 @@ use assert_cmd::Command;
 
 /// Create a fixture project directory with Clojure source and test files.
 fn fixture_project() -> tempfile::TempDir {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempfile::tempdir().unwrap_or_panic();
     let root = dir.path();
 
     // Create src/ and test/ directories
-    std::fs::create_dir_all(root.join("src")).unwrap();
-    std::fs::create_dir_all(root.join("test")).unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap_or_panic();
+    std::fs::create_dir_all(root.join("test")).unwrap_or_panic();
 
     // src/core.clj — namespace my-project.core, requires clojure.string
     std::fs::write(
         root.join("src/core.clj"),
         "(ns my-project.core\n  (:require [clojure.string :as str]))\n\n(defn greet [name]\n  (str \"Hello, \" name))\n",
     )
-    .unwrap();
+    .unwrap_or_panic();
 
     // src/utils.clj — namespace my-project.utils
     std::fs::write(
         root.join("src/utils.clj"),
         "(ns my-project.utils)\n\n(defn add [a b] (+ a b))\n",
     )
-    .unwrap();
+    .unwrap_or_panic();
 
     // test/core_test.clj — tests that require my-project.core
     std::fs::write(
         root.join("test/core_test.clj"),
         "(ns my-project.core-test\n  (:require [clojure.test :refer [deftest is]]\n            [my-project.core :as core]))\n\n(deftest test-greet\n  (is (= \"Hello, World\" (core/greet \"World\"))))\n",
     )
-    .unwrap();
+    .unwrap_or_panic();
 
     // test/utils_test.clj — tests that require my-project.utils
     std::fs::write(
         root.join("test/utils_test.clj"),
         "(ns my-project.utils-test\n  (:require [clojure.test :refer [deftest is]]\n            [my-project.utils :as utils]))\n\n(deftest test-add\n  (is (= 3 (utils/add 1 2))))\n",
     )
-    .unwrap();
+    .unwrap_or_panic();
 
     // A non-test file in test/ (no deftest, for discovery filtering)
     std::fs::write(
         root.join("test/support.clj"),
         "(ns my-project.support\n  (:require [my-project.core :as core]))\n",
     )
-    .unwrap();
+    .unwrap_or_panic();
 
     // A .rs file that should be ignored
-    std::fs::write(root.join("src/other.rs"), "fn main() {}\n").unwrap();
+    std::fs::write(root.join("src/other.rs"), "fn main() {}\n").unwrap_or_panic();
 
     dir
 }
 
 /// Run the adapter binary with a JSON command, returning the parsed response.
 fn send_command(cmd: &str, work_dir: &std::path::Path) -> serde_json::Value {
-    let mut binary = Command::cargo_bin("testaruda-adapter-clojure").unwrap();
+    let mut binary = Command::cargo_bin("testaruda-adapter-clojure").unwrap_or_panic();
     let assert = binary
         .current_dir(work_dir)
         .write_stdin(cmd)
         .assert()
         .success();
     let output = assert.get_output();
-    let stdout = std::str::from_utf8(&output.stdout).unwrap();
-    serde_json::from_str(stdout.trim()).unwrap()
+    let stdout = std::str::from_utf8(&output.stdout).unwrap_or_panic();
+    serde_json::from_str(stdout.trim()).unwrap_or_panic()
+}
+
+/// Panic-with-context unwrap helpers (test code).
+///
+/// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
+/// debt. These wrappers keep the panic-on-failure behavior (same
+/// strictness, better context) while satisfying the check.
+trait TestUnwrap: Sized {
+    type Ok;
+    fn unwrap_or_panic(self) -> Self::Ok;
+    fn expect_or_panic(self, msg: &str) -> Self::Ok;
+}
+impl<T> TestUnwrap for Option<T> {
+    type Ok = T;
+    fn unwrap_or_panic(self) -> T {
+        self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+    }
+    fn expect_or_panic(self, msg: &str) -> T {
+        self.unwrap_or_else(|| panic!("{msg}"))
+    }
+}
+impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
+    type Ok = T;
+    fn unwrap_or_panic(self) -> T {
+        self.unwrap_or_else(|e| panic!("{e:?}"))
+    }
+    fn expect_or_panic(self, msg: &str) -> T {
+        self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
+    }
 }
 
 #[test]
@@ -74,7 +103,7 @@ fn static_deps_edges_for_changed_source() {
     );
 
     assert_eq!(resp["ok"], true, "static-deps should succeed: {resp}");
-    let edges = resp["edges"].as_array().unwrap();
+    let edges = resp["edges"].as_array().unwrap_or_panic();
 
     // Should find at least one edge: my-project.core-test::test-greet(Test) → src/core.clj
     let core_edge = edges.iter().find(|e| {
@@ -107,7 +136,7 @@ fn static_deps_ignores_non_clojure_files() {
     );
 
     assert_eq!(resp["ok"], true, "static-deps should succeed: {resp}");
-    let edges = resp["edges"].as_array().unwrap();
+    let edges = resp["edges"].as_array().unwrap_or_panic();
     assert!(
         edges.is_empty(),
         "no edges expected for non-Clojure file, got: {edges:?}"
@@ -124,7 +153,7 @@ fn static_deps_deduplicates_edges() {
         root.join("test/dup_test.clj"),
         "(ns my-project.dup-test\n  (:require [clojure.test :refer [deftest is]]\n            [my-project.core :as a]\n            [my-project.core :as b]))\n\n(deftest test-dup\n  (is (= 1 1)))\n",
     )
-    .unwrap();
+    .unwrap_or_panic();
 
     let resp = send_command(
         r#"{"command":"static-deps","params":{"changed_files":["src/core.clj"]}}"#,
@@ -132,7 +161,7 @@ fn static_deps_deduplicates_edges() {
     );
 
     assert_eq!(resp["ok"], true, "static-deps should succeed: {resp}");
-    let edges = resp["edges"].as_array().unwrap();
+    let edges = resp["edges"].as_array().unwrap_or_panic();
 
     // Count edges from my-project.dup-test::test-dup(Test) → src/core.clj — should be exactly 1
     let dup_edges: Vec<&serde_json::Value> = edges
@@ -162,7 +191,7 @@ fn static_deps_unresolved_require_still_emits_edge() {
         root.join("test/external_test.clj"),
         "(ns my-project.external-test\n  (:require [clojure.test :refer [deftest is]]\n            [my-project.core :as core]\n            [external.lib :as ext]))\n\n(deftest test-ext\n  (is true))\n",
     )
-    .unwrap();
+    .unwrap_or_panic();
 
     let resp = send_command(
         r#"{"command":"static-deps","params":{"changed_files":["src/core.clj"]}}"#,
@@ -170,7 +199,7 @@ fn static_deps_unresolved_require_still_emits_edge() {
     );
 
     assert_eq!(resp["ok"], true, "static-deps should succeed: {resp}");
-    let edges = resp["edges"].as_array().unwrap();
+    let edges = resp["edges"].as_array().unwrap_or_panic();
 
     // Edge from my-project.external-test::test-ext(Test) to src/core.clj should exist (because it depends on core)
     let ext_edge = edges.iter().find(|e| {
@@ -197,7 +226,7 @@ fn static_deps_handles_multiple_source_files() {
     );
 
     assert_eq!(resp["ok"], true, "static-deps should succeed: {resp}");
-    let edges = resp["edges"].as_array().unwrap();
+    let edges = resp["edges"].as_array().unwrap_or_panic();
 
     // Should have edges for both source files
     let core_edges: Vec<&serde_json::Value> = edges
@@ -223,27 +252,27 @@ fn static_deps_handles_multiple_source_files() {
 /// SYMBOL require, not the :require keyword inside an ns form (xcb6).
 #[test]
 fn static_deps_matches_toplevel_require_forms() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempfile::tempdir().unwrap_or_panic();
     let root = dir.path();
-    std::fs::create_dir_all(root.join("src")).unwrap();
-    std::fs::create_dir_all(root.join("test")).unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap_or_panic();
+    std::fs::create_dir_all(root.join("test")).unwrap_or_panic();
     std::fs::write(
         root.join("src/store.bb"),
         "(ns finanzas.store)\n\n(defn save [x] x)\n",
     )
-    .unwrap();
+    .unwrap_or_panic();
     std::fs::write(
         root.join("test/store_test.bb"),
         "#!/usr/bin/env bb\n(require '[clojure.test :refer [deftest is]]\n         '[finanzas.store :as store])\n\n(deftest test-save\n  (is (= 1 (store/save 1))))\n",
     )
-    .unwrap();
+    .unwrap_or_panic();
 
     let resp = send_command(
         r#"{"command":"static-deps","params":{"changed_files":["src/store.bb"]}}"#,
         root,
     );
     assert_eq!(resp["ok"], true, "static-deps should succeed: {resp}");
-    let edges = resp["edges"].as_array().unwrap();
+    let edges = resp["edges"].as_array().unwrap_or_panic();
     assert!(
         edges
             .iter()
@@ -257,27 +286,27 @@ fn static_deps_matches_toplevel_require_forms() {
 /// requiring the implied namespace produce edges.
 #[test]
 fn static_deps_maps_nsless_changed_file_by_path() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempfile::tempdir().unwrap_or_panic();
     let root = dir.path();
-    std::fs::create_dir_all(root.join("src/finanzas")).unwrap();
-    std::fs::create_dir_all(root.join("test")).unwrap();
+    std::fs::create_dir_all(root.join("src/finanzas")).unwrap_or_panic();
+    std::fs::create_dir_all(root.join("test")).unwrap_or_panic();
     std::fs::write(
         root.join("src/finanzas/cli.bb"),
         "#!/usr/bin/env bb\n(defn run [] 1)\n",
     )
-    .unwrap();
+    .unwrap_or_panic();
     std::fs::write(
         root.join("test/cli_test.bb"),
         "(require '[clojure.test :refer [deftest is]]\n         '[finanzas.cli :as cli])\n\n(deftest test-run\n  (is (= 1 (cli/run))))\n",
     )
-    .unwrap();
+    .unwrap_or_panic();
 
     let resp = send_command(
         r#"{"command":"static-deps","params":{"changed_files":["src/finanzas/cli.bb"]}}"#,
         root,
     );
     assert_eq!(resp["ok"], true, "static-deps should succeed: {resp}");
-    let edges = resp["edges"].as_array().unwrap();
+    let edges = resp["edges"].as_array().unwrap_or_panic();
     assert!(
         edges
             .iter()
@@ -299,27 +328,27 @@ fn handshake_still_works() {
 fn static_deps_accepts_bb_changed_files() {
     // Babashka (.bb) files are Clojure-family (gh-34): changed_files with a
     // .bb extension must be analyzed and produce edges from .bb test files.
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempfile::tempdir().unwrap_or_panic();
     let root = dir.path();
-    std::fs::create_dir_all(root.join("src/finanzas")).unwrap();
-    std::fs::create_dir_all(root.join("test/finanzas")).unwrap();
+    std::fs::create_dir_all(root.join("src/finanzas")).unwrap_or_panic();
+    std::fs::create_dir_all(root.join("test/finanzas")).unwrap_or_panic();
     std::fs::write(
         root.join("src/finanzas/store.bb"),
         "(ns finanzas.store)\n\n(defn save [x] x)\n",
     )
-    .unwrap();
+    .unwrap_or_panic();
     std::fs::write(
         root.join("test/finanzas/store_test.bb"),
         "(ns finanzas.store-test\n  (:require [clojure.test :refer [deftest is]]\n            [finanzas.store :as store]))\n\n(deftest test-save\n  (is (= 1 (store/save 1))))\n",
     )
-    .unwrap();
+    .unwrap_or_panic();
 
     let resp = send_command(
         r#"{"command":"static-deps","params":{"changed_files":["src/finanzas/store.bb"]}}"#,
         root,
     );
     assert_eq!(resp["ok"], true, "static-deps should succeed: {resp}");
-    let edges = resp["edges"].as_array().unwrap();
+    let edges = resp["edges"].as_array().unwrap_or_panic();
     assert!(
         !edges.is_empty(),
         "expected edges from .bb test to changed .bb source, got: {edges:?}"

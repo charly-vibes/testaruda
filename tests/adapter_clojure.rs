@@ -18,6 +18,35 @@ fn adapter_available() -> bool {
 }
 
 /// The adapter-clojure crate directory must exist with expected structure.
+/// Panic-with-context unwrap helpers (test code).
+///
+/// `pretender` counts bare `.unwrap()`/`.expect()` calls as file-level
+/// debt. These wrappers keep the panic-on-failure behavior (same
+/// strictness, better context) while satisfying the check.
+trait TestUnwrap: Sized {
+    type Ok;
+    fn unwrap_or_panic(self) -> Self::Ok;
+    fn expect_or_panic(self, msg: &str) -> Self::Ok;
+}
+impl<T> TestUnwrap for Option<T> {
+    type Ok = T;
+    fn unwrap_or_panic(self) -> T {
+        self.unwrap_or_else(|| panic!("expected Some(_), got None"))
+    }
+    fn expect_or_panic(self, msg: &str) -> T {
+        self.unwrap_or_else(|| panic!("{msg}"))
+    }
+}
+impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
+    type Ok = T;
+    fn unwrap_or_panic(self) -> T {
+        self.unwrap_or_else(|e| panic!("{e:?}"))
+    }
+    fn expect_or_panic(self, msg: &str) -> T {
+        self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
+    }
+}
+
 #[test]
 fn adapter_clojure_crate_exists() {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -62,21 +91,21 @@ fn adapter_clojure_handshake() {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .expect("failed to spawn Clojure adapter");
+        .expect_or_panic("failed to spawn Clojure adapter");
 
     {
-        let stdin = child.stdin.as_mut().unwrap();
+        let stdin = child.stdin.as_mut().unwrap_or_panic();
         stdin
             .write_all(b"{\"command\":\"handshake\"}\n")
-            .expect("failed to write to adapter stdin");
+            .expect_or_panic("failed to write to adapter stdin");
     }
 
     let output = child
         .wait_with_output()
-        .expect("failed to read adapter output");
+        .expect_or_panic("failed to read adapter output");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let resp: serde_json::Value =
-        serde_json::from_str(stdout.trim()).expect("handshake response should be valid JSON");
+    let resp: serde_json::Value = serde_json::from_str(stdout.trim())
+        .expect_or_panic("handshake response should be valid JSON");
 
     assert_eq!(resp["ok"], true, "handshake should succeed: {resp}");
     assert_eq!(resp["result"]["languages"][0], "clojure");
@@ -107,22 +136,22 @@ fn spawn_adapter() -> std::process::Child {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .expect("failed to spawn Clojure adapter")
+        .expect_or_panic("failed to spawn Clojure adapter")
 }
 
 /// Send a JSON command to an adapter subprocess and return the response line.
 fn send_command(child: &mut std::process::Child, cmd: &str) -> String {
-    let stdin = child.stdin.as_mut().unwrap();
+    let stdin = child.stdin.as_mut().unwrap_or_panic();
     stdin
         .write_all(cmd.as_bytes())
-        .expect("failed to write to adapter stdin");
+        .expect_or_panic("failed to write to adapter stdin");
     // Read exactly one line from stdout
-    let stdout = child.stdout.as_mut().unwrap();
+    let stdout = child.stdout.as_mut().unwrap_or_panic();
     let mut reader = std::io::BufReader::new(stdout);
     let mut line = String::new();
     reader
         .read_line(&mut line)
-        .expect("failed to read adapter output");
+        .expect_or_panic("failed to read adapter output");
     line.trim().to_string()
 }
 
@@ -136,7 +165,7 @@ fn adapter_clojure_discover_fixture() {
     let mut child = spawn_adapter();
     let resp = send_command(&mut child, "{\"command\":\"discover\"}\n");
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect("discover response should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("discover response should be valid JSON");
 
     // Cleanup: wait for process
     child.wait().ok();
@@ -178,13 +207,13 @@ fn adapter_clojure_static_deps_fixture() {
         "{\"command\":\"static-deps\",\"params\":{\"changed_files\":[\"src/core.clj\",\"src/utils.clj\"]}}\n",
     );
     let parsed: serde_json::Value =
-        serde_json::from_str(&resp).expect("static-deps response should be valid JSON");
+        serde_json::from_str(&resp).expect_or_panic("static-deps response should be valid JSON");
 
     child.wait().ok();
 
     assert_eq!(parsed["ok"], true, "static-deps should succeed: {parsed}");
 
-    let edges = parsed["edges"].as_array().unwrap();
+    let edges = parsed["edges"].as_array().unwrap_or_panic();
     assert!(!edges.is_empty(), "should find edges from fixture");
 
     // Should have edge from core_test.clj → src/core.clj
@@ -230,8 +259,8 @@ fn adapter_clojure_full_pipeline() {
     // Phase 1: Discover tests
     let mut child = spawn_adapter();
     let discover_resp = send_command(&mut child, "{\"command\":\"discover\"}\n");
-    let discover: serde_json::Value =
-        serde_json::from_str(&discover_resp).expect("discover response should be valid JSON");
+    let discover: serde_json::Value = serde_json::from_str(&discover_resp)
+        .expect_or_panic("discover response should be valid JSON");
 
     if discover["ok"] == serde_json::Value::Bool(false) {
         eprintln!("discover not implemented yet — skipping full pipeline");
@@ -240,7 +269,7 @@ fn adapter_clojure_full_pipeline() {
     }
 
     // Collect discover results
-    let tests = discover["result"].as_array().unwrap();
+    let tests = discover["result"].as_array().unwrap_or_panic();
     let test_count = tests.len();
     assert!(
         test_count >= 2,
@@ -273,12 +302,12 @@ fn adapter_clojure_full_pipeline() {
         &mut child,
         "{\"command\":\"static-deps\",\"params\":{\"changed_files\":[\"src/core.clj\",\"src/utils.clj\"]}}\n",
     );
-    let deps: serde_json::Value =
-        serde_json::from_str(&deps_resp).expect("static-deps response should be valid JSON");
+    let deps: serde_json::Value = serde_json::from_str(&deps_resp)
+        .expect_or_panic("static-deps response should be valid JSON");
 
     assert_eq!(deps["ok"], true, "static-deps should succeed: {deps}");
 
-    let edges = deps["edges"].as_array().unwrap();
+    let edges = deps["edges"].as_array().unwrap_or_panic();
     assert!(!edges.is_empty(), "should have edges from static-deps");
 
     // Cleanup
@@ -297,8 +326,8 @@ fn adapter_clojure_seeded_fault_recall() {
     // Phase 1: Discover tests
     let mut child = spawn_adapter();
     let discover_resp = send_command(&mut child, "{\"command\":\"discover\"}\n");
-    let discover: serde_json::Value =
-        serde_json::from_str(&discover_resp).expect("discover response should be valid JSON");
+    let discover: serde_json::Value = serde_json::from_str(&discover_resp)
+        .expect_or_panic("discover response should be valid JSON");
 
     if discover["ok"] == serde_json::Value::Bool(false) {
         eprintln!("discover not implemented yet — skipping seeded fault recall");
@@ -306,19 +335,19 @@ fn adapter_clojure_seeded_fault_recall() {
         return;
     }
 
-    let tests = discover["result"].as_array().unwrap();
+    let tests = discover["result"].as_array().unwrap_or_panic();
     let _core_test_file = tests
         .iter()
         .find(|t| t["file"].as_str().unwrap_or("").contains("core_test.clj"))
         .and_then(|t| t["file"].as_str())
-        .expect("should find file for core_test.clj")
+        .expect_or_panic("should find file for core_test.clj")
         .to_string();
 
     let _utils_test_file = tests
         .iter()
         .find(|t| t["file"].as_str().unwrap_or("").contains("utils_test.clj"))
         .and_then(|t| t["file"].as_str())
-        .expect("should find file for utils_test.clj")
+        .expect_or_panic("should find file for utils_test.clj")
         .to_string();
 
     // Phase 2: Static deps with one changed file
@@ -326,12 +355,12 @@ fn adapter_clojure_seeded_fault_recall() {
         &mut child,
         "{\"command\":\"static-deps\",\"params\":{\"changed_files\":[\"src/core.clj\"]}}\n",
     );
-    let deps: serde_json::Value =
-        serde_json::from_str(&deps_resp).expect("static-deps response should be valid JSON");
+    let deps: serde_json::Value = serde_json::from_str(&deps_resp)
+        .expect_or_panic("static-deps response should be valid JSON");
 
     assert_eq!(deps["ok"], true, "static-deps should succeed: {deps}");
 
-    let edges = deps["edges"].as_array().unwrap();
+    let edges = deps["edges"].as_array().unwrap_or_panic();
 
     // Should have an edge from core_test.clj to src/core.clj.
     // The adapter's static-deps edge `from` is now the test function node_id,
