@@ -152,7 +152,6 @@ where
 trait TestUnwrap: Sized {
     type Ok;
     fn unwrap_or_panic(self) -> Self::Ok;
-    fn require(self, msg: &str) -> Self::Ok;
 }
 impl<T> TestUnwrap for Option<T> {
     type Ok = T;
@@ -161,9 +160,6 @@ impl<T> TestUnwrap for Option<T> {
             Some(v) => v,
             None => panic!("option was None"),
         }
-    }
-    fn require(self, msg: &str) -> T {
-        self.unwrap_or_else(|| panic!("{msg}"))
     }
 }
 impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
@@ -174,13 +170,10 @@ impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
             Err(e) => panic!("{e:?}"),
         }
     }
-    fn require(self, msg: &str) -> T {
-        self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
-    }
 }
 
 /// // === Scenario 1: Deterministic stability (TIA-SEL-005) ===
-fn ordering_scenario_1(store: &Store, root: &Path, tids: &[u32; 4]) {
+fn ordering_scenario_1(store: &Store, root: &Path, _tids: &[u32; 4]) {
     // === Scenario 1: Deterministic stability (TIA-SEL-005) ===
     // Each select call updates fingerprints, so we must use different file
     // content or different files across scenarios.

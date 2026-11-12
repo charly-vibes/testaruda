@@ -134,7 +134,10 @@ fn ns_query_contract() {
     // the in-string case must yield NO captures at all
     let tree = parse("(def some-ns \"(ns fake.ns)\")");
     let caps = captures(&q, &tree, "(def some-ns \"(ns fake.ns)\")".as_bytes());
-    assert!(caps.is_empty(), "in-string ns must produce no captures: {caps:?}");
+    assert!(
+        caps.is_empty(),
+        "in-string ns must produce no captures: {caps:?}"
+    );
 }
 
 // ── deps.scm ────────────────────────────────────────────────────────────────
@@ -231,7 +234,10 @@ fn queries_compile() {
         ("discover", include_str!("../queries/discover.scm")),
     ] {
         let q = make_query(scm);
-        assert!(!q.capture_names().is_empty(), "{name}: query has no captures");
+        assert!(
+            !q.capture_names().is_empty(),
+            "{name}: query has no captures"
+        );
     }
 }
 

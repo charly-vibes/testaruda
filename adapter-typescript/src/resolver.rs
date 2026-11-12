@@ -396,7 +396,7 @@ impl ImportResolver {
             }
 
             if in_string {
-                i = Self::copy_string_body(&bytes, i, len, &mut result, &mut in_string);
+                i = Self::copy_string_body(bytes, i, len, &mut result, &mut in_string);
                 continue;
             }
 
@@ -529,7 +529,6 @@ mod tests {
     trait TestUnwrap: Sized {
         type Ok;
         fn unwrap_or_panic(self) -> Self::Ok;
-        fn require(self, msg: &str) -> Self::Ok;
     }
     impl<T> TestUnwrap for Option<T> {
         type Ok = T;
@@ -539,9 +538,6 @@ mod tests {
                 None => panic!("option was None"),
             }
         }
-        fn require(self, msg: &str) -> T {
-            self.unwrap_or_else(|| panic!("{msg}"))
-        }
     }
     impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
         type Ok = T;
@@ -550,9 +546,6 @@ mod tests {
                 Ok(v) => v,
                 Err(e) => panic!("{e:?}"),
             }
-        }
-        fn require(self, msg: &str) -> T {
-            self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
         }
     }
 

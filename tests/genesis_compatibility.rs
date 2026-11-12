@@ -148,7 +148,10 @@ fn all_used_modules_are_listed() {
     // adds a new genesis:: module without updating this fixture.
     let listed = genesis_modules_used();
     assert_eq!(listed.len(), 12, "module inventory count drifted");
-    assert!(listed.iter().all(|m| !m.is_empty()), "module names must be non-empty");
+    assert!(
+        listed.iter().all(|m| !m.is_empty()),
+        "module names must be non-empty"
+    );
     for load_bearing in ["envelope", "feedback", "managed_block", "cli"] {
         assert!(
             listed.contains(&load_bearing),

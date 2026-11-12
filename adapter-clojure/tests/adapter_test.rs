@@ -15,7 +15,6 @@ fn send_command(cmd: &str) -> serde_json::Value {
 trait TestUnwrap: Sized {
     type Ok;
     fn unwrap_or_panic(self) -> Self::Ok;
-    fn require(self, msg: &str) -> Self::Ok;
 }
 impl<T> TestUnwrap for Option<T> {
     type Ok = T;
@@ -25,9 +24,6 @@ impl<T> TestUnwrap for Option<T> {
             None => panic!("option was None"),
         }
     }
-    fn require(self, msg: &str) -> T {
-        self.unwrap_or_else(|| panic!("{msg}"))
-    }
 }
 impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
     type Ok = T;
@@ -36,9 +32,6 @@ impl<T, E: std::fmt::Debug> TestUnwrap for Result<T, E> {
             Ok(v) => v,
             Err(e) => panic!("{e:?}"),
         }
-    }
-    fn require(self, msg: &str) -> T {
-        self.unwrap_or_else(|e| panic!("{msg}: {e:?}"))
     }
 }
 
@@ -54,8 +47,7 @@ fn handshake_contract() {
     assert!(result["version"].is_string(), "version missing: {resp}");
     assert_eq!(result["protocol"], 1, "protocol should be 1: {resp}");
     assert_eq!(
-        result["granularity"],
-        "file",
+        result["granularity"], "file",
         "granularity should be file: {resp}"
     );
     let langs = result["languages"].as_array().unwrap_or_panic();
