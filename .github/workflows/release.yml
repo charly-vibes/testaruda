@@ -196,7 +196,7 @@ jobs:
         with:
           key: linux
 
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-just@v4
 
       # DDL-9x4: the DDL-85p `just test` recipe shells out to the `testaruda`
       # binary (exec loop); install it from THIS tag's own source so the
