@@ -1,0 +1,64 @@
+schema: spec-driven
+
+context: |
+  testaruda is a language-agnostic CLI whose single responsibility is to
+  compute, from a code change, the set of tests that must run — modeled as the
+  transpose of a provenance-semiring dependency relation, evaluated
+  incrementally, under a recall-first soundness invariant.
+
+  Binary: `testaruda` · Config: `testaruda.toml` · License: Apache 2.0
+
+  Stack: Rust 2021; Ascent (embedded Datalog-style engine with lattice support
+  for the semiring); SQLite via rusqlite for the dependency graph and test
+  history; clap; serde/serde_json for the adapter protocol and output; rayon
+  for parallel per-component selection; blake3 fingerprints; miette, thiserror,
+  anyhow.
+
+  Conventions: rustfmt; clippy with warnings denied in CI; no `unwrap()` in
+  library code (tests/fixtures may justify it); reference SRS requirement IDs in
+  doc comments.
+
+  Architecture — three layers:
+  1. Core engine: the Ascent-embedded selection query (provenance-semiring
+     K-relation).
+  2. Store: SQLite-backed persistence of the dependency graph.
+  3. CLI: user-facing commands bridging the two.
+  Language/framework adapters communicate via JSON over stdin/stdout
+  (TIA-ADAPT-001).
+
+  Testing: unit tests for semiring operations and core logic; integration
+  tests for the CLI against fixture files; shadow-mode verification against a
+  Soufflé oracle (TIA-ENG-011); seeded-fault recall test for the soundness
+  invariant (TIA-VER-004).
+
+  Key decisions: reference engine is Ascent (in-process, lattice support,
+  embeddable); Soufflé is the provenance oracle only (out-of-process,
+  validation); cross-invocation incrementality comes from change scoping plus a
+  content-addressed component cache; the scale-up path re-targets to
+  DBSP/Feldera for true IVM.
+
+  Constraints: the core contains no language- or framework-specific logic
+  (TIA-ARCH-008) and never executes tests (TIA-ARCH-009); soundness is
+  over-approximation — missed selections are bugs (TIA-SAFE-001); the full
+  provenance semiring is the master and concrete semirings are homomorphic
+  images (TIA-ARCH-003).
+
+  References: [GKT07] Green, Karvounarakis, Tannen, Provenance Semirings
+  (PODS 2007); [BSalC] Mokhov, Mitchell, Peyton Jones, Build Systems à la Carte
+  (ICFP 2018); `docs/tia-srs-ears.md` (EARS, draft v0.3).
+
+rules:
+  proposal:
+    - Cite the SRS requirement IDs (TIA-*) the change implements and name the
+      capability spec that will carry them after archive
+  tasks:
+    - Map each task to a spec scenario and a red→green→refactor cycle
+
+operations:
+  apply:
+    guidance:
+      - Keep language-specific behavior in adapters; the core engine stays
+        language-neutral
+  archive:
+    guidance:
+      - Confirm the archived requirements kept their TIA-* IDs
