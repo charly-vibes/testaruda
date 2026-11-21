@@ -861,6 +861,17 @@ pub fn select(args: SelectArgs) -> miette::Result<()> {
         };
     }
 
+    // Name the consumption pattern for hook authors: exit 20 is the
+    // documented "safe to skip" signal (TIA-CI-003), not a gate failure —
+    // without the hint a hook stage red-lights every docs-only push
+    // (testaruda-ckon).
+    if outcome.code == ci_exit::EMPTY {
+        eprintln!(
+            "ℹ️  no tests selected — exit 20 means \"safe to skip\" (TIA-CI-003); \
+             hook stages should tolerate it: `|| test $? -eq 20`"
+        );
+    }
+
     // Emit metrics (TIA-OBS-003)
     tracing::info!(
         event = "selection",

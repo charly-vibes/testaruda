@@ -136,6 +136,24 @@ Git revisions, or confidence are insufficient:
 testaruda select --safe --base origin/main --head HEAD
 ```
 
+## Hook integration
+
+`testaruda select` exits `20` when nothing is affected — the documented
+"safe to skip" signal ([TIA-CI-003](specs/ci-integration.md)), not a
+failure. A hook stage that runs it must tolerate that code, or every
+docs-only or config-only push red-lights:
+
+```yaml
+pre-push:
+  commands:
+    affected-tests:
+      run: testeruda select --safe --base origin/main --head HEAD || test $? -eq 20
+```
+
+The adapter turns `20` into a pass and leaves every other non-zero exit
+failing the stage — `1` is a hard error. `testaruda` prints this hint on
+stderr whenever it exits with `20`.
+
 ## Next Steps
 
 - See the [**CLI Reference**](cli.md) for all commands and options (including

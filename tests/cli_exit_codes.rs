@@ -480,6 +480,34 @@ fn select_modes_exit_with_no_tests_code() {
     }
 }
 
+/// An empty selection exits 20 — the documented "safe to skip" signal
+/// (TIA-CI-003) — but a hook stage sees a non-zero exit and red-lights
+/// every docs-only push (testaruda-ckon). The stderr must name the hook
+/// adapter so the author sees the remedy at the failure point.
+#[test]
+fn empty_selection_hint_names_the_hook_adapter() {
+    let project = setup_project();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"))
+        .args(["select", "--json", "--files", "nonexistent.py"])
+        .current_dir(project.path())
+        .output()
+        .require("testaruda select failed");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        output.status.code(),
+        Some(20),
+        "empty selection keeps exit 20 (TIA-CI-003).\nstderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("safe to skip"),
+        "stderr should name exit 20 as safe to skip.\nstderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("test $? -eq 20"),
+        "stderr should carry the hook adapter.\nstderr: {stderr}"
+    );
+}
+
 /// Test that `testaruda select --base/--head` detects changes in a revision
 /// range even when the store was ingested at head (testaruda-jdw5).
 ///

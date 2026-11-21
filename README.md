@@ -79,6 +79,26 @@ See [**Getting Started →**](docs/src/getting-started.md) for a full walkthroug
 with all commands, or [**CLI Reference →**](docs/src/cli.md) for detailed
 option descriptions.
 
+## Hook integration
+
+`testaruda select` exits `20` when the selection is empty — a valid outcome
+("safe to skip", [TIA-CI-003](docs/src/specs/ci-integration.md)), not a
+failure. A hook stage that runs it must tolerate that code, or every
+docs-only or config-only push red-lights:
+
+```yaml
+pre-push:
+  commands:
+    affected-tests:
+      run: testaruda select --safe --base origin/main --head HEAD || test $? -eq 20
+```
+
+The adapter turns `20` into a pass and leaves every other non-zero exit
+failing the stage — `1` is a hard error. `testaruda` prints this hint on
+stderr whenever it exits with `20`. Runner recipes in the family apply the
+same tolerance to `testaruda exec`: exit `0`, `10` (run everything) and `20`
+(nothing to run) are green, `1` is not.
+
 ## Architecture
 
 testaruda uses a three-layer architecture:
