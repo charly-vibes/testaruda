@@ -1,0 +1,11 @@
+# Pinned Kani release for the bounded-model-checking probe (beads
+# `testaruda-jdpi`). Same discipline as catherine's kani-version.toml:
+# installs are pinned, never `latest` — a checker drift on a rolling
+# release must not silently change recorded probe outcomes. Probe
+# provisioning is already satisfied locally: `cargo install --locked
+# kani-verifier@0.68.0 && cargo kani setup`.
+[kani]
+release = "0.68.0"
+# The nightly `cargo kani setup` installs for this release (informational:
+# reproduces the checking environment).
+bundled_nightly = "2026-08-21"

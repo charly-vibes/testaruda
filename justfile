@@ -53,10 +53,20 @@ test:
 test-blast *files:
     #!/usr/bin/env bash
     if [ -z "{{files}}" ]; then
-      testaruda select --pre-edit --human
+        testaruda select --pre-edit --human
     else
-      testaruda select --pre-edit --human --files "{{files}}"
+        testaruda select --pre-edit --human --files "{{files}}"
     fi
+
+# Kani bounded-model-checking probe over the pure selection pipeline
+# (beads testaruda-jdpi): pinned-release `cargo kani` run per probe
+# harness, three-valued outcome (proved / counterexample / undetermined),
+# disposition rule enforced against docs/research/kani-probe.md.
+# Deliberately NOT part of `just test` — a toolchain every checkout
+# cannot assume (the Lean-gate precedent). This is a PROBE with an
+# extend/hold/retire gate, not an assurance lane.
+verify-kani:
+    scripts/check-kani-probe.sh
 
 test-full:
     cargo test --workspace

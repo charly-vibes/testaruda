@@ -1,0 +1,20 @@
+[package]
+name = "kani-probe"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Kani bounded-model-checking probe over the testaruda selection pipeline (testaruda-jdpi) — verbatim copy of src/engine.rs's integer core; NOT compiled against the live crate"
+
+# Deliberately outside the testaruda workspace: the probe is a separate
+# verification toolchain target, never built by `cargo build/test
+# --workspace`.
+[workspace]
+
+[dependencies]
+ascent = "0.8"
+serde = { version = "1", features = ["derive"] }
+
+[lints.rust]
+# The whole crate compiles only under `cargo kani` (cfg(kani) — the
+# crate header); plain builds never touch this package.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }

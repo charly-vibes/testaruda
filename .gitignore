@@ -40,6 +40,7 @@ __pycache__/
 *.swo
 *.swp
 /target/
+/kani-probe/target/
 .testaruda/
 # Testaruda store directory (holds SQLite DB + CAS blobs)
 Thumbs.db
