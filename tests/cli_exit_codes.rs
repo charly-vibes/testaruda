@@ -508,6 +508,52 @@ fn empty_selection_hint_names_the_hook_adapter() {
     );
 }
 
+/// Safe mode is a pre-flight scan for hook stages (testaruda-ckon): an
+/// empty selection is a passing scan — "nothing affected, nothing to run"
+/// — so the process must exit 0 in every output mode while the payload
+/// still names the safe-to-skip outcome. Plain mode keeps exit 20
+/// (TIA-CI-003); see select_modes_exit_with_no_tests_code.
+#[test]
+fn safe_mode_empty_selection_exits_zero() {
+    // (flag, required stdout marker — None means "any non-empty payload";
+    // agent output carries no top-level reason, only per-test chains)
+    let cases: [(&str, Option<&str>); 4] = [
+        ("--json", Some("no tests selected — safe to skip")),
+        ("--agent", None),
+        ("--pre-edit", None),
+        ("", None), // no flag: human output is the default
+    ];
+    for (flag, needle) in cases {
+        let project = setup_project();
+        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_testaruda"));
+        command.args(["select", "--safe", "--files", "nonexistent.py"]);
+        if !flag.is_empty() {
+            command.arg(flag);
+        }
+        let output = command
+            .current_dir(project.path())
+            .output()
+            .require("testaruda select failed");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "--safe {flag} empty selection must exit 0.\nstdout: {stdout}\nstderr: {stderr}"
+        );
+        match needle {
+            Some(n) => assert!(
+                stdout.contains(n),
+                "--safe {flag} stdout should contain {n:?}.\nstdout: {stdout}\nstderr: {stderr}"
+            ),
+            None => assert!(
+                !stdout.trim().is_empty(),
+                "--safe {flag} should still print its payload.\nstdout: {stdout}"
+            ),
+        }
+    }
+}
+
 /// Test that `testaruda select --base/--head` detects changes in a revision
 /// range even when the store was ingested at head (testaruda-jdw5).
 ///

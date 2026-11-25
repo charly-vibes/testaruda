@@ -108,6 +108,45 @@ impl CiOutcome {
     }
 }
 
+/// Apply mode overrides to the computed selection outcome.
+///
+/// - Shadow mode (TIA-CI-007): force a full-run outcome regardless of the
+///   selection — the run is a rehearsal for "all tests".
+/// - Safe mode (testaruda-ckon): an empty selection is a passing scan —
+///   "nothing affected, nothing to run" — not a gate failure. Translate to
+///   success before output so every format (human/json/agent/pre-edit)
+///   exits 0 with the reason intact. Plain CI mode keeps exit 20
+///   (TIA-CI-003) for hook-adapter tolerance.
+fn apply_outcome_overrides(
+    store: &Store,
+    outcome: CiOutcome,
+    shadow: bool,
+    safe: bool,
+) -> CiOutcome {
+    if shadow {
+        let all_tests_count = store.test_items_count().unwrap_or(0);
+        let reason = if all_tests_count > 0 {
+            format!(
+                "shadow mode — {} known tests should all run",
+                all_tests_count
+            )
+        } else {
+            "shadow mode — all tests should run".to_string()
+        };
+        return CiOutcome {
+            code: ci_exit::FULL_RUN,
+            reason,
+        };
+    }
+    if safe && outcome.code == ci_exit::EMPTY {
+        return CiOutcome {
+            code: ci_exit::SUCCESS,
+            reason: "no tests selected — safe to skip (TIA-CI-003)".to_string(),
+        };
+    }
+    outcome
+}
+
 /// Machine-readable CI plan (TIA-CI-006).
 #[derive(serde::Serialize)]
 pub struct CiPlan<'a> {
@@ -845,26 +884,15 @@ pub fn select(args: SelectArgs) -> miette::Result<()> {
         }
     }
 
-    // Shadow mode (TIA-CI-007): report all tests should run
-    if args.shadow {
-        let all_tests_count = store.test_items_count().unwrap_or(0);
-        outcome = CiOutcome {
-            code: ci_exit::FULL_RUN,
-            reason: if all_tests_count > 0 {
-                format!(
-                    "shadow mode — {} known tests should all run",
-                    all_tests_count
-                )
-            } else {
-                "shadow mode — all tests should run".to_string()
-            },
-        };
-    }
+    // Shadow mode (TIA-CI-007) and safe mode (testaruda-ckon) both rewrite
+    // the computed outcome before output.
+    let outcome = apply_outcome_overrides(&store, outcome, args.shadow, args.safe);
 
     // Name the consumption pattern for hook authors: exit 20 is the
     // documented "safe to skip" signal (TIA-CI-003), not a gate failure —
     // without the hint a hook stage red-lights every docs-only push
-    // (testaruda-ckon).
+    // (testaruda-ckon). Safe mode exits 0 above; this hint is for plain
+    // CI mode, which still preserves the 20 signal.
     if outcome.code == ci_exit::EMPTY {
         eprintln!(
             "ℹ️  no tests selected — exit 20 means \"safe to skip\" (TIA-CI-003); \
@@ -1209,10 +1237,6 @@ fn emit_human_output(
         if safe && code == 10 {
             eprintln!("  \u{26a0}\u{fe0f}  Low confidence — running full test suite");
             run_cargo_test_fallback();
-        }
-        if safe && code == 20 {
-            eprintln!("  \u{2705}  No tests affected by this change — skipping");
-            std::process::exit(0);
         }
         if !defer_exit {
             std::process::exit(code);
