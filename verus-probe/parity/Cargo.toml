@@ -1,0 +1,16 @@
+[package]
+name = "verus-probe-parity"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Verus probe parity driver: concrete-fixture cross-check between the probe model's exec walk (transcribed) and the plain-Rust reference of the shipped selector's Boolean core"
+
+# Detached from any workspace on purpose (the catherine-verus/parity
+# pattern): this binary is the probe's parity harness, compiled only by
+# the gate script with plain cargo — never part of `cargo build`/`just
+# ci`. The empty [workspace] table keeps cargo from walking up into the
+# testaruda workspace when built in place.
+[workspace]
+
+[profile.release]
+debug = false

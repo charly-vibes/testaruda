@@ -14,6 +14,7 @@
   - [Software Requirements Specification](./tia-srs-ears.md)
 - [Evaluation Reports](./evaluations/README.md)
   - [Implementation Evaluation](./evaluations/testaruda-evaluation.md)
+  - [Verus Proof Probe](./evaluations/verus-probe.md)
 - [Contributing](./contributing.md)
 - [Status](./status.md)
 

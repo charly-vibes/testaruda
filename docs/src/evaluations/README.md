@@ -10,6 +10,7 @@ commit; they do not describe the current release unless explicitly restated.
 | Document | Scope |
 |---|---|
 | [`testaruda-evaluation.md`](testaruda-evaluation.md) | Full evaluation across three rounds (2026-07-07 → 2026-07-10 → 2026-07-14). Covers implementation findings I1–I12, specification defects S1–S9, retest rounds, and deep evaluation of the ticket backlog. |
+| [`verus-probe.md`](verus-probe.md) | Verus functional-proof probe of the selection Boolean core (2026-11-25, subject `ffe7c19`, beads `testaruda-rqvc`). 6/6 obligations verified in ~1.2 s; verdict HOLD (probe kept, lane not built); documents the snapshot-relaxation exec strategy, the provenance skeleton guard, and the re-open trigger (dependency-light core extraction). |
 
 ## Key findings (short version)
 

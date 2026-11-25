@@ -1,0 +1,14 @@
+# Pinned Verus release for the verification probe (beads
+# `testaruda-rqvc`). Same discipline as catherine's verus-version.toml —
+# identical pin, deliberately: the same binary catherine's lane proved
+# against is the same binary this probe runs, and the sha256 is the
+# provisioning contract. Installs are pinned, never `latest`; the zip
+# carries the verifier, its bundled z3, and the prebuilt vstd rlib.
+[verus]
+release = "0.2026.11.22.1ce6a59"
+url = "https://github.com/verus-lang/verus/releases/download/release/0.2026.11.22.1ce6a59/verus-0.2026.11.22.1ce6a59-x86-linux.zip"
+sha256 = "c955d5958877f4f907cce80aa996d4239a481984829d82e325938c7bf242b0db"
+# The rustup toolchain the release's driver requires (informational:
+# reproduces the verifying environment; verus refuses to run under any
+# other toolchain name).
+toolchain = "1.100.0"

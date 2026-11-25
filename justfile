@@ -149,3 +149,13 @@ doc-cli-check:
     @diff docs/src/cli.md /tmp/testaruda-cli-doc-check.md > /dev/null \
         && echo "✅ docs/src/cli.md is up to date" \
         || (echo "❌ docs/cli.md is out of date — run 'just doc-cli' to regenerate" && exit 1)
+# Verus functional-proof probe over the selection Boolean core
+# (beads testaruda-rqvc): pinned-release verus verification per model
+# unit, provenance skeleton guard on the parity transcription, parity
+# fixtures + non-vacuity witness, disposition rule enforced against
+# docs/research/verus-probe.md. Deliberately NOT part of `just test`
+# (the kani-probe precedent: a toolchain every checkout cannot assume).
+# This is a PROBE with an extend/hold/retire gate, not an assurance
+# lane.
+verify-verus:
+    scripts/check-verus-probe.sh
