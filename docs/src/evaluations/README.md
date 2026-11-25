@@ -10,6 +10,7 @@ commit; they do not describe the current release unless explicitly restated.
 | Document | Scope |
 |---|---|
 | [`testaruda-evaluation.md`](testaruda-evaluation.md) | Full evaluation across three rounds (2026-07-07 → 2026-07-10 → 2026-07-14). Covers implementation findings I1–I12, specification defects S1–S9, retest rounds, and deep evaluation of the ticket backlog. |
+| [`kani-bmc-probe.md`](kani-bmc-probe.md) | Kani bounded-model-checking probe of the selection pipeline (2026-11-25, subject `9c0793251c`, beads `testaruda-jdpi`). 0/7 harnesses proved; verdict RETIRE with re-open trigger; documents the std-prelude E0659 dependency wall and the allocation-modeling wall. |
 
 ## Key findings (short version)
 
