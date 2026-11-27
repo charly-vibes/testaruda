@@ -1693,6 +1693,25 @@ fn run_output_for_ingest(
 }
 
 /// Parse combined runner output via the adapter and persist results to the store.
+///
+/// testaruda-7r9l root cause (verified by repro, tambor CI run 38632309310):
+/// the "273 run result(s) matched no known test item" at 60/333 was NOT
+/// selection pruning — exec's discovery is a full project-tree walk
+/// (`run_adapter_pipeline`), `prune_stale_test_items` only fires on completed
+/// full walks (testaruda-y3iv), and the run's CLI (testaruda 0.5.5) predates
+/// the prune entirely. The runner reused a STALE cached
+/// `testaruda-adapter-typescript` (cargo-cache restore-key + a presence-only
+/// install guard in the consumer's CI): the v0.5.1-era adapter's discovery
+/// chained sequential top-level tests combinatorially (the tambor discovery
+/// pollution bug, fixed in v0.5.3/73ca44f), so the store held 335 polluted
+/// `file::t1::t2::t3` ids and junit's plain `file::t2` ids matched only the
+/// first test per file (~60 of 333). Repro'd exactly: tambor@a6e5a8c +
+/// testaruda 0.5.5 CLI + v0.5.1 adapter → 335 discovered / 273 unmatched /
+/// 60 ingested, same id list. The ingest/resolution path here is correct;
+/// consumers must version-check adapter binaries, which is why the adapters
+/// now answer `--version` (adapter-typescript/tests/version_flag.rs). The
+/// same argv gap exists in adapter-rust/adapter-python (src/bin/) — same
+/// one-line fix applies when their owner picks it up.
 fn ingest_ci_results(
     adapter: &mut testaruda::adapter::AdapterIO,
     store: &Store,
