@@ -14,6 +14,7 @@ use std::path::Path;
 
 use testaruda::adapter::{spawn_adapter, AdapterRegistry, TestItem, TestRunResult};
 use testaruda::agent::{ChangedUnit, PreEditOutput, SummaryStats};
+use testaruda::exec_lock::ExecLock;
 use testaruda::{
     component_key, ChangeSet, Engine, SelectedTest, Selection, SelectionContext, Store,
     TestOrdering,
@@ -615,6 +616,15 @@ pub struct ExecArgs {
 /// run history — selection is then purely static-edge analysis and can't
 /// improve from observed behavior.
 pub fn exec(args: ExecArgs) -> miette::Result<()> {
+    // Wedged-exec detection (testaruda-7rz7): claim the store's exec lock
+    // before touching it. A lock held by a different, alive process is a
+    // wedged exec from an earlier run — acquire() reports it with an
+    // actionable message and exec aborts non-zero; a dead-pid lock is
+    // reclaimed. The guard releases the lock on every exit path below,
+    // including the early-error returns.
+    let store_dir = Store::find_project_root()?.join(".testaruda");
+    let _exec_lock = ExecLock::acquire(&store_dir)?;
+
     // Uncalibrated advisory, checked BEFORE selection: on non-zero selection
     // outcomes (10/20) select exits the process with the CI code, so a
     // post-run check would never fire on those paths.
