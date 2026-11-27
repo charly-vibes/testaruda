@@ -6,10 +6,10 @@
 
 # testaruda
 
-> **Why:** test suites grow monotonically while the code they cover moves —
-> agents (and humans) either run everything (slow) or guess (flaky).
-> testaruda derives the minimal test set from what actually changed,
-> language-agnostically, via adapters.
+> **Why:** **testaruda** will enable **agents and human developers of charly-vibes repositories** to **run only the tests a code change can affect, with zero broken tests slipping through unselected** by **shrinking the executed test set by ≥90% on a warm store (full run history) across all five language adapters (rust, python, julia, clojure, typescript)** within **2–3 `testaruda exec` calibration cycles after a cold `testaruda init`**, as measured by **selected/total discovered tests per warm change with `testaruda calibrate` reporting recall = 1.0**, compared to **the full-suite baseline of running every discovered test on every change (`just test-full`)**.
+>
+> **Kill criteria:** if by **2027-06-01** warm-store selection across the dogfood matrix (dont, genesis, espectacular, vampiro) does not sustain the ≥90% reduction, or any regression-causing change completes with an empty selection (`testaruda calibrate` recall < 1.0), the value proposition is falsified and **charly** (project owner) must re-scope testaruda to a conservative run-everything gate or archive the tool.
+>
 > **Status:** [beta](docs/src/status.md) · select/doctor/explain shipped, five adapters · [Motivation & design](docs/src/index.md) · [charly-vibes Tool Ecosystem](https://charly-vibes.github.io/dulce-de-leche/ecosystem-map.html)
 [![tracked with wai](https://img.shields.io/badge/tracked%20with-wai-blue)](https://github.com/charly-vibes/wai)
 
@@ -81,16 +81,28 @@ option descriptions.
 
 ## Hook integration
 
-`testaruda select` exits `20` when the selection is empty — a valid outcome
-("safe to skip", [TIA-CI-003](docs/src/specs/ci-integration.md)), not a
-failure. A hook stage that runs it must tolerate that code, or every
-docs-only or config-only push red-lights:
+In `--safe` mode (the hook-recommended mode), `testaruda select` exits `0`
+when the selection is empty — a passing scan: "nothing affected, nothing to
+run". No tolerance adapter is needed:
 
 ```yaml
 pre-push:
   commands:
     affected-tests:
-      run: testaruda select --safe --base origin/main --head HEAD || test $? -eq 20
+      run: testaruda select --safe --base origin/main --head HEAD
+```
+
+Plain (non-`--safe`) `select` keeps the documented exit-code contract: it
+exits `20` on an empty selection — a valid outcome ("safe to skip",
+[TIA-CI-003](docs/src/specs/ci-integration.md)), not a failure. A hook stage
+that runs plain `select` must tolerate that code, or every docs-only or
+config-only push red-lights:
+
+```yaml
+pre-push:
+  commands:
+    affected-tests:
+      run: testaruda select --base origin/main --head HEAD || test $? -eq 20
 ```
 
 The adapter turns `20` into a pass and leaves every other non-zero exit
@@ -127,10 +139,12 @@ and [Configuration](docs/src/configuration.md) for adapter registration.
 ### TypeScript
 
 The TypeScript adapter (`testaruda-adapter-typescript`) discovers tests by detecting vitest
-or jest configuration files and scanning for test file patterns.
+or jest configuration files and scanning for test file patterns. A declared
+`bun test` script in `package.json` (or a `bun.lockb`/`bun.lock` lockfile,
+when no runner config or devDependency wins) selects `bun test` as the runner.
 
 **Prerequisites:**
-- `npx vitest` or `npx jest` available (the adapter delegates to the runner)
+- `npx vitest`, `npx jest`, or `bun test` available (the adapter delegates to the runner)
 - The adapter is built automatically with `cargo build`
 
 **Configuration in `testaruda.toml`:**
