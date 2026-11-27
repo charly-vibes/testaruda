@@ -424,11 +424,11 @@ impl AdapterConfig {
         for (ext, binary) in &self.extensions {
             reg.register(ext, binary);
         }
-        if let Some(ref default) = self.default {
-            reg.set_default(default);
-        }
-        reg.set_timeout_ms(self.timeout_ms);
-        reg
+        let reg = match &self.default {
+            Some(default) => reg.set_default(default),
+            None => reg,
+        };
+        reg.set_timeout_ms(self.timeout_ms)
     }
 
     /// Detect the shape of the `[adapters]` section in raw TOML.

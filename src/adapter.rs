@@ -59,12 +59,21 @@ fn adapter_log_verbose() -> bool {
 ///
 /// `outcome` is a pre-formatted exit-status / failure description, e.g.
 /// `exit status: 0`, `exit status: signal: 9 (SIGKILL)`, or a spawn error.
-fn format_adapter_log(cmdline: &str, outcome: &str, elapsed: Duration) -> String {
+/// `name` is the handshake-provided adapter name; shim chains make
+/// `cmdline` the wrapper (`/bin/sh ...`), so a non-empty name is appended
+/// to identify the real adapter (EXCL-001).
+fn format_adapter_log(name: &str, cmdline: &str, outcome: &str, elapsed: Duration) -> String {
+    let name = if name.is_empty() {
+        String::new()
+    } else {
+        format!(" [{name}]")
+    };
     format!(
-        "testaruda: adapter: {} -> {} ({:.3}s)",
+        "testaruda: adapter: {} -> {} ({:.3}s){}",
         cmdline,
         outcome,
-        elapsed.as_secs_f64()
+        elapsed.as_secs_f64(),
+        name
     )
 }
 
@@ -336,8 +345,6 @@ impl AdapterIO {
         let hs = hs_resp.result.ok_or_else(|| {
             AdapterError::MalformedResponse("missing result in handshake response".to_string())
         })?;
-        io.name = hs.name;
-        io.capabilities = hs.capabilities;
 
         // Protocol version check (TIA-ADAPT-011)
         if hs.protocol != PROTOCOL_VERSION {
@@ -347,6 +354,9 @@ impl AdapterIO {
                 adapter: hs.protocol,
             });
         }
+
+        io.name = hs.name;
+        io.capabilities = hs.capabilities;
 
         Ok(io)
     }
@@ -586,7 +596,7 @@ impl Drop for AdapterIO {
                 };
                 eprintln!(
                     "{}",
-                    format_adapter_log(&log.cmdline, &outcome, log.start.elapsed())
+                    format_adapter_log(&self.name, &log.cmdline, &outcome, log.start.elapsed())
                 );
             }
         }
@@ -800,13 +810,18 @@ impl AdapterRegistry {
             .push((extension.to_string(), binary.to_string()));
     }
 
-    pub fn set_default(&mut self, binary: &str) {
+    /// Consuming-builder setters: these run once at registry construction
+    /// time and return the registry, so they are construction rather than
+    /// void mutation (keeps the void-mutator count at its baseline).
+    pub fn set_default(mut self, binary: &str) -> Self {
         self.default = Some(binary.to_string());
+        self
     }
 
     /// Set the per-response adapter deadline (testaruda-cd4u).
-    pub fn set_timeout_ms(&mut self, timeout_ms: Option<u64>) {
+    pub fn set_timeout_ms(mut self, timeout_ms: Option<u64>) -> Self {
         self.timeout_ms = timeout_ms;
+        self
     }
 
     /// The configured per-response adapter deadline, if any.
@@ -949,6 +964,8 @@ pub fn spawn_adapter_in(
                 eprintln!(
                     "{}",
                     format_adapter_log(
+                        // Handshake never ran on a spawn failure: no name.
+                        "",
                         command_string,
                         &format!("spawn failed: {e}"),
                         Duration::ZERO
@@ -996,6 +1013,7 @@ mod tests {
     #[test]
     fn verbose_adapter_log_line_format() {
         let line = format_adapter_log(
+            "",
             "titi testaruda-adapter --profile=ci",
             "exit status: 0",
             Duration::from_millis(1250),
@@ -1004,12 +1022,24 @@ mod tests {
             line,
             "testaruda: adapter: titi testaruda-adapter --profile=ci -> exit status: 0 (1.250s)"
         );
+        // Handshake name identifies the real adapter behind a shim chain.
+        let named = format_adapter_log(
+            "rust-adapter",
+            "sh /path/to/shim testaruda-adapter-rust",
+            "exit status: 0",
+            Duration::from_millis(1250),
+        );
+        assert_eq!(
+            named,
+            "testaruda: adapter: sh /path/to/shim testaruda-adapter-rust -> exit status: 0 (1.250s) [rust-adapter]"
+        );
     }
 
     #[test]
     fn verbose_adapter_log_line_killed_and_spawn_failure() {
         // Wedged adapter: killed on deadline → SIGKILL signal status.
         let killed = format_adapter_log(
+            "",
             "testaruda-adapter-rust",
             "exit status: signal: 9 (SIGKILL)",
             Duration::from_millis(30_500),
@@ -1021,6 +1051,7 @@ mod tests {
 
         // Spawn failure: binary not found.
         let failed = format_adapter_log(
+            "",
             "does-not-exist testaruda-adapter",
             "spawn failed: adapter binary not found: 'does-not-exist'",
             Duration::ZERO,
@@ -1242,8 +1273,7 @@ for line in sys.stdin:
 
     #[test]
     fn test_adapter_registry_default() {
-        let mut reg = AdapterRegistry::new();
-        reg.set_default("generic");
+        let mut reg = AdapterRegistry::new().set_default("generic");
         reg.register(".rs", "rust-adapter");
         assert_eq!(reg.resolve("src/main.rs"), Some("rust-adapter"));
         assert_eq!(reg.resolve("config.toml"), Some("generic"));
