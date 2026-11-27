@@ -1,0 +1,1 @@
+- 2026-11-27T14:30:42Z [id:8a131b652aa94a4b3d153c5a36238f95f9059c4b519b8dfd5d56c4cc5afa83d0] beads export gotcha (2026-11-27 close): bd export defaults to stdout — write the file with 'bd export -o .beads/issues.jsonl'; .gitignore ignores .beads/* with a !issues.jsonl negation that git still refuses on 'git add .beads/issues.jsonl' (dir rule wins), so stage with 'git add -f'.
