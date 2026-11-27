@@ -339,51 +339,21 @@ pub fn detect_project_language(project_root: &Path) -> Option<String> {
 }
 
 /// Batch-resolve which of `paths` (relative to `root`) are gitignored.
-/// Delegates semantics to `git check-ignore --stdin -z` in one subprocess;
-/// outside a git repo (or when git is missing) everything is kept —
-/// recall-safe. Used to keep generated/build artifacts out of adapter
-/// discovery (testaruda-onj6 / gh-64).
+/// Delegates semantics to `genesis::git::ignored_paths` — one batched
+/// `git check-ignore --stdin -z` subprocess whose tri-state contract the
+/// engine preserves explicitly: exit 0 means ignored paths, exit 1 with no
+/// output means "not ignored" (not an error), and a typed `GitError` is a
+/// real git failure. Outside a git repo (or when git is missing) nothing is
+/// reported ignored — everything is kept, recall-safe. Used to keep
+/// generated/build artifacts out of adapter discovery (testaruda-onj6 /
+/// gh-64).
 pub fn git_ignored_paths(root: &Path, paths: &[String]) -> HashSet<String> {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
-
-    let mut child = match Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(["check-ignore", "--stdin", "-z"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(_) => return HashSet::new(),
-    };
-    // Feed paths on a thread so a large list cannot deadlock against the
-    // child's stdout pipe filling up while we are still writing.
-    let owned: Vec<String> = paths.to_vec();
-    // Panic preserves prior behavior; unwrap_or_else keeps the debt counter
-    // clean (pretender counts bare .expect() calls).
-    let mut stdin = child
-        .stdin
-        .take()
-        .unwrap_or_else(|| panic!("child stdin not piped"));
-    let writer = std::thread::spawn(move || {
-        for p in &owned {
-            let _ = stdin.write_all(p.as_bytes());
-            let _ = stdin.write_all(b"\0");
-        }
-    });
-    let mut out = String::new();
-    if let Some(mut stdout) = child.stdout.take() {
-        let _ = std::io::Read::read_to_string(&mut stdout, &mut out);
+    match genesis::git::ignored_paths(root, paths) {
+        Ok(ignored) => ignored.into_iter().collect(),
+        // Recall-safe: a git failure (non-repo, missing binary, bad exit)
+        // can never prove a path ignored, so nothing is dropped.
+        Err(_) => HashSet::new(),
     }
-    let _ = writer.join();
-    let _ = child.wait();
-    out.split('\0')
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .collect()
 }
 
 /// Build a filter_entry closure from a list of directory names to exclude.

@@ -63,7 +63,6 @@ fn genesis_version_is_v0_8() {
     // envelope ok-agrees-with-kind (0.8.2). Pin the API surface testaruda relies on.
     let args = genesis::feedback::FeedbackArgs::new("bug", false, false).with_title("my title");
     assert_eq!(args.title.as_deref(), Some("my title"));
-    let _ = genesis::envelope::ENVELOPE_VERSION;
 }
 
 #[test]
@@ -80,7 +79,10 @@ fn genesis_api_feedback_importable() {
 #[test]
 fn genesis_api_core_surface_importable() {
     // JSON plan mode (emit_json_plan) builds a genesis envelope.
-    let _: genesis::envelope::Envelope<&str> = genesis::envelope::Envelope::success(
+    // genesis 0.14: `envelope_version` is caller-supplied (genesis-la4);
+    // testaruda stamps its own protocol version "0.1" plus the CLI version.
+    let env: genesis::envelope::Envelope<&str> = genesis::envelope::Envelope::success(
+        "0.1",
         "testaruda",
         genesis::envelope::EnvelopeKind::Ok,
         "test",
@@ -88,9 +90,10 @@ fn genesis_api_core_surface_importable() {
         vec![],
     );
     assert!(
-        !genesis::envelope::ENVELOPE_VERSION.is_empty(),
-        "envelope version constant must be set"
+        !env.envelope_version.is_empty(),
+        "envelope version must be set"
     );
+    assert!(!env.cli_version.is_empty(), "cli version must be set");
 
     // Doctor and feedback use the suggestion engine for typo hints.
     let engine = genesis::suggestions::SuggestionEngine::new();

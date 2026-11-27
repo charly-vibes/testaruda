@@ -1142,6 +1142,7 @@ fn emit_json_plan(
         tests: &selection.tests,
     };
     let envelope = genesis::envelope::Envelope::success(
+        "0.1",
         env!("CARGO_PKG_VERSION"),
         genesis::envelope::EnvelopeKind::List,
         plan,

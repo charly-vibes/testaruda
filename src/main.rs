@@ -423,6 +423,7 @@ fn record_error_scratch() {
         exit: 1,
         footer: Some("Feedback: testaruda feedback bug --from-last-error".into()),
         kind: "error".into(),
+        message: None,
     };
     genesis::feedback::scratch::write_scratch_best_effort("testaruda", &record);
 }
@@ -977,6 +978,7 @@ mod tests {
         use genesis::envelope::{Envelope, EnvelopeKind};
 
         let env: Envelope<String> = Envelope::success(
+            "0.1",
             env!("CARGO_PKG_VERSION"),
             EnvelopeKind::Ok,
             "test data".to_string(),
@@ -1010,6 +1012,7 @@ mod tests {
         use genesis::envelope::{Envelope, EnvelopeKind};
 
         let env: Envelope<serde_json::Value> = Envelope::success(
+            "0.1",
             env!("CARGO_PKG_VERSION"),
             EnvelopeKind::List,
             serde_json::json!({"selected_count": 5, "tests": []}),
@@ -1040,7 +1043,7 @@ mod tests {
         )
         .unwrap_or_panic();
 
-        let env = Envelope::error(env!("CARGO_PKG_VERSION"), err, vec![]);
+        let env = Envelope::error("0.1", env!("CARGO_PKG_VERSION"), err, vec![]);
         let json = serde_json::to_value(&env).unwrap_or_panic();
 
         assert_eq!(json["ok"], false);
