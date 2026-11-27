@@ -32,6 +32,7 @@ mod change;
 mod cli;
 pub mod config;
 mod engine;
+pub mod exec_lock;
 pub mod provenance;
 pub mod selector;
 mod store;

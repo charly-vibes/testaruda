@@ -14,6 +14,7 @@ use std::path::Path;
 
 use testaruda::adapter::{spawn_adapter, AdapterRegistry, TestItem, TestRunResult};
 use testaruda::agent::{ChangedUnit, PreEditOutput, SummaryStats};
+use testaruda::exec_lock::ExecLock;
 use testaruda::{
     component_key, ChangeSet, Engine, SelectedTest, Selection, SelectionContext, Store,
     TestOrdering,
@@ -615,6 +616,15 @@ pub struct ExecArgs {
 /// run history — selection is then purely static-edge analysis and can't
 /// improve from observed behavior.
 pub fn exec(args: ExecArgs) -> miette::Result<()> {
+    // Wedged-exec detection (testaruda-7rz7): claim the store's exec lock
+    // before touching it. A lock held by a different, alive process is a
+    // wedged exec from an earlier run — acquire() reports it with an
+    // actionable message and exec aborts non-zero; a dead-pid lock is
+    // reclaimed. The guard releases the lock on every exit path below,
+    // including the early-error returns.
+    let store_dir = Store::find_project_root()?.join(".testaruda");
+    let _exec_lock = ExecLock::acquire(&store_dir)?;
+
     // Uncalibrated advisory, checked BEFORE selection: on non-zero selection
     // outcomes (10/20) select exits the process with the CI code, so a
     // post-run check would never fire on those paths.
@@ -832,7 +842,7 @@ pub fn select(args: SelectArgs) -> miette::Result<()> {
 
     // Adapter pipeline: populate store via adapters before selection
     let project_root = find_project_root()?;
-    let config = testaruda::config::Config::load_or_default(&project_root);
+    let config = testaruda::config::Config::load_or_default(&project_root)?;
     let registry = config.adapters.to_registry();
     let evidence = run_adapter_pipeline(&store, &registry, &delta, &config.discover.exclude);
 
@@ -1683,6 +1693,25 @@ fn run_output_for_ingest(
 }
 
 /// Parse combined runner output via the adapter and persist results to the store.
+///
+/// testaruda-7r9l root cause (verified by repro, tambor CI run 38632309310):
+/// the "273 run result(s) matched no known test item" at 60/333 was NOT
+/// selection pruning — exec's discovery is a full project-tree walk
+/// (`run_adapter_pipeline`), `prune_stale_test_items` only fires on completed
+/// full walks (testaruda-y3iv), and the run's CLI (testaruda 0.5.5) predates
+/// the prune entirely. The runner reused a STALE cached
+/// `testaruda-adapter-typescript` (cargo-cache restore-key + a presence-only
+/// install guard in the consumer's CI): the v0.5.1-era adapter's discovery
+/// chained sequential top-level tests combinatorially (the tambor discovery
+/// pollution bug, fixed in v0.5.3/73ca44f), so the store held 335 polluted
+/// `file::t1::t2::t3` ids and junit's plain `file::t2` ids matched only the
+/// first test per file (~60 of 333). Repro'd exactly: tambor@a6e5a8c +
+/// testaruda 0.5.5 CLI + v0.5.1 adapter → 335 discovered / 273 unmatched /
+/// 60 ingested, same id list. The ingest/resolution path here is correct;
+/// consumers must version-check adapter binaries, which is why the adapters
+/// now answer `--version` (adapter-typescript/tests/version_flag.rs). The
+/// same argv gap exists in adapter-rust/adapter-python (src/bin/) — same
+/// one-line fix applies when their owner picks it up.
 fn ingest_ci_results(
     adapter: &mut testaruda::adapter::AdapterIO,
     store: &Store,
@@ -1791,7 +1820,7 @@ fn ingest_raw(store: &Store, path: &str, adapter: Option<String>) -> miette::Res
         (explicit, None)
     } else {
         let project_root = find_project_root()?;
-        let config = testaruda::config::Config::load_or_default(&project_root);
+        let config = testaruda::config::Config::load_or_default(&project_root)?;
         let registry = config.adapters.to_registry();
         let binary = resolve_ingest_adapter(&registry);
         (binary, registry.timeout_ms())
@@ -1950,7 +1979,7 @@ pub fn discover() -> miette::Result<()> {
     let store = Store::open_default()?;
     store.initialize()?;
     let project_root = find_project_root()?;
-    let config = testaruda::config::Config::load_or_default(&project_root);
+    let config = testaruda::config::Config::load_or_default(&project_root)?;
     let registry = config.adapters.to_registry();
     run_discover_pipeline(&store, &registry, &config.discover.exclude)
         .map_err(|e| miette!("{}", e))?;

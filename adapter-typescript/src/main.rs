@@ -17,6 +17,23 @@ use std::path::{Path, PathBuf};
 mod resolver;
 
 fn main() {
+    // `--version` must print the adapter name + crate version (testaruda-7r9l).
+    // The adapter used to ignore argv entirely: `--version` exited 0 printing
+    // nothing, so a consumer's install guard could only test binary presence,
+    // never the version. Tambor CI run 38632309310 then silently ran a stale
+    // cached v0.5.1-era adapter against a v0.5.5 pin: its discovery chained
+    // sequential top-level tests combinatorially (the tambor discovery
+    // pollution bug, fixed in v0.5.3/73ca44f), the store filled with polluted
+    // `file::t1::t2::t3` ids, and junit's plain `file::t2` ids matched only
+    // the first test per file — 60/333 ingested. A version-aware guard
+    // (`testaruda-adapter-typescript --version | grep -q <pin>`) detects the
+    // drift; see tests/version_flag.rs.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(line) = version_output(&args) {
+        println!("{line}");
+        return;
+    }
+
     let stdin = std::io::stdin();
     let reader = BufReader::new(stdin.lock());
 
@@ -35,6 +52,21 @@ fn main() {
             .unwrap_or_else(|_| r#"{"ok":false,"error":"serialization failed"}"#.to_string());
         println!("{}", out);
         std::io::stdout().flush().ok();
+    }
+}
+
+/// `--version` output: `testaruda-adapter-typescript <crate version>` on a
+/// single stdout line, exit 0 (testaruda-7r9l). Pure so tests can pin the
+/// exact line without spawning the binary.
+fn version_output(args: &[String]) -> Option<String> {
+    let wants_version = args.iter().any(|a| a == "--version" || a == "-V");
+    if wants_version {
+        Some(format!(
+            "testaruda-adapter-typescript {}",
+            env!("CARGO_PKG_VERSION")
+        ))
+    } else {
+        None
     }
 }
 

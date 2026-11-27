@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use genesis::config::ConfigFile;
+use genesis::config::{ConfigError, ConfigFile};
 use serde::{Deserialize, Serialize};
 
 /// The shape of the `[adapters]` section in testaruda.toml.
@@ -145,19 +145,46 @@ impl ConfigFile for Config {
 
 impl Config {
     /// Load config from the project root, normalizing deprecated formats.
-    pub fn load(project_root: &Path) -> miette::Result<Self> {
+    ///
+    /// The genesis integration mandates that all config file I/O delegate to
+    /// `genesis::config` (openspec/specs/config/spec.md). Its generic
+    /// `ConfigFile::read_from` cannot apply the deprecated-flat-adapter
+    /// normalization before parsing, so I/O stays here — but the error
+    /// surface is genesis's `ConfigError`, which distinguishes an absent
+    /// file (`MissingFile`) from an unreadable (`IoError`) or unparseable
+    /// (`ParseError`) one.
+    pub fn load(project_root: &Path) -> Result<Self, ConfigError> {
         let path = Self::path(project_root);
-        let content = std::fs::read_to_string(&path)
-            .map_err(|e| miette::miette!("Failed to read {}: {}", path.display(), e))?;
+        if !path.exists() {
+            return Err(ConfigError::missing_file(path, "testaruda"));
+        }
+        let content = std::fs::read_to_string(&path).map_err(|source| ConfigError::IoError {
+            path: path.clone(),
+            source,
+        })?;
         // Normalize deprecated flat adapter format to canonical before parsing
         let normalized = normalize_adapters_config(&content);
         toml::from_str(&normalized)
-            .map_err(|e| miette::miette!("Failed to parse {}: {}", path.display(), e))
+            .map_err(|e| ConfigError::parse_error(path.clone(), e.to_string()))
     }
 
-    /// Load config or return defaults if file doesn't exist.
-    pub fn load_or_default(project_root: &Path) -> Self {
-        Self::load(project_root).unwrap_or_default()
+    /// Load config, falling back to defaults ONLY when the file is absent.
+    ///
+    /// An existing-but-invalid file (unreadable or unparseable) is a hard
+    /// error: silently treating it as no-config would drop configured
+    /// adapters, environment and must-run rules (TIA-SAFE-009) and weaken
+    /// the recall guarantee. Selection must reject instead (TIA-CI-004
+    /// non-zero, non-10/20 exit).
+    pub fn load_or_default(project_root: &Path) -> miette::Result<Self> {
+        match Self::load(project_root) {
+            Ok(config) => Ok(config),
+            Err(ConfigError::MissingFile { .. }) => Ok(Self::default()),
+            Err(e) => Err(miette::miette!(
+                "Invalid testaruda configuration: {} — fix or remove {}; refusing to proceed with silently-dropped adapters, environment or must-run rules",
+                e,
+                e.path().display(),
+            )),
+        }
     }
 
     /// Write a default config file, auto-detecting the project language.
