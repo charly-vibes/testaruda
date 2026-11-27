@@ -262,7 +262,21 @@ fn main() -> miette::Result<()> {
         eprintln!("Feedback: testaruda feedback bug --from-last-error");
         record_error_scratch();
         std::process::exit(1);
-    })
+    })?;
+    maybe_notify_update();
+    Ok(())
+}
+
+/// Best-effort update notice (genesis-2ex): check crates.io for a newer
+/// `testaruda` release and print one line to stderr AFTER command output.
+/// Fail-silent by contract — `check` never panics and skips on CI /
+/// `GENESIS_NO_UPDATE_CHECK`; bounded timeouts so it never blocks meaningfully.
+fn maybe_notify_update() {
+    if let Some(info) =
+        genesis::update_check::check(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"))
+    {
+        eprintln!("{}", genesis::update_check::notice(&info));
+    }
 }
 
 /// Initialize the tracing subscriber with optional JSON format and color probe.
