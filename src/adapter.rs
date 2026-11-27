@@ -31,6 +31,72 @@ pub const PROTOCOL_VERSION: u32 = 1;
 /// Default timeout for adapter responses (milliseconds).
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 
+// ===== Verbose adapter-exec logging =====
+// At `-v` verbosity, every adapter invocation logs its command line to stderr,
+// and its exit status + elapsed time on completion — enough to diagnose a
+// wedged or failed adapter run from the exec log. Non-verbose output is
+// unchanged: the flag is checked before anything is emitted.
+//
+// The verbosity flag arrives via a process-global atomic rather than being
+// threaded through every `spawn_adapter` call site (the spawn path is called
+// from many command handlers); it is set once in `main` from the parsed CLI.
+
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static ADAPTER_LOG_VERBOSE: AtomicBool = AtomicBool::new(false);
+
+/// Enable or disable the verbose adapter-exec log (called from `main`).
+pub fn set_adapter_log_verbose(enabled: bool) {
+    ADAPTER_LOG_VERBOSE.store(enabled, Ordering::Relaxed);
+}
+
+/// Whether the verbose adapter-exec log is enabled.
+fn adapter_log_verbose() -> bool {
+    ADAPTER_LOG_VERBOSE.load(Ordering::Relaxed)
+}
+
+/// Format one verbose adapter-exec log line (testable pure helper).
+///
+/// `outcome` is a pre-formatted exit-status / failure description, e.g.
+/// `exit status: 0`, `exit status: signal: 9 (SIGKILL)`, or a spawn error.
+fn format_adapter_log(cmdline: &str, outcome: &str, elapsed: Duration) -> String {
+    format!(
+        "testaruda: adapter: {} -> {} ({:.3}s)",
+        cmdline,
+        outcome,
+        elapsed.as_secs_f64()
+    )
+}
+
+/// Verbose-log context carried by an `AdapterIO`: the command line as
+/// configured and the spawn instant, so `Drop` can log elapsed time and the
+/// captured exit status.
+#[derive(Clone, Debug)]
+pub(crate) struct AdapterLogCtx {
+    cmdline: String,
+    start: Instant,
+    /// Exit status captured at the first reap (may stay `None` if the child
+    /// was never reaped, e.g. leaked by an I/O error).
+    exit: Option<std::process::ExitStatus>,
+}
+
+impl AdapterLogCtx {
+    fn note_exit(&mut self, status: std::process::ExitStatus) {
+        if self.exit.is_none() {
+            self.exit = Some(status);
+        }
+    }
+}
+
+/// Render a spawned adapter invocation as one loggable command line.
+fn format_cmdline(binary: &str, args: &[&str]) -> String {
+    if args.is_empty() {
+        binary.to_string()
+    } else {
+        format!("{binary} {}", args.join(" "))
+    }
+}
+
 // ===== Capabilities =====
 
 /// Capability flags an adapter may declare in its handshake (TIA-ADAPT-002).
@@ -116,6 +182,8 @@ pub struct AdapterIO {
     lines: std::sync::mpsc::Receiver<std::io::Result<String>>,
     stderr_buf: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
     timeout: Duration,
+    /// Verbose-log context, set only by `spawn_adapter_in`.
+    log: Option<AdapterLogCtx>,
     /// Adapter name from handshake.
     pub name: String,
     /// Adapter capabilities from handshake.
@@ -139,13 +207,20 @@ impl AdapterIO {
     }
 
     /// Spawn an adapter child with an optional explicit working directory.
-    pub fn spawn_in(
+    pub(crate) fn spawn_in(
         binary: &str,
         args: &[&str],
         timeout_ms: Option<u64>,
         cwd: Option<&std::path::Path>,
     ) -> Result<Self, AdapterError> {
         let timeout = Duration::from_millis(timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS));
+        // Verbose-log context from before the spawn so elapsed covers the
+        // whole invocation, handshake included — the common wedge surface.
+        let log = adapter_log_verbose().then(|| AdapterLogCtx {
+            cmdline: format_cmdline(binary, args),
+            start: Instant::now(),
+            exit: None,
+        });
 
         let mut cmd = Command::new(binary);
         cmd.args(args)
@@ -250,6 +325,7 @@ impl AdapterIO {
             lines: line_rx,
             stderr_buf,
             timeout,
+            log,
             name: String::new(),
             capabilities: AdapterCapabilities::default(),
         };
@@ -392,6 +468,9 @@ impl AdapterIO {
             // Check if adapter exited
             match self.child.try_wait() {
                 Ok(Some(status)) => {
+                    if let Some(log) = &mut self.log {
+                        log.note_exit(status);
+                    }
                     let stderr = self.stderr_snapshot();
                     return Err(AdapterError::ProcessExit(
                         status.code().unwrap_or(-1),
@@ -455,7 +534,10 @@ impl AdapterIO {
         // Already exited and reaped (e.g. ProcessExit in read_response)? Skip
         // the kill entirely: the pid may have been recycled, and signaling a
         // recycled group could hit an unrelated process (testaruda-cd4u).
-        if let Ok(Some(_)) = self.child.try_wait() {
+        if let Ok(Some(status)) = self.child.try_wait() {
+            if let Some(log) = &mut self.log {
+                log.note_exit(status);
+            }
             return;
         }
         #[cfg(unix)]
@@ -474,8 +556,14 @@ impl AdapterIO {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         while std::time::Instant::now() < deadline {
             match self.child.try_wait() {
-                Ok(Some(_)) | Err(_) => return,
+                Ok(Some(status)) => {
+                    if let Some(log) = &mut self.log {
+                        log.note_exit(status);
+                    }
+                    return;
+                }
                 Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
+                Err(_) => return,
             }
         }
     }
@@ -490,6 +578,18 @@ impl AdapterIO {
 impl Drop for AdapterIO {
     fn drop(&mut self) {
         self.kill_tree();
+        if let Some(log) = &self.log {
+            if adapter_log_verbose() {
+                let outcome = match log.exit {
+                    Some(status) => format!("{}", status),
+                    None => "exit status: unknown (child not reaped)".to_string(),
+                };
+                eprintln!(
+                    "{}",
+                    format_adapter_log(&log.cmdline, &outcome, log.start.elapsed())
+                );
+            }
+        }
     }
 }
 
@@ -840,7 +940,24 @@ pub fn spawn_adapter_in(
 ) -> Result<AdapterIO, AdapterError> {
     let (binary, args) = parse_command_string(command_string)?;
     let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-    AdapterIO::spawn_in(&binary, &args_refs, timeout_ms, cwd)
+    match AdapterIO::spawn_in(&binary, &args_refs, timeout_ms, cwd) {
+        Ok(io) => Ok(io),
+        Err(e) => {
+            // Spawn failure (binary not found, handshake mismatch, …) — the
+            // AdapterIO never dropped a live handle, so report here.
+            if adapter_log_verbose() {
+                eprintln!(
+                    "{}",
+                    format_adapter_log(
+                        command_string,
+                        &format!("spawn failed: {e}"),
+                        Duration::ZERO
+                    )
+                );
+            }
+            Err(e)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -873,6 +990,52 @@ mod tests {
 
     use super::*;
     use std::path::Path;
+
+    // ===== Verbose adapter-exec logging =====
+
+    #[test]
+    fn verbose_adapter_log_line_format() {
+        let line = format_adapter_log(
+            "titi testaruda-adapter --profile=ci",
+            "exit status: 0",
+            Duration::from_millis(1250),
+        );
+        assert_eq!(
+            line,
+            "testaruda: adapter: titi testaruda-adapter --profile=ci -> exit status: 0 (1.250s)"
+        );
+    }
+
+    #[test]
+    fn verbose_adapter_log_line_killed_and_spawn_failure() {
+        // Wedged adapter: killed on deadline → SIGKILL signal status.
+        let killed = format_adapter_log(
+            "testaruda-adapter-rust",
+            "exit status: signal: 9 (SIGKILL)",
+            Duration::from_millis(30_500),
+        );
+        assert_eq!(
+            killed,
+            "testaruda: adapter: testaruda-adapter-rust -> exit status: signal: 9 (SIGKILL) (30.500s)"
+        );
+
+        // Spawn failure: binary not found.
+        let failed = format_adapter_log(
+            "does-not-exist testaruda-adapter",
+            "spawn failed: adapter binary not found: 'does-not-exist'",
+            Duration::ZERO,
+        );
+        assert_eq!(
+            failed,
+            "testaruda: adapter: does-not-exist testaruda-adapter -> spawn failed: adapter binary not found: 'does-not-exist' (0.000s)"
+        );
+    }
+
+    #[test]
+    fn verbose_adapter_log_disabled_by_default() {
+        // Fresh process state: nothing logged unless -v enabled it.
+        assert!(!adapter_log_verbose());
+    }
 
     // ===== Bounded adapter IO (testaruda-v9ey) =====
     // A silent or partial-line adapter must hit the deadline instead of

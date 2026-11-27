@@ -248,6 +248,12 @@ fn main() -> miette::Result<()> {
 
     // Set verbosity from cli args (genesis v0.4.0 CliVerbosity)
     guide.set_verbosity(cli.verbose.verbosity());
+    // Verbose adapter-exec diagnostics: at -v, log adapter command lines and
+    // exit statuses to stderr so a wedged/failed adapter run is diagnosable
+    // from the exec log.
+    testaruda::adapter::set_adapter_log_verbose(
+        cli.verbose.verbosity() >= genesis::guide::Verbosity::Verbose,
+    );
 
     dispatch(cli.command, cli.format).map_err(|e| {
         // Error-footer hook (TIA-ADAPT feedback protocol):
