@@ -699,17 +699,20 @@ fn cmd_run_args(cmd: &serde_json::Value) -> serde_json::Value {
             }))
         }
         Runner::Bun => {
-            // bun's junit reporter needs `--reporter-outfile` (bun >= 1.1.30);
-            // bun test selects whole files only — collapsed file-path filters,
-            // never per-test node_ids.
+            // bun's junit reporter needs `--reporter-outfile` (bun >= 1.1.30).
+            // bun test filters by file path only: a per-test node_id like
+            // `bun.test.ts::a` matches nothing and runs 0 tests while
+            // exiting 0 (verified against bun 1.3.12), so a partial
+            // selection must over-approximate to whole files — the
+            // sanctioned recall-safe behavior (SAFE-004), never exact.
             let mut runner_args = vec![
                 "bun".to_string(),
                 "test".to_string(),
                 "--reporter=junit".to_string(),
                 "--reporter-outfile=target/test-results.xml".to_string(),
             ];
-            for sel in &collapse_filters(&selected) {
-                runner_args.push(sel.clone());
+            for file in unique_file_paths(&selected) {
+                runner_args.push(file);
             }
 
             json_ok(serde_json::json!({
@@ -721,6 +724,23 @@ fn cmd_run_args(cmd: &serde_json::Value) -> serde_json::Value {
             json_err("no test runner detected (bun, vitest, jest, mocha, ava, or tape)")
         }
     }
+}
+
+/// Unique file paths for the selected node_ids, first-seen order.
+///
+/// bun test filters by file path only (a `file::test` node_id matches
+/// nothing and runs 0 tests while exiting 0), so every selection — full
+/// or partial — over-approximates to the selected files.
+fn unique_file_paths(selected: &[String]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut files = Vec::with_capacity(selected.len());
+    for sel in selected {
+        let file = sel.split("::").next().unwrap_or(sel);
+        if seen.insert(file.to_string()) {
+            files.push(file.to_string());
+        }
+    }
+    files
 }
 
 /// Collapse selected node_ids into vitest run filters: when EVERY discovered
@@ -774,13 +794,20 @@ enum Runner {
     Unknown,
 }
 
-/// Detect the test runner by probing for configuration files.
+/// Detect the test runner by probing for a declared test script, runner
+/// config files, bun lockfiles, and devDependencies.
 fn detect_runner() -> Runner {
+    // package.json is read and parsed once for both the script probe and
+    // the devDependencies fallback.
+    let package_json = std::fs::read_to_string("package.json")
+        .ok()
+        .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok());
+
     // A declared `bun test` script is the project's own runner choice
     // (testaruda-i5oe): `npm test` would run bun, so `npx vitest` run-args
     // would spawn an npx one-shot install and fail (atril round-3: exit 101,
     // 0 ingested results). It outranks config files and devDependencies.
-    if package_json_test_script_is_bun() {
+    if package_json_test_script_is_bun(package_json.as_ref()) {
         return Runner::Bun;
     }
 
@@ -818,28 +845,19 @@ fn detect_runner() -> Runner {
     }
 
     // Fall back to devDependencies declared in package.json
-    detect_runner_from_dev_dependencies().unwrap_or(Runner::Unknown)
+    detect_runner_from_dev_dependencies(package_json.as_ref()).unwrap_or(Runner::Unknown)
 }
 
 /// True when package.json's scripts.test declares `bun test`.
-fn package_json_test_script_is_bun() -> bool {
-    let content = match std::fs::read_to_string("package.json") {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    let parsed = match serde_json::from_str::<serde_json::Value>(&content) {
-        Ok(p) => p,
-        Err(_) => return false,
-    };
-    parsed["scripts"]["test"]
-        .as_str()
+fn package_json_test_script_is_bun(parsed: Option<&serde_json::Value>) -> bool {
+    parsed
+        .and_then(|p| p["scripts"]["test"].as_str())
         .is_some_and(|s| s.contains("bun test"))
 }
 
 /// Map the project's devDependencies to a test runner, if any.
-fn detect_runner_from_dev_dependencies() -> Option<Runner> {
-    let content = std::fs::read_to_string("package.json").ok()?;
-    let parsed = serde_json::from_str::<serde_json::Value>(&content).ok()?;
+fn detect_runner_from_dev_dependencies(parsed: Option<&serde_json::Value>) -> Option<Runner> {
+    let parsed = parsed?;
     let deps = parsed["devDependencies"].as_object()?;
     for (key, runner) in [
         ("vitest", Runner::Vitest),
@@ -2014,7 +2032,8 @@ mod tests {
                 "params": {
                     "selected": [
                         "bun.test.ts::a",
-                        "bun.test.ts::b"
+                        "bun.test.ts::b",
+                        "other.test.ts::c"
                     ]
                 }
             });
@@ -2036,14 +2055,17 @@ mod tests {
                 "bun junit needs --reporter-outfile. args: {:?}",
                 args
             );
-            assert!(
-                args.contains(&"bun.test.ts".to_string()),
-                "bun test filters by file path, not node_id. args: {:?}",
+            assert_eq!(
+                &args[4..],
+                &["bun.test.ts".to_string(), "other.test.ts".to_string()],
+                "partial selection must over-approximate to whole files: bun cannot \
+                 filter per test and a node_id filter runs 0 tests, exiting 0 \
+                 (verified against bun 1.3.12). args: {:?}",
                 args
             );
             assert!(
                 !args.iter().any(|a| a.contains("::")),
-                "per-test node_ids would be passed to bun test as file paths. args: {:?}",
+                "per-test node_ids would silently run 0 tests. args: {:?}",
                 args
             );
             assert_eq!(

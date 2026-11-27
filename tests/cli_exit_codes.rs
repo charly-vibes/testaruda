@@ -521,7 +521,7 @@ fn safe_mode_empty_selection_exits_zero() {
         ("--json", Some("no tests selected — safe to skip")),
         ("--agent", None),
         ("--pre-edit", None),
-        ("", None), // no flag: human output is the default
+        ("", Some("safe to skip")), // human: the reason is printed to stdout
     ];
     for (flag, needle) in cases {
         let project = setup_project();
