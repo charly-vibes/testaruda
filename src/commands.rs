@@ -832,7 +832,7 @@ pub fn select(args: SelectArgs) -> miette::Result<()> {
 
     // Adapter pipeline: populate store via adapters before selection
     let project_root = find_project_root()?;
-    let config = testaruda::config::Config::load_or_default(&project_root);
+    let config = testaruda::config::Config::load_or_default(&project_root)?;
     let registry = config.adapters.to_registry();
     let evidence = run_adapter_pipeline(&store, &registry, &delta, &config.discover.exclude);
 
@@ -1791,7 +1791,7 @@ fn ingest_raw(store: &Store, path: &str, adapter: Option<String>) -> miette::Res
         (explicit, None)
     } else {
         let project_root = find_project_root()?;
-        let config = testaruda::config::Config::load_or_default(&project_root);
+        let config = testaruda::config::Config::load_or_default(&project_root)?;
         let registry = config.adapters.to_registry();
         let binary = resolve_ingest_adapter(&registry);
         (binary, registry.timeout_ms())
@@ -1950,7 +1950,7 @@ pub fn discover() -> miette::Result<()> {
     let store = Store::open_default()?;
     store.initialize()?;
     let project_root = find_project_root()?;
-    let config = testaruda::config::Config::load_or_default(&project_root);
+    let config = testaruda::config::Config::load_or_default(&project_root)?;
     let registry = config.adapters.to_registry();
     run_discover_pipeline(&store, &registry, &config.discover.exclude)
         .map_err(|e| miette!("{}", e))?;

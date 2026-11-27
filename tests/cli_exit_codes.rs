@@ -1182,3 +1182,132 @@ fn readiness_confidence_contract() {
         );
     }
 }
+
+// ===== Config readiness: absent vs invalid testaruda.toml =====
+//
+// `Config::load_or_default` must fall back to defaults ONLY when the config
+// file is absent. An existing-but-invalid file (bad TOML, wrong value types,
+// unreadable) must be a hard, actionable error — selection must never
+// proceed with silently-dropped adapters or must-run rules
+// (TIA-SAFE-009; TIA-CI-004 non-zero, non-10/20 exit).
+
+/// A select run against an invalid config must fail hard: exit code outside
+/// {0, 10, 20}, no JSON plan on stdout, and a diagnostic naming the file.
+fn assert_config_rejected(result: &(i32, serde_json::Value, String)) {
+    let (code, plan, stderr) = result;
+    let code = *code;
+    assert!(
+        code != 0 && code != 10 && code != 20,
+        "invalid config must exit non-zero, not 10/20 (got {code})"
+    );
+    assert!(
+        plan.is_null(),
+        "selection must not proceed past an invalid config"
+    );
+    assert!(
+        stderr.contains("testaruda.toml"),
+        "error must name the config file: {stderr}"
+    );
+    assert!(
+        stderr.contains("Invalid testaruda configuration"),
+        "error must be actionable: {stderr}"
+    );
+}
+
+#[test]
+fn readiness_config_malformed_toml_is_rejected() {
+    let project = setup_project();
+    std::fs::write(
+        project.path().join("testaruda.toml"),
+        "[adapters\nthis is not valid toml =\n",
+    )
+    .unwrap_or_panic();
+    let (code, plan, stderr) = run_select(&project, &["--files", "source.xyz"]);
+    assert!(
+        stderr.contains("Invalid testaruda configuration"),
+        "rejection must carry the config-rejection diagnostic: {stderr}"
+    );
+    assert_config_rejected(&(code, plan, stderr));
+}
+
+#[test]
+fn readiness_config_wrong_value_type_is_rejected() {
+    let project = setup_project();
+    // confidence_threshold must be a float; a string is a type error.
+    std::fs::write(
+        project.path().join("testaruda.toml"),
+        "confidence_threshold = \"high\"\n[adapters.extensions]\n\".foo\" = \"./gone\"\n",
+    )
+    .unwrap_or_panic();
+    let (code, plan, stderr) = run_select(&project, &["--files", "source.xyz"]);
+    assert!(
+        stderr.contains("Invalid testaruda configuration"),
+        "rejection must carry the config-rejection diagnostic: {stderr}"
+    );
+    assert_config_rejected(&(code, plan, stderr));
+}
+
+#[test]
+fn readiness_config_unreadable_file_is_rejected() {
+    let project = setup_project();
+    // Point the config path at a directory: reading it fails deterministically
+    // (EISDIR) regardless of the running user's privileges — unlike chmod,
+    // which is a no-op for root.
+    let path = project.path().join("testaruda.toml");
+    std::fs::remove_file(&path).unwrap_or_panic();
+    std::fs::create_dir(&path).unwrap_or_panic();
+    let (code, plan, stderr) = run_select(&project, &["--files", "source.xyz"]);
+    assert!(
+        stderr.contains("Invalid testaruda configuration"),
+        "rejection must carry the config-rejection diagnostic: {stderr}"
+    );
+    assert_config_rejected(&(code, plan, stderr));
+}
+
+#[test]
+fn readiness_config_absent_file_uses_defaults() {
+    let project = setup_project();
+    // `testaruda init` may or may not have created a config; absence is fine.
+    let _ = std::fs::remove_file(project.path().join("testaruda.toml"));
+    std::fs::write(project.path().join("source.xyz"), "change").unwrap_or_panic();
+    let (code, plan, stderr) = run_select(&project, &["--files", "source.xyz"]);
+    assert!(
+        !plan.is_null(),
+        "absent config must still yield a selection plan: {stderr}"
+    );
+    assert!(
+        code == 0 || code == 10 || code == 20,
+        "absent config must select normally, not error (got {code}: {stderr})"
+    );
+    assert!(
+        !stderr.contains("Invalid testaruda configuration"),
+        "absent config must not be reported as invalid: {stderr}"
+    );
+}
+
+#[test]
+fn readiness_config_valid_must_run_rules_accepted() {
+    let project = setup_project();
+    std::fs::write(project.path().join("source.xyz"), "change").unwrap_or_panic();
+    std::fs::write(
+        project.path().join("testaruda.toml"),
+        // Canonical adapter block plus a TIA-SAFE-009 must-run rule.
+        "[adapters]\ndefault = \"testaruda-adapter-rust\"\n\
+         [adapters.extensions]\n\".xyz\" = \"testaruda-adapter-rust\"\n\
+         [must_run]\n\"*.config\" = [\"config-test\"]\n",
+    )
+    .unwrap_or_panic();
+    let (code, plan, stderr) = run_select(&project, &["--files", "source.xyz"]);
+    assert!(
+        code == 0 || code == 10 || code == 20,
+        "valid must-run config must be accepted (got {code}: {stderr})"
+    );
+    assert!(
+        !plan.is_null(),
+        "valid must-run config must still yield a plan: {stderr}"
+    );
+    assert!(
+        !stderr.contains("Invalid testaruda configuration"),
+        "valid must-run config must not be reported as invalid: {stderr}"
+    );
+}

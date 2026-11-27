@@ -726,7 +726,7 @@ impl Store {
         };
 
         // Load config early for environment (needed by edge query below)
-        let config = Config::load_or_default(&self.project_root);
+        let config = Config::load_or_default(&self.project_root)?;
         if !config.environment.name.is_empty() {
             ctx.current_environment = config.environment.name.clone();
         }
