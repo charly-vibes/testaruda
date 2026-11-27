@@ -698,7 +698,28 @@ fn cmd_run_args(cmd: &serde_json::Value) -> serde_json::Value {
                 "collection_path": null,
             }))
         }
-        Runner::Unknown => json_err("no test runner detected (vitest, jest, mocha, ava, or tape)"),
+        Runner::Bun => {
+            // bun's junit reporter needs `--reporter-outfile` (bun >= 1.1.30);
+            // bun test selects whole files only — collapsed file-path filters,
+            // never per-test node_ids.
+            let mut runner_args = vec![
+                "bun".to_string(),
+                "test".to_string(),
+                "--reporter=junit".to_string(),
+                "--reporter-outfile=target/test-results.xml".to_string(),
+            ];
+            for sel in &collapse_filters(&selected) {
+                runner_args.push(sel.clone());
+            }
+
+            json_ok(serde_json::json!({
+                "runner_args": runner_args,
+                "collection_path": "target/test-results.xml",
+            }))
+        }
+        Runner::Unknown => {
+            json_err("no test runner detected (bun, vitest, jest, mocha, ava, or tape)")
+        }
     }
 }
 
@@ -749,11 +770,20 @@ enum Runner {
     Mocha,
     Ava,
     Tape,
+    Bun,
     Unknown,
 }
 
 /// Detect the test runner by probing for configuration files.
 fn detect_runner() -> Runner {
+    // A declared `bun test` script is the project's own runner choice
+    // (testaruda-i5oe): `npm test` would run bun, so `npx vitest` run-args
+    // would spawn an npx one-shot install and fail (atril round-3: exit 101,
+    // 0 ingested results). It outranks config files and devDependencies.
+    if package_json_test_script_is_bun() {
+        return Runner::Bun;
+    }
+
     // Config files win (vitest preferred over jest over mocha)
     let config_candidates: [(&[&str], Runner); 3] = [
         (
@@ -780,8 +810,30 @@ fn detect_runner() -> Runner {
         }
     }
 
+    // Bun lockfiles (weaker signal than a declared script: bun may be the
+    // package manager while vitest/jest is the runner — config files and
+    // devDependencies above still win).
+    if std::path::Path::new("bun.lockb").exists() || std::path::Path::new("bun.lock").exists() {
+        return Runner::Bun;
+    }
+
     // Fall back to devDependencies declared in package.json
     detect_runner_from_dev_dependencies().unwrap_or(Runner::Unknown)
+}
+
+/// True when package.json's scripts.test declares `bun test`.
+fn package_json_test_script_is_bun() -> bool {
+    let content = match std::fs::read_to_string("package.json") {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let parsed = match serde_json::from_str::<serde_json::Value>(&content) {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+    parsed["scripts"]["test"]
+        .as_str()
+        .is_some_and(|s| s.contains("bun test"))
 }
 
 /// Map the project's devDependencies to a test runner, if any.
@@ -1858,6 +1910,106 @@ mod tests {
                 runner,
                 super::Runner::Tape,
                 "should detect tape from devDeps"
+            );
+        });
+    }
+
+    #[test]
+    fn detect_runner_bun_test_script_wins() {
+        with_cwd(|| {
+            use std::io::Write;
+            let mut f = std::fs::File::create("package.json").unwrap_or_panic();
+            writeln!(
+                f,
+                r#"{{"scripts": {{"test": "bun test"}}, "devDependencies": {{"vitest": "^1.0.0"}}}}"#
+            )
+            .unwrap_or_panic();
+            drop(f);
+            let mut f = std::fs::File::create("vitest.config.ts").unwrap_or_panic();
+            writeln!(f, "export default {{}}").unwrap_or_panic();
+            drop(f);
+
+            let runner = super::detect_runner();
+            assert_eq!(
+                runner,
+                super::Runner::Bun,
+                "declared `bun test` script outranks config files and devDependencies"
+            );
+        });
+    }
+
+    #[test]
+    fn detect_runner_bun_lockfile() {
+        with_cwd(|| {
+            use std::io::Write;
+            let mut f = std::fs::File::create("bun.lockb").unwrap_or_panic();
+            writeln!(f, "not a real lockfile").unwrap_or_panic();
+            drop(f);
+
+            let runner = super::detect_runner();
+            assert_eq!(
+                runner,
+                super::Runner::Bun,
+                "bun lockfile alone should detect bun"
+            );
+        });
+    }
+
+    #[test]
+    fn cmd_run_args_bun() {
+        with_cwd(|| {
+            use std::io::Write;
+            let mut f = std::fs::File::create("package.json").unwrap_or_panic();
+            writeln!(f, r#"{{"scripts": {{"test": "bun test"}}}}"#).unwrap_or_panic();
+            drop(f);
+            let mut f = std::fs::File::create("bun.test.ts").unwrap_or_panic();
+            writeln!(
+                f,
+                "import {{ test, expect }} from \"bun:test\"; test(\"a\", () => {{ expect(1).toBe(1); }}); test(\"b\", () => {{ expect(2).toBe(2); }});"
+            )
+            .unwrap_or_panic();
+            drop(f);
+
+            let cmd = serde_json::json!({
+                "command": "run-args",
+                "params": {
+                    "selected": [
+                        "bun.test.ts::a",
+                        "bun.test.ts::b"
+                    ]
+                }
+            });
+            let result = super::cmd_run_args(&cmd);
+            assert!(
+                result["ok"].as_bool().unwrap_or(false),
+                "should succeed: {:?}",
+                result
+            );
+            let args: Vec<String> = result["result"]["runner_args"]
+                .as_array()
+                .unwrap_or_panic()
+                .iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect();
+            assert_eq!(&args[..3], &["bun", "test", "--reporter=junit"]);
+            assert!(
+                args.contains(&"--reporter-outfile=target/test-results.xml".to_string()),
+                "bun junit needs --reporter-outfile. args: {:?}",
+                args
+            );
+            assert!(
+                args.contains(&"bun.test.ts".to_string()),
+                "bun test filters by file path, not node_id. args: {:?}",
+                args
+            );
+            assert!(
+                !args.iter().any(|a| a.contains("::")),
+                "per-test node_ids would be passed to bun test as file paths. args: {:?}",
+                args
+            );
+            assert_eq!(
+                result["result"]["collection_path"].as_str(),
+                Some("target/test-results.xml")
             );
         });
     }

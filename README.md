@@ -139,10 +139,12 @@ and [Configuration](docs/src/configuration.md) for adapter registration.
 ### TypeScript
 
 The TypeScript adapter (`testaruda-adapter-typescript`) discovers tests by detecting vitest
-or jest configuration files and scanning for test file patterns.
+or jest configuration files and scanning for test file patterns. A declared
+`bun test` script in `package.json` (or a `bun.lockb`/`bun.lock` lockfile,
+when no runner config or devDependency wins) selects `bun test` as the runner.
 
 **Prerequisites:**
-- `npx vitest` or `npx jest` available (the adapter delegates to the runner)
+- `npx vitest`, `npx jest`, or `bun test` available (the adapter delegates to the runner)
 - The adapter is built automatically with `cargo build`
 
 **Configuration in `testaruda.toml`:**
