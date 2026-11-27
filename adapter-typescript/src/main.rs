@@ -930,7 +930,7 @@ fn cmd_ingest(cmd: &serde_json::Value) -> serde_json::Value {
 /// Parse a JUnit XML testcase tag and extract attributes.
 /// Name/file values are XML-unescaped to match discovery ids, which carry
 /// the raw characters (testaruda-uwup).
-fn parse_junit_testcase(line: &str) -> Option<(String, String, f64)> {
+fn parse_junit_testcase(line: &str) -> Option<(String, String, Option<String>, f64)> {
     let tag_start = line.find("<testcase")?;
 
     // Find the closing > of the tag, handling > inside attribute values
@@ -955,10 +955,34 @@ fn parse_junit_testcase(line: &str) -> Option<(String, String, f64)> {
     let file = extract_xml_attr(tag, "file")
         .or_else(|| extract_xml_attr(tag, "classname"))
         .map(xml_unescape)?;
+    let classname = extract_xml_attr(tag, "classname").map(xml_unescape);
     let time_str = extract_xml_attr(tag, "time").unwrap_or("0");
     let time_secs: f64 = time_str.parse().unwrap_or(0.0);
 
-    Some((name, file, time_secs))
+    Some((name, file, classname, time_secs))
+}
+
+/// Rebuild a discovery-shaped test id from a bun junit testcase.
+///
+/// bun's junit reporter puts only the test leaf in `name`; the describe
+/// chain lives in `classname`, innermost-first and reversed relative to
+/// discovery ids (`outer::inner::leaf`, verified against bun 1.3.12). The
+/// chain separator is also double-escaped: the raw XML carries
+/// `&amp;gt;`, which resolves to `&gt;` after the parser's single
+/// unescape — unescape once more, split, reverse, ::-join.
+fn bun_junit_id_name(classname: Option<&str>, leaf: &str) -> String {
+    let Some(chain) = classname.map(str::trim).filter(|c| !c.is_empty()) else {
+        return leaf.to_string();
+    };
+    let chain = xml_unescape(chain);
+    let mut segs: Vec<String> = chain
+        .split('>')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    segs.reverse();
+    segs.push(leaf.to_string());
+    segs.join("::")
 }
 
 /// Extract the value of an XML attribute from a tag string.
@@ -1000,20 +1024,35 @@ fn parse_junit_xml(content: &str) -> Vec<serde_json::Value> {
     let mut results = Vec::new();
     let lines: Vec<&str> = content.lines().collect();
 
+    // Junit shapes differ per runner: vitest flattens the describe chain
+    // into the name attribute (' > ' separators, tambor-uzp); bun keeps
+    // only the leaf in `name` and the chain in `classname` (innermost
+    // first, reversed relative to discovery ids). Detect the runner so
+    // the ingest join matches each shape.
+    let runner = detect_runner();
+
     let mut i = 0;
     while i < lines.len() {
         let line = lines[i];
-        if let Some((name, file, time_secs)) = parse_junit_testcase(line) {
+        if let Some((name, file, classname, time_secs)) = parse_junit_testcase(line) {
             // tambor-uzp: vitest's junit reporter flattens describe chains
             // with " > " in the name attribute while discovery ids join
             // segments with "::" — re-encode so the ingest join matches
             // the store item.
-            let name = name.replace(" > ", "::");
+            let name = match runner {
+                Runner::Bun => bun_junit_id_name(classname.as_deref(), &name),
+                _ => name.replace(" > ", "::"),
+            };
             let test_id = format!("{}::{}", file, name);
 
-            // Collect content until </testcase> (may span multiple lines)
+            // Collect content until </testcase> (may span multiple lines).
+            // A self-closing `<testcase ... />` is complete on its line:
+            // without this guard the collector scans forward to the NEXT
+            // `</testcase>`, dropping the testcase between and misassigning
+            // its failure outcome to the self-closing one (found against
+            // real bun junit output, deep.test.ts::failing).
             let mut block = line.to_string();
-            if !line.trim().ends_with("</testcase>") {
+            if !line.trim().ends_with("/>") && !line.trim().ends_with("</testcase>") {
                 for (j, next_line) in lines.iter().enumerate().skip(i + 1) {
                     block.push_str(next_line);
                     if next_line.contains("</testcase>") {
@@ -2257,6 +2296,133 @@ mod tests {
         assert!(
             !result["ok"].as_bool().unwrap_or(true),
             "should fail with empty run_output"
+        );
+    }
+
+    #[test]
+    fn ingest_bun_junit_rebuilds_describe_chain_from_classname() {
+        // bun's junit puts the leaf in `name` and the describe chain in
+        // `classname` — innermost-first, '>'-separated, double-escaped
+        // ('&amp;gt;' raw). Discovery ids are outermost-first ::-joined,
+        // so ingest must reverse and rejoin (testaruda-i5oe follow-up).
+        with_cwd(|| {
+            use std::io::Write;
+            let mut f = std::fs::File::create("bun.lockb").unwrap_or_panic();
+            writeln!(f, "not a real lockfile").unwrap_or_panic();
+            drop(f);
+
+            // Raw XML exactly as bun 1.3.12 emits it.
+            let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="2" failures="0" time="0.01">
+  <testsuite name="deep.test.ts" file="deep.test.ts" tests="2" failures="0">
+    <testsuite name="outer" file="deep.test.ts" tests="1" failures="0">
+      <testsuite name="inner" file="deep.test.ts" tests="1" failures="0">
+        <testcase name="deep" classname="inner &amp;gt; outer" time="0" file="deep.test.ts" />
+      </testsuite>
+    </testsuite>
+    <testcase name="top level" classname="" time="0.001" file="deep.test.ts" />
+  </testsuite>
+</testsuites>"#;
+            let cmd = serde_json::json!({
+                "command": "ingest",
+                "params": {"run_output": xml}
+            });
+            let result = super::cmd_ingest(&cmd);
+            assert!(
+                result["ok"].as_bool().unwrap_or(false),
+                "should succeed: {:?}",
+                result
+            );
+            let arr = result["result"]["per_test_results"]
+                .as_array()
+                .unwrap_or_panic();
+            let mut ids: Vec<String> = arr
+                .iter()
+                .filter_map(|r| r["test_id"].as_str().map(String::from))
+                .collect();
+            ids.sort();
+            assert_eq!(
+                ids,
+                vec![
+                    "deep.test.ts::outer::inner::deep",
+                    "deep.test.ts::top level",
+                ],
+                "bun classname chain must be reversed and ::-joined to match discovery ids"
+            );
+        });
+    }
+
+    #[test]
+    fn ingest_bun_junit_without_chain_matches_leaf_id() {
+        // bun lockfile absent: the same XML must keep the vitest ' > '
+        // re-encoding so the ingest shape stays runner-agnostic there.
+        with_cwd(|| {
+            let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="a.test.ts" file="a.test.ts">
+    <testcase name="outer > inner > does the thing" classname="a.test.ts" file="a.test.ts" time="0.001" />
+  </testsuite>
+</testsuites>"#;
+            let cmd = serde_json::json!({
+                "command": "ingest",
+                "params": {"run_output": xml}
+            });
+            let result = super::cmd_ingest(&cmd);
+            let arr = result["result"]["per_test_results"]
+                .as_array()
+                .unwrap_or_panic();
+            assert_eq!(
+                arr[0]["test_id"].as_str().unwrap_or_panic(),
+                "a.test.ts::outer::inner::does the thing"
+            );
+        });
+    }
+
+    #[test]
+    fn ingest_junit_self_closing_testcase_does_not_swallow_next() {
+        // A self-closing `<testcase ... />` followed by a multi-line failing
+        // testcase: the collector used to scan to the NEXT `</testcase>`,
+        // dropping the failing testcase entirely (found against real bun
+        // junit output). Both must be reported with correct outcomes.
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="a.test.ts" file="a.test.ts">
+    <testcase name="passing" classname="" time="0.001" file="a.test.ts" />
+    <testcase name="failing" classname="" time="0.002" file="a.test.ts">
+      <failure type="AssertionError" />
+    </testcase>
+  </testsuite>
+</testsuites>"#;
+        let cmd = serde_json::json!({
+            "command": "ingest",
+            "params": {"run_output": xml}
+        });
+        let result = super::cmd_ingest(&cmd);
+        let arr = result["result"]["per_test_results"]
+            .as_array()
+            .unwrap_or_panic();
+        assert_eq!(
+            arr.len(),
+            2,
+            "both testcases must be reported. got: {:?}",
+            arr
+        );
+        let by_id: std::collections::HashMap<String, String> = arr
+            .iter()
+            .map(|r| {
+                (
+                    r["test_id"].as_str().unwrap_or_panic().to_string(),
+                    r["outcome"].as_str().unwrap_or_panic().to_string(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            by_id.get("a.test.ts::passing").map(String::as_str),
+            Some("passed")
+        );
+        assert_eq!(
+            by_id.get("a.test.ts::failing").map(String::as_str),
+            Some("failed")
         );
     }
 
