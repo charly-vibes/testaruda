@@ -9,21 +9,26 @@
 //!   leaves no lock behind.
 //!
 //! Rationale: the timeout+process-group kill (cd4u) removed the wedge cause;
-//! this covers operator visibility of leftovers from pre-fix runs. pid +
-//! start time disambiguates pid reuse, and same-pid locks are always
-//! reclaimable so exec can never deadlock against itself.
+//! this covers operator visibility of leftovers from pre-fix runs. Same-pid
+//! locks are always reclaimable — pids are unique among live processes, so a
+//! lock with our pid cannot belong to a different live exec — and the
+//! recorded start time exists to inform the operator, not for disambiguation.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use miette::miette;
 
 /// Name of the lockfile inside the store directory.
 const LOCK_FILE: &str = "exec.lock";
 
-/// Bounded retries while two execs race on reclaim/create.
+/// Bounded retries while two execs race on reclaim/create. A short sleep
+/// between attempts yields instead of hot-spinning on the
+/// create/reclaim window.
 const MAX_ATTEMPTS: usize = 8;
+/// Inter-attempt yield (EDGE-004: bounded retry without a hot loop).
+const RETRY_SLEEP: Duration = Duration::from_millis(2);
 
 /// Details of the exec currently holding the lock, as read from the file.
 pub struct LockInfo {
@@ -83,7 +88,10 @@ impl ExecLock {
             .map_err(|e| miette!("Failed to create store directory: {}", e))?;
         let path = store_dir.join(LOCK_FILE);
 
-        for _ in 0..MAX_ATTEMPTS {
+        for attempt in 0..MAX_ATTEMPTS {
+            if attempt > 0 {
+                std::thread::sleep(RETRY_SLEEP);
+            }
             // Atomic fast path: exclusive-create means only one exec can win.
             match std::fs::OpenOptions::new()
                 .write(true)
@@ -112,32 +120,43 @@ impl ExecLock {
             match read_lock(&path) {
                 Ok(info) => {
                     if info.pid == std::process::id() {
-                        // Our own pid: either a leftover from an earlier
-                        // invocation whose pid was recycled, or a same-process
-                        // leftover. Always reclaimable so exec cannot deadlock
-                        // against itself.
+                        // Our own pid: pids are unique among live processes, so
+                        // this cannot be another live exec — always a leftover
+                        // from an earlier invocation (recycled pid or this very
+                        // process). Unconditionally reclaimable.
                         eprintln!(
                             "ℹ️  Reclaimed exec lock held by our own pid {} (started {})",
                             info.pid,
                             format_start(info.start_epoch_secs)
                         );
                         let _ = std::fs::remove_file(&path);
-                    } else if pid_alive(info.pid) {
-                        return Err(miette!(
-                            "✗ Another `testaruda exec` appears to be running or wedged: pid {}, started {} (lock: {}). If that process is a leftover from a pre-timeout-kill run that never released its lock, terminate it (`kill {}`) or remove the lock file, then re-run. Exec aborted to avoid corrupting store state.",
-                            info.pid,
-                            format_start(info.start_epoch_secs),
-                            path.display(),
-                            info.pid
-                        ));
                     } else {
-                        // Stale lock: the previous exec died without cleanup.
-                        eprintln!(
-                            "ℹ️  Reclaimed stale exec lock (pid {} started {} died without cleanup)",
-                            info.pid,
-                            format_start(info.start_epoch_secs)
-                        );
-                        let _ = std::fs::remove_file(&path);
+                        match pid_state(info.pid) {
+                            PidState::Dead => {
+                                // Stale lock: the previous exec died without cleanup.
+                                eprintln!(
+                                    "ℹ️  Reclaimed stale exec lock (pid {} started {} died without cleanup)",
+                                    info.pid,
+                                    format_start(info.start_epoch_secs)
+                                );
+                                let _ = std::fs::remove_file(&path);
+                            }
+                            _ => {
+                                let holder = match pid_state(info.pid) {
+                                    PidState::ForeignUser =>
+                                        " (owned by another user — you may not be able to kill it yourself)",
+                                    _ => "",
+                                };
+                                return Err(miette!(
+                                    "✗ Another `testaruda exec` appears to be running or wedged: pid {}, started {}{} (lock: {}). If that process is a leftover from a pre-timeout-kill run that never released its lock, terminate it (`kill {}`) or remove the lock file, then re-run. Exec aborted to avoid corrupting store state.",
+                                    info.pid,
+                                    format_start(info.start_epoch_secs),
+                                    holder,
+                                    path.display(),
+                                    info.pid
+                                ));
+                            }
+                        }
                     }
                 }
                 Err(_) => {
@@ -215,25 +234,39 @@ fn read_lock(path: &Path) -> miette::Result<LockInfo> {
     }
 }
 
-/// Portable liveness check for a pid.
-///
-/// On unix `kill(pid, 0)` sends no signal: success means alive, `ESRCH` means
-/// no such process, and `EPERM` means it exists but belongs to another user.
-fn pid_alive(pid: u32) -> bool {
+/// Liveness classification for a pid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PidState {
+    /// A process with this pid exists and we may signal it.
+    Alive,
+    /// No process has this pid (`ESRCH`) — stale holder.
+    Dead,
+    /// A process has this pid but belongs to another user (`EPERM`): we
+    /// cannot signal it, and the operator must be told before being told
+    /// to `kill` it (EDGE-002).
+    ForeignUser,
+    #[cfg(not(any(unix, windows)))]
+    /// No zero-dependency liveness syscall is available; report alive so
+    /// exec never double-runs against a possibly-live holder.
+    Unknown,
+}
+
+fn pid_state(pid: u32) -> PidState {
     #[cfg(unix)]
     {
         let rc = unsafe { libc::kill(pid as libc::pid_t, 0) };
         if rc == 0 {
-            return true;
+            return PidState::Alive;
         }
-        std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+        match std::io::Error::last_os_error().raw_os_error() {
+            Some(libc::EPERM) => PidState::ForeignUser,
+            _ => PidState::Dead,
+        }
     }
     #[cfg(windows)]
     {
-        // No zero-dependency liveness syscall is available; `tasklist` with a
-        // pid filter reports a CSV row for a live pid and an INFO line
-        // otherwise. Unknown output conservatively reports alive so exec
-        // never double-runs against a possibly-live holder.
+        // `tasklist` with a pid filter reports a CSV row for a live pid and
+        // an INFO line otherwise.
         std::process::Command::new("tasklist")
             .args(["/NH", "/FO", "CSV", "/FI", &format!("PID eq {pid}")])
             .output()
@@ -242,20 +275,32 @@ fn pid_alive(pid: u32) -> bool {
                 // CSV rows quote the pid, so match it quoted to avoid
                 // substring collisions between short pids.
                 let quoted = format!("\"{pid}\"");
-                out.lines()
-                    .any(|l| l.contains(&quoted) && !l.starts_with("INFO:"))
+                let alive = out
+                    .lines()
+                    .any(|l| l.contains(&quoted) && !l.starts_with("INFO:"));
+                if alive {
+                    PidState::Alive
+                } else {
+                    PidState::Dead
+                }
             })
-            .unwrap_or(true)
+            .unwrap_or(PidState::Alive)
     }
     #[cfg(not(any(unix, windows)))]
     {
         let _ = pid;
-        true
+        PidState::Unknown
     }
 }
 
 /// Format stored epoch seconds as an ISO-8601 UTC timestamp for the operator.
 fn format_start(secs: u64) -> String {
+    // A recorded 0 means the wall clock was unreadable at write time
+    // (write_lock records unwrap_or(0)); rendering it as 1970-01-01 would
+    // misinform the operator (CORR-003).
+    if secs == 0 {
+        return "unknown".to_string();
+    }
     time::OffsetDateTime::from_unix_timestamp(secs as i64)
         .ok()
         .and_then(|t| {

@@ -686,10 +686,10 @@ mod tests {
         // testaruda-fgoc: auto-detect must prefer the project default adapter
         // over whichever extension mapping iterates first. A Python project
         // with a .rs extension mapping must ingest via the Python adapter.
-        let mut registry = testaruda::adapter::AdapterRegistry::new();
+        let mut registry =
+            testaruda::adapter::AdapterRegistry::new().set_default("testaruda-adapter-python");
         registry.register(".rs", "testaruda-adapter-rust");
         registry.register(".py", "testaruda-adapter-python");
-        registry.set_default("testaruda-adapter-python");
         assert_eq!(
             commands::resolve_ingest_adapter(&registry),
             "testaruda-adapter-python"
