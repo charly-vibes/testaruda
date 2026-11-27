@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.5.10 — bun test runner support; safe-mode empty selection passes (2026-11-27)
+
+### Added
+
+- TypeScript adapter: `bun test` is now a supported runner (testaruda-i5oe).
+  Detection order: a declared `bun test` `scripts.test` in `package.json`
+  outranks everything; otherwise a `bun.lockb`/`bun.lock` lockfile when no
+  runner config file is present; otherwise `bun` in `devDependencies`.
+  Run-args emit `bun test --reporter=junit --reporter-outfile=…` with
+  file-path filters (bun ≥ 1.1.30 for the junit reporter). Ingest is
+  runner-aware: bun's junit `classname` describe chains (`inner > outer`)
+  are reversed and re-joined to match the `::`-joined discovery ids, so
+  nested results match known items. bun-style double-escaped `&gt;` chains
+  are handled.
+- README: TypeScript section documents bun selection; hook-integration
+  section records the safe-mode exit contract.
+
+### Fixed
+
+- CLI: `select --safe` with an empty selection now exits 0 in every output
+  mode (human/json/agent/pre-edit), carrying the
+  "no tests selected — safe to skip (TIA-CI-003)" reason; previously the
+  JSON/agent/pre-edit paths exited 20 and red-lit every docs-only or
+  config-only push through the pre-push hook (testaruda-ckon). Plain CI
+  mode (no `--safe`) keeps the documented exit-20 contract.
+- TypeScript adapter: self-closing junit `<testcase …/>` no longer swallows
+  the following failing testcase (testaruda-xd53); multi-line junit blocks
+  now scan to `</testcase>`.
+- TypeScript adapter: partial selection under bun over-approximates to
+  whole files — a `file::test` node_id filter makes bun run 0 tests with
+  exit 0 (verified against bun 1.3.12); whole-file over-selection is the
+  sanctioned recall-safe behavior (SAFE-004).
+
 ## 0.5.7 — contract bundle attached to releases (2026-10-15)
 
 ### Added
