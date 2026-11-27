@@ -37,7 +37,7 @@ serde_json = "1"
 toml = "0.8"
 
 # Storage
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 # Error handling
 miette = { version = "7", features = ["fancy"] }
